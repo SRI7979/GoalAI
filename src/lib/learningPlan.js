@@ -570,7 +570,6 @@ export async function generateNextTasksIfNeeded({ supabase, goalId, userId }) {
   if (completedError) throw new Error(`Failed to evaluate next tasks: ${completedError.message}`)
 
   const highestCompleted = completedRows?.[0]?.day_number || 0
-  if (highestCompleted < 5) return { generated: false, reason: 'threshold_not_met' }
 
   const { data: existingRows, error: existingError } = await supabase
     .from('daily_tasks')
@@ -583,7 +582,8 @@ export async function generateNextTasksIfNeeded({ supabase, goalId, userId }) {
 
   const maxDay = existingRows?.[0]?.day_number || 0
   const pendingAhead = (existingRows || []).filter((row) => row.day_number > highestCompleted).length
-  if (pendingAhead >= 3) return { generated: false, reason: 'enough_tasks_ahead' }
+  // Keep at least 2 days buffered ahead
+  if (pendingAhead >= 2) return { generated: false, reason: 'enough_tasks_ahead' }
 
   const { data: goalRow, error: goalError } = await supabase
     .from('goals')
@@ -608,7 +608,7 @@ export async function generateNextTasksIfNeeded({ supabase, goalId, userId }) {
     goalRow.weekday_mins,
     goalRow.weekend_mins,
     maxDay + 1,
-    7,
+    3,
     { knowledge, openaiApiKey: process.env.OPENAI_API_KEY, mode: 'goal' },
   )
 

@@ -3,6 +3,179 @@
 
 import { useState, useEffect, useMemo } from 'react'
 
+// ─── Syntax Highlighter ───────────────────────────────────────────────────────
+const LANG_KEYWORDS = {
+  python:     /\b(def|class|if|elif|else|for|while|return|import|from|as|with|try|except|finally|raise|pass|break|continue|lambda|yield|async|await|not|and|or|in|is|None|True|False|print|len|range|type|int|str|float|list|dict|set|tuple|bool|input|open|super|self)\b/g,
+  javascript: /\b(function|const|let|var|if|else|for|while|do|return|import|export|from|class|new|this|typeof|instanceof|try|catch|finally|throw|async|await|of|in|true|false|null|undefined|switch|case|break|continue|default|void|delete|yield|console)\b/g,
+  typescript: /\b(function|const|let|var|if|else|for|while|do|return|import|export|from|class|new|this|typeof|instanceof|try|catch|finally|throw|async|await|of|in|true|false|null|undefined|switch|case|break|continue|interface|type|enum|implements|extends|public|private|protected|readonly|abstract|void|any|never|unknown|string|number|boolean)\b/g,
+  sql:        /\b(SELECT|FROM|WHERE|JOIN|LEFT|RIGHT|INNER|OUTER|ON|INSERT|INTO|VALUES|UPDATE|SET|DELETE|CREATE|TABLE|DROP|ALTER|INDEX|GROUP|BY|ORDER|HAVING|LIMIT|OFFSET|DISTINCT|AS|AND|OR|NOT|NULL|IS|IN|LIKE|BETWEEN|EXISTS|UNION|ALL|COUNT|SUM|AVG|MAX|MIN)\b/g,
+  bash:       /\b(echo|cd|ls|mkdir|rm|cp|mv|cat|grep|sed|awk|chmod|sudo|export|source|if|then|else|fi|for|do|done|while|function|return|exit|read|set|unset|alias|curl|git|npm|pip|python)\b/g,
+}
+
+function tokenize(code, language) {
+  const lang = (language || 'python').toLowerCase()
+    .replace(/^js$/, 'javascript').replace(/^ts$/, 'typescript')
+  return code.split('\n').map((line, li) => {
+    const parts = []
+    // Comments take priority
+    const commentMarker = (lang === 'python' || lang === 'bash') ? '#' : '//'
+    const commentIdx = line.indexOf(commentMarker)
+    const codePart   = commentIdx !== -1 ? line.slice(0, commentIdx) : line
+    const commentPart= commentIdx !== -1 ? line.slice(commentIdx) : ''
+    parts.push(...tokenizeLine(codePart, lang))
+    if (commentPart) parts.push({ type: 'comment', text: commentPart })
+    return { lineNum: li + 1, parts }
+  })
+}
+
+function tokenizeLine(line, lang) {
+  if (!line) return [{ type: 'plain', text: '' }]
+  const stringRe = /("""[\s\S]*?"""|'''[\s\S]*?'''|`[^`]*`|"[^"\\]*(?:\\.[^"\\]*)*"|'[^'\\]*(?:\\.[^'\\]*)*')/g
+  const stringMatches = [...line.matchAll(stringRe)]
+  if (stringMatches.length) {
+    const parts = []; let cursor = 0
+    for (const m of stringMatches) {
+      if (m.index > cursor) parts.push(...keywordAndNumberTokens(line.slice(cursor, m.index), lang))
+      parts.push({ type: 'string', text: m[0] })
+      cursor = m.index + m[0].length
+    }
+    if (cursor < line.length) parts.push(...keywordAndNumberTokens(line.slice(cursor), lang))
+    return parts
+  }
+  return keywordAndNumberTokens(line, lang)
+}
+
+function keywordAndNumberTokens(text, lang) {
+  if (!text) return []
+  const kwRe = LANG_KEYWORDS[lang]
+  if (!kwRe) return numberTokens(text)
+  kwRe.lastIndex = 0
+  const parts = []; let cursor = 0; let m
+  while ((m = kwRe.exec(text)) !== null) {
+    if (m.index > cursor) parts.push(...numberTokens(text.slice(cursor, m.index)))
+    parts.push({ type: 'keyword', text: m[0] })
+    cursor = m.index + m[0].length
+  }
+  if (cursor < text.length) parts.push(...numberTokens(text.slice(cursor)))
+  return parts
+}
+
+function numberTokens(text) {
+  if (!text) return []
+  const numRe = /\b(\d+\.?\d*)\b/g
+  const parts = []; let cursor = 0; let m
+  while ((m = numRe.exec(text)) !== null) {
+    if (m.index > cursor) parts.push({ type: 'plain', text: text.slice(cursor, m.index) })
+    parts.push({ type: 'number', text: m[0] })
+    cursor = m.index + m[0].length
+  }
+  if (cursor < text.length) parts.push({ type: 'plain', text: text.slice(cursor) })
+  return parts
+}
+
+const TOKEN_COLORS = {
+  keyword: '#818CF8',
+  string:  '#FBBF24',
+  number:  '#00d4ff',
+  comment: '#4B5563',
+  plain:   '#CBD5E1',
+}
+
+function CodeBlock({ language, code, caption }) {
+  const [copied, setCopied] = useState(false)
+  const tokenLines = useMemo(() => tokenize(code || '', language), [code, language])
+
+  function handleCopy() {
+    if (typeof navigator !== 'undefined') {
+      navigator.clipboard.writeText(code || '').then(() => {
+        setCopied(true)
+        setTimeout(() => setCopied(false), 1800)
+      }).catch(() => {})
+    }
+  }
+
+  return (
+    <div style={{
+      margin: '18px 0',
+      borderRadius: 16,
+      overflow: 'hidden',
+      border: '1px solid rgba(129,140,248,0.25)',
+      background: '#0a0a14',
+      boxShadow: 'inset 0 1px 0 rgba(129,140,248,0.12), 0 8px 28px rgba(0,0,0,0.35)',
+    }}>
+      {/* Header */}
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '8px 14px',
+        background: 'rgba(129,140,248,0.07)',
+        borderBottom: '1px solid rgba(129,140,248,0.12)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 5 }}>
+            {['#FF453A', '#FBBF24', '#34D399'].map((c, i) => (
+              <div key={i} style={{ width: 10, height: 10, borderRadius: '50%', background: c, opacity: 0.65 }} />
+            ))}
+          </div>
+          <span style={{ fontSize: 11, fontWeight: 700, color: '#818CF8', textTransform: 'uppercase', letterSpacing: '0.8px' }}>
+            {language || 'code'}
+          </span>
+        </div>
+        <button onClick={handleCopy} style={{
+          background: 'none', border: 'none', cursor: 'pointer',
+          fontSize: 11, fontWeight: 700,
+          color: copied ? '#0ef5c2' : '#4B5563',
+          padding: '3px 8px', borderRadius: 6,
+          transition: 'color 0.18s',
+          fontFamily: "inherit",
+        }}>
+          {copied ? '✓ Copied' : 'Copy'}
+        </button>
+      </div>
+
+      {/* Code */}
+      <div style={{ overflowX: 'auto', padding: '12px 0 14px' }}>
+        <table style={{ borderCollapse: 'collapse', width: '100%', tableLayout: 'auto' }}>
+          <tbody>
+            {tokenLines.map((line, li) => (
+              <tr key={li}>
+                <td style={{
+                  padding: '1px 16px 1px 16px', textAlign: 'right',
+                  userSelect: 'none', fontSize: 12, color: '#2D3748', verticalAlign: 'top',
+                  width: 1, whiteSpace: 'nowrap',
+                  fontFamily: "'JetBrains Mono','Fira Code',Menlo,monospace",
+                  lineHeight: 1.7,
+                }}>
+                  {line.lineNum}
+                </td>
+                <td style={{
+                  padding: '1px 20px 1px 8px', whiteSpace: 'pre',
+                  fontFamily: "'JetBrains Mono','Fira Code',Menlo,monospace",
+                  fontSize: 13.5, lineHeight: 1.7,
+                }}>
+                  {line.parts.map((part, pi) => (
+                    <span key={pi} style={{ color: TOKEN_COLORS[part.type] || TOKEN_COLORS.plain }}>
+                      {part.text}
+                    </span>
+                  ))}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {caption && (
+        <div style={{
+          padding: '7px 14px', borderTop: '1px solid rgba(255,255,255,0.05)',
+          fontSize: 12, color: '#4B5563', fontStyle: 'italic',
+        }}>
+          {caption}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Diagram Renderer ────────────────────────────────────────────────────────
 const colorMap = {
   teal:  { bg: 'rgba(14,245,194,0.10)', border: '#0ef5c2', text: '#0ef5c2' },
@@ -312,6 +485,15 @@ export default function LessonViewer({ concept, taskTitle, goal, knowledge, less
                       <p key={i} style={{ marginBottom: 16 }}>{para}</p>
                     ))}
                   </div>
+
+                  {/* Code blocks */}
+                  {Array.isArray(slide.codeBlocks) && slide.codeBlocks.length > 0 && (
+                    <div style={{ marginTop: 8 }}>
+                      {slide.codeBlocks.map((cb, i) => (
+                        <CodeBlock key={i} language={cb.language} code={cb.code} caption={cb.caption} />
+                      ))}
+                    </div>
+                  )}
 
                   {/* Key takeaway */}
                   {slide.keyTakeaway && (

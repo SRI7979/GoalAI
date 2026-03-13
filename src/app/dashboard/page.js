@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase'
 import LessonViewer from '@/components/LessonView'
 import MissionComplete from '@/components/MissionComplete'
 import { getLevelProgress, xpForTask, missionXpReward, computeTotalXpFromRows } from '@/lib/xp'
+import { track, EVENTS } from '@/lib/analytics'
 
 // ─── Design tokens ─────────────────────────────────────────────────────────────
 const T = {
@@ -53,6 +54,8 @@ const KEYFRAMES = `
   @keyframes levelPop  {0%{transform:translateX(-50%) scale(0.7);opacity:0}
                         65%{transform:translateX(-50%) scale(1.06)}
                         100%{transform:translateX(-50%) scale(1);opacity:1}}
+  @keyframes slideInLeft{from{transform:translateX(-100%)}to{transform:translateX(0)}}
+  @keyframes fadeInBg   {from{opacity:0}to{opacity:1}}
   @media (prefers-reduced-motion:reduce){
     @keyframes fadeUp    {from{opacity:0}to{opacity:1}}
     @keyframes xpRise    {to{opacity:0}}
@@ -302,8 +305,17 @@ function EnergySelector({ value, onChange }) {
 function TaskItem({ task, isCompleting, onComplete, onOpenLesson, index }) {
   const ts      = taskStyle(task.type)
   const xp      = xpForTask(task.type)
-  const isLesson= task.type === 'lesson'
   const me      = isCompleting === task.id
+
+  const LESSON_LABELS = {
+    lesson:   'Start Lesson',
+    video:    'Start Video',
+    practice: 'Start Practice',
+    exercise: 'Start Exercise',
+    quiz:     'Start Quiz',
+    review:   'Start Review',
+  }
+  const lessonLabel = LESSON_LABELS[task.type] || 'Start Lesson'
 
   return (
     <div style={{
@@ -343,8 +355,7 @@ function TaskItem({ task, isCompleting, onComplete, onOpenLesson, index }) {
         fontSize:15, fontWeight:700,
         color: task.completed ? T.textMuted : T.text,
         lineHeight:1.35, marginBottom: task.description ? 6 : 0,
-        textDecoration: task.completed ? 'line-through' : 'none',
-        textDecorationColor: T.textDead,
+        textDecoration: task.completed ? `line-through ${T.textDead}` : 'none',
       }}>
         {task.title}
       </div>
@@ -371,26 +382,24 @@ function TaskItem({ task, isCompleting, onComplete, onOpenLesson, index }) {
       {/* Action row */}
       {!task.completed && (
         <div style={{display:'flex',gap:8,marginTop:6}}>
-          {isLesson && (
-            <button onClick={() => onOpenLesson(task)} style={{
-              flex:1, padding:'11px 12px',
-              background:'rgba(14,245,194,0.06)',
-              border:`1px solid ${T.tealBorder}`, borderRadius:12,
-              color:T.teal, fontSize:13, fontWeight:700,
-              cursor:'pointer', fontFamily:T.font,
-              display:'flex', alignItems:'center', justifyContent:'center', gap:5,
-              transition:'background 0.18s',
-            }}
-            onMouseEnter={e=>{e.currentTarget.style.background='rgba(14,245,194,0.12)'}}
-            onMouseLeave={e=>{e.currentTarget.style.background='rgba(14,245,194,0.06)'}}>
-              <PlayIcon/> Start Lesson
-            </button>
-          )}
+          <button onClick={() => onOpenLesson(task)} style={{
+            flex:1, padding:'11px 12px',
+            background:'rgba(14,245,194,0.06)',
+            border:`1px solid ${T.tealBorder}`, borderRadius:12,
+            color:T.teal, fontSize:13, fontWeight:700,
+            cursor:'pointer', fontFamily:T.font,
+            display:'flex', alignItems:'center', justifyContent:'center', gap:5,
+            transition:'background 0.18s',
+          }}
+          onMouseEnter={e=>{e.currentTarget.style.background='rgba(14,245,194,0.12)'}}
+          onMouseLeave={e=>{e.currentTarget.style.background='rgba(14,245,194,0.06)'}}>
+            <PlayIcon/> {lessonLabel}
+          </button>
           <button
             disabled={Boolean(me)}
             onClick={e => onComplete(task, e)}
             style={{
-              flex: isLesson ? 'none' : 1,
+              flex:'none',
               padding:'11px 16px',
               background: me ? 'rgba(255,255,255,0.04)' : 'linear-gradient(135deg,#0ef5c2,#00d4ff)',
               border: me ? `1px solid ${T.border}` : 'none',
@@ -400,7 +409,7 @@ function TaskItem({ task, isCompleting, onComplete, onOpenLesson, index }) {
               boxShadow: me ? 'none' : '0 0 24px rgba(14,245,194,0.28),inset 0 1px 0 rgba(255,255,255,0.40)',
               display:'flex', alignItems:'center', justifyContent:'center', gap:6,
               transition:'all 0.20s cubic-bezier(0.16,1,0.3,1)',
-              minWidth: isLesson ? 110 : undefined,
+              minWidth:110,
             }}
             onMouseEnter={e=>{if(!me){e.currentTarget.style.transform='translateY(-1px)';e.currentTarget.style.boxShadow='0 0 36px rgba(14,245,194,0.42),inset 0 1px 0 rgba(255,255,255,0.40)'}}}
             onMouseLeave={e=>{e.currentTarget.style.transform='translateY(0)';if(!me)e.currentTarget.style.boxShadow='0 0 24px rgba(14,245,194,0.28),inset 0 1px 0 rgba(255,255,255,0.40)'}}
@@ -496,6 +505,17 @@ export default function Dashboard() {
   const [showLesson,  setShowLesson]  = useState(null)
   const [error,       setError]       = useState('')
 
+  // Goals sidebar
+  const [showGoalsSidebar, setShowGoalsSidebar] = useState(false)
+  const [allGoals,         setAllGoals]         = useState([])
+  const [switchingGoal,    setSwitchingGoal]    = useState(null)
+
+  // Streak freeze
+  const [freezeCount,    setFreezeCount]    = useState(0)
+  const [freezing,       setFreezing]       = useState(false)
+  const [freezeToast,    setFreezeToast]    = useState(false)
+  const [isComeback,     setIsComeback]     = useState(false)
+
   // ─── Load ──────────────────────────────────────────────────────────────────
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
@@ -512,6 +532,12 @@ export default function Dashboard() {
     if (ge) { setError(ge.message); setLoading(false); return }
     if (!activeGoal) { setLoading(false); return }
     setGoal(activeGoal)
+
+    // Load all goals for sidebar
+    const { data: goalsList } = await supabase
+      .from('goals').select('id,goal_text,status,created_at,mode')
+      .eq('user_id', me.id).order('created_at', { ascending: false })
+    setAllGoals(goalsList || [])
 
     const { data: rows, error: re } = await supabase
       .from('daily_tasks').select('*')
@@ -540,8 +566,23 @@ export default function Dashboard() {
 
     const storedXp   = Number(prog?.total_xp) || 0
     const computedXp = computeTotalXpFromRows(taskRows)
-    setXpDisplay(getLevelProgress(storedXp > 0 ? storedXp : computedXp))
-    setStreakData({ current: prog?.current_streak || 0, longest: prog?.longest_streak || 0 })
+    const finalXp    = storedXp > 0 ? storedXp : computedXp
+    setXpDisplay(getLevelProgress(finalXp))
+    const streak = prog?.current_streak || 0
+    const longest = prog?.longest_streak || 0
+    setStreakData({ current: streak, longest })
+    setFreezeCount(Number(prog?.freeze_count) || 0)
+
+    // Comeback detection: has prior completed days but streak is 0
+    const priorDone  = (taskRows || []).filter(r => r.completion_status === 'completed').length
+    const isBack     = streak === 0 && priorDone > 0
+    setIsComeback(isBack)
+
+    // Analytics: app opened
+    track(EVENTS.APP_OPENED, { isComeback: isBack }, {
+      userId: me.id, goalId: activeGoal.id,
+      streakValue: streak, xpBalance: finalXp,
+    })
 
     setLoading(false)
   }, [router])
@@ -623,11 +664,21 @@ export default function Dashboard() {
         addXpToast(data.streakBonusXp, event?.clientX || window.innerWidth/2, 120)
       }
 
+      // Analytics: task completed
+      track(EVENTS.TASK_COMPLETED, {
+        taskId: task.id, taskType: task.type, xpEarned: data.taskXp ?? xpAmount,
+      }, {
+        userId: user?.id, goalId: goal?.id, missionId: todayRow?.id,
+        streakValue: data.streakState?.current ?? streakData.current,
+        xpBalance: data.newTotalXp ?? (xpDisplay.totalXp + xpAmount),
+        energyMode: energy,
+      })
+
       // Mission complete overlay
       const allDone = nextTasks.every(t => t.completed)
       if (data.missionComplete || allDone) {
         setMissionDone(true)
-        setMcData({
+        const mc = {
           conceptName:    todayRow.covered_topics?.[0] || `Day ${todayRow.day_number}`,
           dayNumber:      todayRow.day_number,
           xpEarned:       data.xpEarned ?? (xpAmount + (data.missionBonusXp||0) + (data.streakBonusXp||0)),
@@ -637,6 +688,17 @@ export default function Dashboard() {
           newStreak:      data.streakState?.current ?? streakData.current,
           levelUp:        data.levelUp ?? null,
           tomorrowConcept: tomorrowRow?.covered_topics?.[0] || null,
+        }
+        setMcData(mc)
+        track(EVENTS.MISSION_COMPLETED, { totalXp: mc.xpEarned, dayNumber: mc.dayNumber }, {
+          userId: user?.id, goalId: goal?.id, missionId: todayRow?.id,
+          streakValue: mc.newStreak, energyMode: energy,
+        })
+      }
+
+      if (data.levelUp) {
+        track(EVENTS.LEVEL_UP, { fromLevel: data.levelUp.fromLevel, toLevel: data.levelUp.toLevel, title: data.levelUp.title }, {
+          userId: user?.id, goalId: goal?.id, xpBalance: data.newTotalXp,
         })
       }
 
@@ -650,11 +712,60 @@ export default function Dashboard() {
     }
   }, [tasks, completing, xpDisplay, todayRow, tomorrowRow, streakData, addXpToast, load])
 
+  // ─── Streak freeze ─────────────────────────────────────────────────────────
+  const handleFreeze = useCallback(async () => {
+    if (freezing || freezeCount <= 0 || !goal) return
+    setFreezing(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token || null
+      const res = await fetch('/api/streak-freeze', {
+        method: 'POST',
+        headers: { 'Content-Type':'application/json', ...(token?{Authorization:`Bearer ${token}`}:{}) },
+        body: JSON.stringify({ goalId: goal.id }),
+      })
+      const data = await res.json()
+      if (data.ok) {
+        setFreezeCount(prev => Math.max(0, prev - 1))
+        setFreezeToast(true)
+        setTimeout(() => setFreezeToast(false), 3500)
+        track(EVENTS.STREAK_FREEZE_USED, { freezesRemaining: (freezeCount - 1) }, {
+          userId: user?.id, goalId: goal?.id, streakValue: streakData.current,
+        })
+      }
+    } catch { /* silent */ }
+    setFreezing(false)
+  }, [freezing, freezeCount, goal, streakData, user])
+
+  // ─── Energy change ──────────────────────────────────────────────────────────
+  const handleEnergyChange = useCallback((newEnergy) => {
+    track(EVENTS.ENERGY_SELECTED, { energy: newEnergy, previousEnergy: energy }, {
+      userId: user?.id, goalId: goal?.id, energyMode: newEnergy,
+    })
+    setEnergy(newEnergy)
+  }, [energy, user, goal])
+
   // ─── Lesson complete ────────────────────────────────────────────────────────
   const handleLessonComplete = useCallback((task) => {
     setShowLesson(null)
     if (task && !task.completed) completeTask(task, null)
   }, [completeTask])
+
+  // ─── Switch active goal ─────────────────────────────────────────────────────
+  const switchGoal = useCallback(async (goalId) => {
+    if (switchingGoal || goalId === goal?.id) { setShowGoalsSidebar(false); return }
+    setSwitchingGoal(goalId)
+    try {
+      const userId = (await supabase.auth.getUser()).data?.user?.id
+      if (!userId) return
+      // Set all goals to paused, then activate the chosen one
+      await supabase.from('goals').update({ status: 'paused' }).eq('user_id', userId).neq('id', goalId)
+      await supabase.from('goals').update({ status: 'active' }).eq('id', goalId).eq('user_id', userId)
+      setShowGoalsSidebar(false)
+      await load(true)
+    } catch { /* silent */ }
+    setSwitchingGoal(null)
+  }, [switchingGoal, goal, load])
 
   // ─── Computed ───────────────────────────────────────────────────────────────
   const visibleTasks = useMemo(() => {
@@ -711,6 +822,108 @@ export default function Dashboard() {
     <>
       <style>{KEYFRAMES}</style>
 
+      {/* Goals sidebar */}
+      {showGoalsSidebar && (
+        <>
+          {/* Backdrop */}
+          <div onClick={() => setShowGoalsSidebar(false)} style={{
+            position:'fixed',inset:0,zIndex:200,
+            background:'rgba(0,0,0,0.55)',backdropFilter:'blur(4px)',
+            animation:'fadeInBg 0.20s ease',
+          }}/>
+          {/* Panel */}
+          <div style={{
+            position:'fixed',top:0,left:0,bottom:0,zIndex:201,
+            width:Math.min(320, window.innerWidth * 0.85),
+            background:'rgba(10,10,20,0.98)',
+            borderRight:'1px solid rgba(255,255,255,0.08)',
+            display:'flex',flexDirection:'column',
+            animation:'slideInLeft 0.25s cubic-bezier(0.16,1,0.3,1)',
+            fontFamily:T.font,
+          }}>
+            {/* Header */}
+            <div style={{
+              padding:'20px 20px 16px',
+              borderBottom:'1px solid rgba(255,255,255,0.07)',
+              display:'flex',alignItems:'center',justifyContent:'space-between',
+            }}>
+              <div>
+                <div style={{fontSize:16,fontWeight:800,color:T.text}}>My Goals</div>
+                <div style={{fontSize:11,color:T.textMuted,marginTop:2}}>
+                  {allGoals.length} goal{allGoals.length !== 1 ? 's' : ''}
+                </div>
+              </div>
+              <button onClick={() => setShowGoalsSidebar(false)} style={{
+                background:'rgba(255,255,255,0.06)',border:'none',
+                width:30,height:30,borderRadius:'50%',
+                display:'flex',alignItems:'center',justifyContent:'center',
+                cursor:'pointer',color:T.textSec,fontSize:18,fontFamily:T.font,
+              }}>×</button>
+            </div>
+
+            {/* Goal list */}
+            <div style={{flex:1,overflowY:'auto',padding:'12px 12px'}}>
+              {allGoals.map(g => {
+                const isActive = g.id === goal?.id
+                const isSwitching = switchingGoal === g.id
+                return (
+                  <button key={g.id} onClick={() => switchGoal(g.id)} disabled={isSwitching} style={{
+                    width:'100%',marginBottom:8,padding:'14px 14px',
+                    background: isActive ? 'rgba(14,245,194,0.08)' : 'rgba(255,255,255,0.03)',
+                    border: `1px solid ${isActive ? T.tealBorder : 'rgba(255,255,255,0.07)'}`,
+                    borderRadius:14,cursor: isActive ? 'default' : 'pointer',
+                    textAlign:'left',fontFamily:T.font,
+                    display:'flex',alignItems:'center',gap:12,
+                    opacity: isSwitching ? 0.6 : 1,
+                    transition:'opacity 0.15s',
+                  }}>
+                    <div style={{
+                      width:10,height:10,borderRadius:'50%',flexShrink:0,
+                      background: isActive ? T.teal : g.status === 'completed' ? T.mastery : 'rgba(255,255,255,0.15)',
+                      boxShadow: isActive ? `0 0 8px ${T.teal}` : 'none',
+                    }}/>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{
+                        fontSize:13,fontWeight:700,
+                        color: isActive ? T.teal : T.text,
+                        whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',
+                      }}>{g.goal_text}</div>
+                      <div style={{fontSize:10,color:T.textMuted,marginTop:2,textTransform:'uppercase',letterSpacing:'0.6px'}}>
+                        {isActive ? 'Active' : g.status === 'completed' ? 'Completed' : 'Paused'}
+                        {g.mode ? ` · ${g.mode}` : ''}
+                      </div>
+                    </div>
+                    {isActive && (
+                      <span style={{fontSize:10,fontWeight:700,color:'#06060f',
+                        background:T.teal,padding:'2px 8px',borderRadius:9999,flexShrink:0}}>
+                        NOW
+                      </span>
+                    )}
+                    {isSwitching && (
+                      <div style={{width:14,height:14,borderRadius:'50%',flexShrink:0,
+                        border:`2px solid ${T.teal}`,borderTopColor:'transparent',
+                        animation:'spin 0.7s linear infinite'}}/>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+
+            {/* New goal CTA */}
+            <div style={{padding:'12px 12px',borderTop:'1px solid rgba(255,255,255,0.07)'}}>
+              <button onClick={() => { setShowGoalsSidebar(false); router.push('/onboarding') }} style={{
+                width:'100%',padding:'13px',
+                background:'linear-gradient(135deg,#0ef5c2,#00d4ff)',
+                border:'none',borderRadius:14,
+                color:'#06060f',fontWeight:800,fontSize:14,
+                cursor:'pointer',fontFamily:T.font,
+                boxShadow:'0 0 24px rgba(14,245,194,0.25)',
+              }}>+ New Goal</button>
+            </div>
+          </div>
+        </>
+      )}
+
       {/* XP toasts */}
       {xpToasts.map(t => <XPToast key={t.id} {...t} onDone={removeXpToast}/>)}
 
@@ -727,7 +940,11 @@ export default function Dashboard() {
       {/* Lesson viewer */}
       {showLesson && (
         <LessonViewer
-          task={showLesson} goal={goal}
+          concept={showLesson._concept || showLesson.title}
+          taskTitle={showLesson.title}
+          goal={goal?.goal_text}
+          knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
+          lessonKey={`${goal?.id || 'g'}::${showLesson.id || showLesson.title}`}
           onClose={() => setShowLesson(null)}
           onComplete={() => handleLessonComplete(showLesson)}
         />
@@ -745,11 +962,18 @@ export default function Dashboard() {
         }}>
           <div style={{maxWidth:600,margin:'0 auto',height:60,
             display:'flex',alignItems:'center',gap:12,padding:'0 20px'}}>
-            {/* Goal */}
-            <div style={{flex:1,minWidth:0}}>
-              <div style={{fontSize:14,fontWeight:700,color:T.text,
-                whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
+            {/* Goal (tap to open goals sidebar) */}
+            <button onClick={() => setShowGoalsSidebar(true)} style={{
+              flex:1,minWidth:0,background:'none',border:'none',
+              cursor:'pointer',fontFamily:T.font,textAlign:'left',padding:0,
+            }}>
+              <div style={{
+                fontSize:14,fontWeight:700,color:T.text,
+                whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',
+                display:'flex',alignItems:'center',gap:5,
+              }}>
                 {goal.goal_text}
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={T.textMuted} strokeWidth="2.5" strokeLinecap="round"><polyline points="6 9 12 15 18 9"/></svg>
               </div>
               {totalRows > 0 && (
                 <div style={{display:'flex',alignItems:'center',gap:6,marginTop:2}}>
@@ -765,7 +989,7 @@ export default function Dashboard() {
                   </span>
                 </div>
               )}
-            </div>
+            </button>
 
             {/* Streak */}
             {streakData.current > 0 && (
@@ -816,14 +1040,56 @@ export default function Dashboard() {
           <>
             <XPLevelBar {...xpDisplay} animating={xpAnimating}/>
             <MissionHeroCard todayRow={todayRow} tasks={tasks} dayNumber={dayNumber}/>
-            <EnergySelector value={energy} onChange={setEnergy}/>
+            <EnergySelector value={energy} onChange={handleEnergyChange}/>
+
+            {/* ── Streak freeze toast ── */}
+            {freezeToast && (
+              <div style={{maxWidth:600,margin:'10px auto 0',padding:'0 20px'}}>
+                <div style={{
+                  background:'rgba(14,245,194,0.08)',border:`1px solid ${T.tealBorder}`,
+                  borderRadius:14,padding:'10px 16px',
+                  display:'flex',alignItems:'center',gap:10,
+                  animation:'fadeUp 0.30s ease',
+                }}>
+                  <span style={{fontSize:20}}>🛡</span>
+                  <div>
+                    <div style={{fontSize:13,fontWeight:700,color:T.teal}}>Streak protected</div>
+                    <div style={{fontSize:11,color:T.textMuted}}>{freezeCount} freeze{freezeCount===1?'':'s'} remaining</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── Streak freeze button (show when streak at risk) ── */}
+            {isComeback && freezeCount > 0 && !freezeToast && (
+              <div style={{maxWidth:600,margin:'10px auto 0',padding:'0 20px'}}>
+                <button onClick={handleFreeze} disabled={freezing} style={{
+                  width:'100%',padding:'11px 16px',
+                  background:'rgba(255,107,53,0.08)',border:`1px solid ${T.flameBorder}`,
+                  borderRadius:14,cursor:freezing?'default':'pointer',
+                  display:'flex',alignItems:'center',gap:10,fontFamily:T.font,
+                }}>
+                  <span style={{fontSize:18}}>🛡</span>
+                  <div style={{textAlign:'left'}}>
+                    <div style={{fontSize:13,fontWeight:700,color:T.flame}}>
+                      {freezing ? 'Protecting streak…' : 'Use streak freeze'}
+                    </div>
+                    <div style={{fontSize:11,color:T.textMuted}}>
+                      {freezeCount} freeze{freezeCount===1?'':'s'} available · keeps your streak safe
+                    </div>
+                  </div>
+                </button>
+              </div>
+            )}
 
             {/* Task list */}
             <div style={{maxWidth:600,margin:'0 auto',padding:'14px 20px 0',display:'grid',gap:10}}>
               {todayRow ? visibleTasks.length > 0 ? (
                 visibleTasks.map((task, i) => (
                   <TaskItem key={task.id} task={task} isCompleting={completing}
-                    onComplete={completeTask} onOpenLesson={setShowLesson} index={i}/>
+                    onComplete={completeTask}
+                    onOpenLesson={t => setShowLesson({ ...t, _concept: todayRow?.covered_topics?.[0] || t.title })}
+                    index={i}/>
                 ))
               ) : (
                 <div style={{textAlign:'center',padding:'40px 0',color:T.textMuted,fontSize:14}}>

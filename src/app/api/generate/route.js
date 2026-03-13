@@ -74,17 +74,15 @@ export async function POST(request) {
         ? Number(weekendMins) || 30
         : Number(weekdayMins) || 30
 
-      // Build first 5 days (one concept per day)
-      for (let i = 0; i < Math.min(5, exploreConcepts.length); i++) {
-        const day = await buildExploreDayTask(
-          goal,
-          exploreConcepts[i],
-          minsPerDay,
-          i + 1,
-          { knowledge, openaiApiKey: process.env.OPENAI_API_KEY },
-        )
-        dailyPlan.push(day)
-      }
+      // Build only day 1; more are generated on-demand as user completes each day
+      const day = await buildExploreDayTask(
+        goal,
+        exploreConcepts[0],
+        minsPerDay,
+        1,
+        { knowledge, openaiApiKey: process.env.OPENAI_API_KEY },
+      )
+      dailyPlan.push(day)
     } else {
       // ── Goal Mode ─────────────────────────────────────────────────────────────
       const concepts = await generateConceptMap({
@@ -94,13 +92,15 @@ export async function POST(request) {
         openaiApiKey: process.env.OPENAI_API_KEY,
       })
 
+      // Generate only day 1 now; remaining days are generated on-demand
+      // as user completes each day (via generateNextTasksIfNeeded in /api/complete)
       dailyPlan = await buildDailyTasks(
         goal,
         concepts,
         Number(weekdayMins),
         Number(weekendMins),
         1,
-        Math.min(7, Number(days)),
+        1,
         { knowledge, openaiApiKey: process.env.OPENAI_API_KEY, mode: 'goal' },
       )
     }
