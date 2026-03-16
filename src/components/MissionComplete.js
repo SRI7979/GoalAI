@@ -82,12 +82,12 @@ function XPRow({ label, xp, highlight }) {
 }
 
 // ─── Main overlay ─────────────────────────────────────────────────────────────
-export default function MissionComplete({ isVisible, data, onDismiss }) {
+export default function MissionComplete({ isVisible, data, onDismiss, onStartTomorrow }) {
   // data: {
   //   conceptName, dayNumber,
   //   xpEarned, taskXp, missionBonusXp, streakBonusXp,
   //   newStreak, levelUp: { fromLevel, toLevel, title } | null,
-  //   tomorrowConcept
+  //   tomorrowConcept, tomorrowDayNumber
   // }
   const dismissRef = useRef(onDismiss)
   useEffect(() => { dismissRef.current = onDismiss }, [onDismiss])
@@ -104,7 +104,7 @@ export default function MissionComplete({ isVisible, data, onDismiss }) {
 
   const { conceptName, dayNumber, xpEarned = 0, taskXp = 0,
     missionBonusXp = 0, streakBonusXp = 0, newStreak = 0,
-    levelUp = null, tomorrowConcept = null } = data || {}
+    levelUp = null, tomorrowConcept = null, tomorrowDayNumber = null } = data || {}
 
   const hasBreakdown = (missionBonusXp > 0 || streakBonusXp > 0) && xpEarned > 0
 
@@ -326,63 +326,88 @@ export default function MissionComplete({ isVisible, data, onDismiss }) {
             </div>
           )}
 
-          {/* Tomorrow preview */}
-          {tomorrowConcept && (
-            <div style={{
-              background:    'rgba(255,255,255,0.03)',
-              border:        '1px solid rgba(255,255,255,0.07)',
-              borderRadius:  14,
-              padding:       '11px 16px',
-              marginBottom:  16,
-              display:       'flex',
-              alignItems:    'center',
-              justifyContent:'space-between',
-            }}>
-              <div>
-                <div style={{
-                  fontSize:      10,
-                  color:         '#475569',
-                  fontWeight:    700,
-                  textTransform: 'uppercase',
-                  letterSpacing: '1px',
-                  marginBottom:  2,
-                }}>
-                  Tomorrow
-                </div>
-                <div style={{ fontSize: 14, fontWeight: 600, color: '#94A3B8' }}>
-                  {tomorrowConcept}
-                </div>
-              </div>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-                stroke="#475569" strokeWidth="2.5" strokeLinecap="round">
-                <line x1="5" y1="12" x2="19" y2="12"/>
-                <polyline points="12 5 19 12 12 19"/>
-              </svg>
-            </div>
-          )}
+          {/* CTAs */}
+          {tomorrowConcept && onStartTomorrow ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {/* Primary: start tomorrow */}
+              <button
+                onClick={onStartTomorrow}
+                style={{
+                  width:        '100%',
+                  padding:      '16px',
+                  background:   'linear-gradient(135deg, #0ef5c2, #00d4ff)',
+                  border:       'none',
+                  borderRadius: 16,
+                  color:        '#06060f',
+                  fontSize:     16,
+                  fontWeight:   800,
+                  cursor:       'pointer',
+                  fontFamily:   'inherit',
+                  boxShadow:    '0 0 32px rgba(14,245,194,0.28), inset 0 1px 0 rgba(255,255,255,0.40)',
+                  display:      'flex',
+                  alignItems:   'center',
+                  justifyContent: 'center',
+                  gap:          10,
+                  transition:   'opacity 0.15s',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.92' }}
+                onMouseLeave={(e) => { e.currentTarget.style.opacity = '1' }}
+              >
+                <span>
+                  Start Day {tomorrowDayNumber ?? ''}: {tomorrowConcept}
+                </span>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                  stroke="#06060f" strokeWidth="2.5" strokeLinecap="round">
+                  <line x1="5" y1="12" x2="19" y2="12"/>
+                  <polyline points="12 5 19 12 12 19"/>
+                </svg>
+              </button>
 
-          {/* CTA */}
-          <button
-            onClick={onDismiss}
-            style={{
-              width:       '100%',
-              padding:     '16px',
-              background:  'linear-gradient(135deg, #0ef5c2, #00d4ff)',
-              border:      'none',
-              borderRadius: 16,
-              color:       '#06060f',
-              fontSize:    16,
-              fontWeight:  800,
-              cursor:      'pointer',
-              fontFamily:  'inherit',
-              boxShadow:   '0 0 32px rgba(14,245,194,0.28), inset 0 1px 0 rgba(255,255,255,0.40)',
-              transition:  'opacity 0.15s',
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.92' }}
-            onMouseLeave={(e) => { e.currentTarget.style.opacity = '1' }}
-          >
-            Continue
-          </button>
+              {/* Secondary: dismiss */}
+              <button
+                onClick={onDismiss}
+                style={{
+                  width:        '100%',
+                  padding:      '13px',
+                  background:   'rgba(255,255,255,0.04)',
+                  border:       '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: 16,
+                  color:        '#64748B',
+                  fontSize:     14,
+                  fontWeight:   600,
+                  cursor:       'pointer',
+                  fontFamily:   'inherit',
+                  transition:   'opacity 0.15s',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.color = '#94A3B8' }}
+                onMouseLeave={(e) => { e.currentTarget.style.color = '#64748B' }}
+              >
+                I'll continue tomorrow
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={onDismiss}
+              style={{
+                width:       '100%',
+                padding:     '16px',
+                background:  'linear-gradient(135deg, #0ef5c2, #00d4ff)',
+                border:      'none',
+                borderRadius: 16,
+                color:       '#06060f',
+                fontSize:    16,
+                fontWeight:  800,
+                cursor:      'pointer',
+                fontFamily:  'inherit',
+                boxShadow:   '0 0 32px rgba(14,245,194,0.28), inset 0 1px 0 rgba(255,255,255,0.40)',
+                transition:  'opacity 0.15s',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.92' }}
+              onMouseLeave={(e) => { e.currentTarget.style.opacity = '1' }}
+            >
+              Continue
+            </button>
+          )}
         </div>
       </div>
     </>

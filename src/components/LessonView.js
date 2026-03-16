@@ -186,9 +186,17 @@ const colorMap = {
 }
 
 function DiagramView({ diagram }) {
-  if (!diagram || diagram.type === 'none' || !diagram.nodes?.length) return null
+  if (!diagram || diagram.type === 'none') return null
   const nodes = diagram.nodes || []
   const connections = diagram.connections || []
+
+  if (!nodes.length) {
+    return (
+      <div style={{ margin: '20px 0', padding: '20px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16, textAlign: 'center', color: '#636366', fontSize: 14 }}>
+        Visual diagram unavailable for this concept
+      </div>
+    )
+  }
 
   if (diagram.type === 'comparison') {
     const left  = nodes.filter((_, i) => i % 2 === 0)
@@ -243,22 +251,40 @@ function DiagramView({ diagram }) {
 }
 
 // ─── Quiz Component ──────────────────────────────────────────────────────────
-function QuizView({ quiz, onComplete }) {
+function QuizView({ quiz, onComplete, onWrongAnswer }) {
   const [selected, setSelected] = useState(null)
   const [revealed, setRevealed] = useState(false)
+  const [showVignette, setShowVignette] = useState(false)
 
-  if (!quiz) return null
+  if (!quiz || !Array.isArray(quiz.options) || quiz.options.length === 0) {
+    return (
+      <div style={{ textAlign: 'center', padding: '40px 0' }}>
+        <p style={{ color: '#636366', marginBottom: 20, fontSize: 15 }}>Quiz unavailable for this lesson.</p>
+        {onComplete && <button onClick={onComplete} style={{ padding: '12px 28px', background: 'linear-gradient(135deg,#0ef5c2,#00d4ff)', border: 'none', borderRadius: 14, color: '#06060f', fontWeight: 700, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif" }}>Continue</button>}
+      </div>
+    )
+  }
 
   const handleSelect = (idx) => {
     if (revealed) return
     setSelected(idx)
     setRevealed(true)
-    if (idx === quiz.correctIndex && onComplete) {
-      setTimeout(() => onComplete(), 1500)
+    const correct = idx === quiz.correctIndex
+    if (correct) {
+      if (onComplete) setTimeout(() => onComplete(), 1500)
+    } else {
+      // Wrong answer: flash vignette + notify parent for heart deduction
+      setShowVignette(true)
+      setTimeout(() => setShowVignette(false), 400)
+      if (onWrongAnswer) onWrongAnswer()
     }
   }
 
   return (
+    <>
+    {showVignette && (
+      <div style={{ position: 'fixed', inset: 0, zIndex: 9800, background: 'rgba(255,69,58,0.12)', pointerEvents: 'none', animation: 'redVignette 0.4s ease both' }} />
+    )}
     <div style={{ animation: 'fadeIn 0.4s cubic-bezier(0.16,1,0.3,1)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 18 }}>
         <div style={{ width: 32, height: 32, borderRadius: '26%', background: 'rgba(0,212,255,0.12)', border: '1px solid rgba(0,212,255,0.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'inset 0 1px 0 rgba(0,212,255,0.25)' }}>
@@ -301,11 +327,13 @@ function QuizView({ quiz, onComplete }) {
         </div>
       )}
     </div>
+    </>
   )
 }
 
+
 // ─── Main Lesson Viewer ──────────────────────────────────────────────────────
-export default function LessonViewer({ concept, taskTitle, goal, knowledge, lessonKey, onClose, onComplete }) {
+export default function LessonViewer({ concept, taskTitle, goal, knowledge, lessonKey, onClose, onComplete, onHeartLost }) {
   const [loading, setLoading]               = useState(true)
   const [error, setError]                   = useState('')
   const [slides, setSlides]                 = useState([])
@@ -395,6 +423,7 @@ export default function LessonViewer({ concept, taskTitle, goal, knowledge, less
         @keyframes fadeIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes spin { to { transform: rotate(360deg); } }
         @keyframes slideLeft { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: translateX(0); } }
+        @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
       `}</style>
 
       <div style={{
@@ -435,7 +464,7 @@ export default function LessonViewer({ concept, taskTitle, goal, knowledge, less
         {/* ── Content ── */}
         <div style={{ flex: 1, overflow: 'hidden', padding: '0 20px', display: 'flex', gap: 16 }}>
           <div style={{ flex: 1, overflow: 'auto' }}>
-            <div style={{ maxWidth: 680, margin: '0 auto', padding: '28px 0 130px' }}>
+            <div style={{ maxWidth: 680, margin: '0 auto', padding: '20px 0 130px' }}>
 
               {loading ? (
                 <div style={{ textAlign: 'center', paddingTop: 80 }}>
@@ -449,7 +478,7 @@ export default function LessonViewer({ concept, taskTitle, goal, knowledge, less
                   <button onClick={onClose} style={{ padding: '10px 20px', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12, color: '#8e8e93', cursor: 'pointer', fontFamily: "'DM Sans', sans-serif", backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}>Go back</button>
                 </div>
               ) : showQuiz ? (
-                <QuizView quiz={quiz} onComplete={onComplete} />
+                <QuizView quiz={quiz} onComplete={onComplete} onWrongAnswer={onHeartLost} />
               ) : slide ? (
                 <div key={slide.id} style={{ animation: 'slideLeft 0.32s cubic-bezier(0.16,1,0.3,1)' }}>
                   {/* Slide type badge */}
@@ -463,21 +492,6 @@ export default function LessonViewer({ concept, taskTitle, goal, knowledge, less
                   </h1>
 
                   <DiagramView diagram={slide.diagram} />
-
-                  {slide.image?.url && (
-                    <div style={{ margin: '16px 0 22px', borderRadius: 18, border: '1px solid rgba(255,255,255,0.10)', background: 'rgba(255,255,255,0.04)', overflow: 'hidden', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 12px 32px rgba(0,0,0,0.28)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}>
-                      <img src={slide.image.url} alt={slide.image.alt || slide.title}
-                        onError={(event) => {
-                          const fallback = `https://picsum.photos/seed/${encodeURIComponent(slide.image?.query || slide.title || 'lesson')}/1200/700`
-                          if (event.currentTarget.dataset.fallbackApplied === '1') return
-                          event.currentTarget.dataset.fallbackApplied = '1'
-                          event.currentTarget.src = fallback
-                        }}
-                        style={{ width: '100%', display: 'block', maxHeight: 320, objectFit: 'cover' }}
-                      />
-                      {slide.image.caption && <p style={{ margin: 0, padding: '10px 14px', color: '#636366', fontSize: 13 }}>{slide.image.caption}</p>}
-                    </div>
-                  )}
 
                   {/* Content */}
                   <div style={{ color: '#8e8e93', fontSize: 16, lineHeight: 1.78, whiteSpace: 'pre-wrap' }}>

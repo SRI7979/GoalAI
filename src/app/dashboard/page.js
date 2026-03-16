@@ -5,7 +5,12 @@ import { useEffect, useMemo, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import LessonViewer from '@/components/LessonView'
+import VideoView from '@/components/VideoView'
+import ProjectView from '@/components/ProjectView'
+import MultiQuizView from '@/components/MultiQuizView'
 import MissionComplete from '@/components/MissionComplete'
+import HeartBar from '@/components/HeartBar'
+import NoHeartsOverlay from '@/components/NoHeartsOverlay'
 import { getLevelProgress, xpForTask, missionXpReward, computeTotalXpFromRows } from '@/lib/xp'
 import { track, EVENTS } from '@/lib/analytics'
 
@@ -86,13 +91,24 @@ const ENERGY_OPTIONS = [
   {key:'tired',     icon:'○',  label:'Tired'    },
   {key:'drained',   icon:'–',  label:'Drained'  },
 ]
-function getVisibleTaskCount(tasks, energy) {
-  const n = tasks?.length || 0
-  if (energy === 'energized' || energy === 'good') return n
-  if (energy === 'okay')    return Math.max(2, Math.ceil(n * 0.75))
-  if (energy === 'tired')   return Math.max(1, Math.ceil(n * 0.50))
-  if (energy === 'drained') return Math.max(1, Math.min(2, n))
-  return n
+function getFilteredTasks(tasks, energy) {
+  if (!tasks?.length) return tasks || []
+  if (energy === 'energized' || energy === 'good') return tasks
+  if (energy === 'okay') {
+    // Hide exercise and quiz, show the rest
+    return tasks.filter(t => !['exercise','quiz'].includes(t.type))
+  }
+  if (energy === 'tired') {
+    // Show only lessons and reviews (easiest), max 2
+    const easy = tasks.filter(t => ['lesson','review'].includes(t.type))
+    return easy.slice(0, 2)
+  }
+  if (energy === 'drained') {
+    // Just 1 review or the first task
+    const review = tasks.find(t => t.type === 'review') || tasks[0]
+    return review ? [review] : []
+  }
+  return tasks
 }
 
 // ─── SVG icons ─────────────────────────────────────────────────────────────────
@@ -363,7 +379,7 @@ function TaskItem({ task, isCompleting, onComplete, onOpenLesson, index }) {
       {/* Description (hidden once done) */}
       {task.description && !task.completed && (
         <p style={{fontSize:13,color:T.textMuted,lineHeight:1.6,
-          marginBottom:(task.resourceUrl||isLesson)?10:0}}>
+          marginBottom:task.resourceUrl?10:0}}>
           {task.description.length>110 ? task.description.slice(0,110)+'…' : task.description}
         </p>
       )}
@@ -510,6 +526,16 @@ export default function Dashboard() {
   const [allGoals,         setAllGoals]         = useState([])
   const [switchingGoal,    setSwitchingGoal]    = useState(null)
 
+  // Hearts
+  const [heartsRemaining,  setHeartsRemaining]  = useState(5)
+  const [heartsRefillAt,   setHeartsRefillAt]   = useState(null)
+  const [prevHearts,       setPrevHearts]       = useState(5)
+  const [showNoHearts,     setShowNoHearts]     = useState(false)
+
+  // Plan meta
+  const [totalDaysPlanned,  setTotalDaysPlanned]  = useState(0)
+  const [generatingNext,    setGeneratingNext]    = useState(false)
+
   // Streak freeze
   const [freezeCount,    setFreezeCount]    = useState(0)
   const [freezing,       setFreezing]       = useState(false)
@@ -561,7 +587,7 @@ export default function Dashboard() {
     setTomorrowRow(tomorrowR)
 
     const { data: prog } = await supabase
-      .from('user_progress').select('total_xp,current_streak,longest_streak')
+      .from('user_progress').select('total_xp,current_streak,longest_streak,freeze_count,hearts_remaining,hearts_refill_at,total_days')
       .eq('goal_id', activeGoal.id).eq('user_id', me.id).maybeSingle()
 
     const storedXp   = Number(prog?.total_xp) || 0
@@ -572,6 +598,12 @@ export default function Dashboard() {
     const longest = prog?.longest_streak || 0
     setStreakData({ current: streak, longest })
     setFreezeCount(Number(prog?.freeze_count) || 0)
+
+    const h = prog?.hearts_remaining != null ? Number(prog.hearts_remaining) : 5
+    setPrevHearts(h)
+    setHeartsRemaining(h)
+    setHeartsRefillAt(prog?.hearts_refill_at || null)
+    if (prog?.total_days) setTotalDaysPlanned(Number(prog.total_days))
 
     // Comeback detection: has prior completed days but streak is 0
     const priorDone  = (taskRows || []).filter(r => r.completion_status === 'completed').length
@@ -687,7 +719,8 @@ export default function Dashboard() {
           streakBonusXp:  data.streakBonusXp  ?? 0,
           newStreak:      data.streakState?.current ?? streakData.current,
           levelUp:        data.levelUp ?? null,
-          tomorrowConcept: tomorrowRow?.covered_topics?.[0] || null,
+          tomorrowConcept:   tomorrowRow?.covered_topics?.[0] || null,
+          tomorrowDayNumber: tomorrowRow?.day_number || null,
         }
         setMcData(mc)
         track(EVENTS.MISSION_COMPLETED, { totalXp: mc.xpEarned, dayNumber: mc.dayNumber }, {
@@ -745,6 +778,57 @@ export default function Dashboard() {
     setEnergy(newEnergy)
   }, [energy, user, goal])
 
+  // ─── Heart lost (wrong quiz answer) ────────────────────────────────────────
+  const handleHeartLost = useCallback(async () => {
+    if (!goal) return
+    const prev = heartsRemaining
+    const next = Math.max(0, prev - 1)
+    setPrevHearts(prev)
+    setHeartsRemaining(next)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token || null
+      const res = await fetch('/api/wrong-answer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ goalId: goal.id, accessToken: token }),
+      })
+      const data = await res.json()
+      if (data.heartsRemaining != null) {
+        setHeartsRemaining(data.heartsRemaining)
+        setHeartsRefillAt(data.heartsRefillAt || null)
+        if (data.heartsRemaining === 0) setShowNoHearts(true)
+      }
+    } catch { /* optimistic value stays */ }
+  }, [goal, heartsRemaining])
+
+  // ─── Fast-forward to next day ───────────────────────────────────────────────
+  const handleStartTomorrow = useCallback(() => {
+    if (!tomorrowRow) return
+    setTodayRow(tomorrowRow)
+    setTasks(Array.isArray(tomorrowRow.tasks) ? tomorrowRow.tasks : [])
+    setMissionDone(tomorrowRow.completion_status === 'completed')
+    setMcData(null)
+    load(true)
+  }, [tomorrowRow, load])
+
+  // ─── Generate next day on-demand (when AI generation lagged) ────────────────
+  const handleGenerateNext = useCallback(async () => {
+    if (generatingNext || !goal || !user) return
+    setGeneratingNext(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token || null
+      await fetch('/api/generate-next', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ goalId: goal.id, userId: user.id, mode: goal.mode || 'goal', accessToken: token }),
+      })
+    } catch { /* silent */ }
+    await load(true)
+    setGeneratingNext(false)
+  }, [generatingNext, goal, user, load])
+
   // ─── Lesson complete ────────────────────────────────────────────────────────
   const handleLessonComplete = useCallback((task) => {
     setShowLesson(null)
@@ -768,10 +852,7 @@ export default function Dashboard() {
   }, [switchingGoal, goal, load])
 
   // ─── Computed ───────────────────────────────────────────────────────────────
-  const visibleTasks = useMemo(() => {
-    const n = getVisibleTaskCount(tasks, energy)
-    return tasks.slice(0, n)
-  }, [tasks, energy])
+  const visibleTasks = useMemo(() => getFilteredTasks(tasks, energy), [tasks, energy])
   const hiddenCount = tasks.length - visibleTasks.length
 
   const doneRows   = allRows.filter(r => r.completion_status === 'completed').length
@@ -935,10 +1016,46 @@ export default function Dashboard() {
         isVisible={Boolean(missionDone && mcData)}
         data={mcData}
         onDismiss={() => { setMissionDone(false); setMcData(null) }}
+        onStartTomorrow={tomorrowRow ? handleStartTomorrow : undefined}
       />
 
-      {/* Lesson viewer */}
-      {showLesson && (
+      {/* No-hearts overlay */}
+      {showNoHearts && (
+        <NoHeartsOverlay
+          refillAt={heartsRefillAt}
+          onClose={() => setShowNoHearts(false)}
+          onPractice={() => { setShowNoHearts(false) }}
+        />
+      )}
+
+      {/* Task viewer — routed by type */}
+      {showLesson && showLesson.type === 'video' && (
+        <VideoView
+          task={showLesson}
+          goal={goal?.goal_text}
+          onClose={() => setShowLesson(null)}
+          onComplete={() => handleLessonComplete(showLesson)}
+        />
+      )}
+      {showLesson && (showLesson.type === 'practice' || showLesson.type === 'exercise') && (
+        <ProjectView
+          task={showLesson}
+          goal={goal?.goal_text}
+          knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
+          onClose={() => setShowLesson(null)}
+          onComplete={() => handleLessonComplete(showLesson)}
+        />
+      )}
+      {showLesson && showLesson.type === 'quiz' && (
+        <MultiQuizView
+          task={showLesson}
+          goal={goal?.goal_text}
+          knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
+          onClose={() => setShowLesson(null)}
+          onComplete={() => handleLessonComplete(showLesson)}
+        />
+      )}
+      {showLesson && !['video','practice','exercise','quiz'].includes(showLesson.type) && (
         <LessonViewer
           concept={showLesson._concept || showLesson.title}
           taskTitle={showLesson.title}
@@ -947,6 +1064,7 @@ export default function Dashboard() {
           lessonKey={`${goal?.id || 'g'}::${showLesson.id || showLesson.title}`}
           onClose={() => setShowLesson(null)}
           onComplete={() => handleLessonComplete(showLesson)}
+          onHeartLost={handleHeartLost}
         />
       )}
 
@@ -980,12 +1098,12 @@ export default function Dashboard() {
                   <div style={{width:80,height:3,background:'rgba(255,255,255,0.06)',
                     borderRadius:9999,overflow:'hidden'}}>
                     <div style={{height:'100%',
-                      width:`${totalRows>0?(doneRows/totalRows)*100:0}%`,
+                      width:`${(totalDaysPlanned||totalRows)>0?(doneRows/(totalDaysPlanned||totalRows))*100:0}%`,
                       background:'linear-gradient(90deg,#0ef5c2,#00d4ff)',
                       borderRadius:9999,transition:'width 0.5s'}}/>
                   </div>
                   <span style={{fontSize:10,color:T.textMuted,fontWeight:600}}>
-                    {doneRows}/{totalRows}d
+                    {doneRows}/{totalDaysPlanned||totalRows}d
                   </span>
                 </div>
               )}
@@ -1000,6 +1118,9 @@ export default function Dashboard() {
                 <span style={{fontSize:13,fontWeight:800,color:T.flame}}>{streakData.current}</span>
               </div>
             )}
+
+            {/* Hearts */}
+            <HeartBar hearts={heartsRemaining} prevHearts={prevHearts} />
 
             {/* Level */}
             <div style={{display:'flex',alignItems:'center',gap:6,
@@ -1088,7 +1209,10 @@ export default function Dashboard() {
                 visibleTasks.map((task, i) => (
                   <TaskItem key={task.id} task={task} isCompleting={completing}
                     onComplete={completeTask}
-                    onOpenLesson={t => setShowLesson({ ...t, _concept: todayRow?.covered_topics?.[0] || t.title })}
+                    onOpenLesson={t => {
+                      if (heartsRemaining === 0) { setShowNoHearts(true); return }
+                      setShowLesson({ ...t, _concept: todayRow?.covered_topics?.[0] || t.title })
+                    }}
                     index={i}/>
                 ))
               ) : (
@@ -1103,15 +1227,61 @@ export default function Dashboard() {
                 </div>
               )}
 
-              {hiddenCount > 0 && (
+              {energy === 'drained' && (
+                <div style={{textAlign:'center',padding:'8px 0',color:T.textMuted,fontSize:13}}>
+                  Rest day — just stay in the habit 🌙
+                </div>
+              )}
+              {hiddenCount > 0 && energy !== 'drained' && (
                 <p style={{textAlign:'center',fontSize:12,color:T.textMuted,padding:'4px 0'}}>
                   {hiddenCount} more task{hiddenCount>1?'s':''} available when you have more energy
                 </p>
               )}
             </div>
 
-            {/* Tomorrow preview */}
-            {!missionDone && <TomorrowPreview tomorrowRow={tomorrowRow}/>}
+            {/* Tomorrow preview / next-day CTA */}
+            {missionDone ? (
+              <div style={{maxWidth:600,margin:'10px auto 0',padding:'0 20px'}}>
+                {tomorrowRow ? (
+                  <button onClick={handleStartTomorrow} style={{
+                    width:'100%', padding:'16px',
+                    background:'linear-gradient(135deg,#0ef5c2,#00d4ff)',
+                    border:'none', borderRadius:16,
+                    color:'#06060f', fontSize:15, fontWeight:800,
+                    cursor:'pointer', fontFamily:T.font,
+                    boxShadow:'0 0 32px rgba(14,245,194,0.28),inset 0 1px 0 rgba(255,255,255,0.40)',
+                    display:'flex', alignItems:'center', justifyContent:'center', gap:10,
+                    animation:'fadeUp 0.35s ease both',
+                  }}
+                  onMouseEnter={e=>{e.currentTarget.style.opacity='0.92'}}
+                  onMouseLeave={e=>{e.currentTarget.style.opacity='1'}}>
+                    Start Day {tomorrowRow.day_number}: {tomorrowRow.covered_topics?.[0] || `Day ${tomorrowRow.day_number}`}
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#06060f" strokeWidth="2.5" strokeLinecap="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+                  </button>
+                ) : (
+                  <button onClick={handleGenerateNext} disabled={generatingNext} style={{
+                    width:'100%', padding:'16px',
+                    background: generatingNext ? 'rgba(14,245,194,0.06)' : 'linear-gradient(135deg,#0ef5c2,#00d4ff)',
+                    border: generatingNext ? `1px solid ${T.tealBorder}` : 'none',
+                    borderRadius:16,
+                    color: generatingNext ? T.teal : '#06060f',
+                    fontSize:15, fontWeight:800,
+                    cursor: generatingNext ? 'default' : 'pointer', fontFamily:T.font,
+                    boxShadow: generatingNext ? 'none' : '0 0 32px rgba(14,245,194,0.28),inset 0 1px 0 rgba(255,255,255,0.40)',
+                    display:'flex', alignItems:'center', justifyContent:'center', gap:10,
+                    animation:'fadeUp 0.35s ease both',
+                  }}>
+                    {generatingNext ? (
+                      <><div style={{width:14,height:14,borderRadius:'50%',border:`2px solid ${T.teal}`,borderTopColor:'transparent',animation:'spin 0.7s linear infinite'}}/>Generating next day…</>
+                    ) : (
+                      <>Continue to Next Day <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#06060f" strokeWidth="2.5" strokeLinecap="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></>
+                    )}
+                  </button>
+                )}
+              </div>
+            ) : (
+              <TomorrowPreview tomorrowRow={tomorrowRow}/>
+            )}
 
             {/* Comeback note */}
             {streakData.current === 0 && doneRows > 0 && (

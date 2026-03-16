@@ -80,14 +80,30 @@
     0 32px 80px rgba(0,0,0,0.45),
     0 8px 24px rgba(0,0,0,0.3);
 
+  /* ── Game colors ── */
+  --gold:           #FFD700;
+  --gold-dim:       rgba(255,215,0,0.12);
+  --gold-border:    rgba(255,215,0,0.28);
+  --orange:         #FF8C42;
+  --orange-dim:     rgba(255,140,66,0.10);
+  --orange-border:  rgba(255,140,66,0.22);
+  --purple:         #a855f7;
+  --purple-dim:     rgba(168,85,247,0.10);
+  --purple-border:  rgba(168,85,247,0.22);
+  --heart-red:      #ef5060;
+  --heart-red-dim:  rgba(239,80,96,0.12);
+
   /* ── Squircle radii (iOS superellipse) ── */
-  --radius-xs:   8px;
-  --radius-sm:   12px;
-  --radius-md:   16px;
-  --radius-lg:   22px;
-  --radius-xl:   28px;
-  --radius-2xl:  34px;
-  --radius-full: 9999px;
+  --radius-xs:    8px;
+  --radius-sm:    12px;
+  --radius-md:    16px;
+  --radius-card:  20px;
+  --radius-lg:    22px;
+  --radius-xl:    28px;
+  --radius-2xl:   34px;
+  --radius-btn:   14px;
+  --radius-pill:  100px;
+  --radius-full:  9999px;
   /* For square icon containers, use %: */
   --squircle:    26%;
 
@@ -341,6 +357,158 @@ a {
 @keyframes scaleIn {
   from { opacity: 0; transform: scale(0.94); }
   to   { opacity: 1; transform: scale(1);    }
+}
+
+/* ── Gamification keyframes ─────────────────────────────────────────────── */
+
+/* Heart crack: turns red, cracks (scale wobble), fades out */
+@keyframes crackRedFade {
+  0%   { filter: none;             transform: scale(1);    opacity: 1; }
+  15%  { filter: brightness(0.4) saturate(0) sepia(1) hue-rotate(-10deg) saturate(5);
+         transform: scale(1.25);   opacity: 1; }
+  40%  { filter: brightness(0.4) saturate(0) sepia(1) hue-rotate(-10deg) saturate(5);
+         transform: scale(0.85) rotate(-8deg); opacity: 0.8; }
+  100% { filter: brightness(0) opacity(0);  transform: scale(0.6) rotate(12deg); opacity: 0; }
+}
+
+/* Lateral shake for wrong answers */
+@keyframes heartShake {
+  0%, 100% { transform: translateX(0);   }
+  15%       { transform: translateX(-7px); }
+  35%       { transform: translateX(7px);  }
+  55%       { transform: translateX(-5px); }
+  75%       { transform: translateX(5px);  }
+}
+
+/* Red vignette flash on wrong answer */
+@keyframes redVignette {
+  0%   { opacity: 0.18; }
+  100% { opacity: 0;    }
+}
+
+/* Heart gain: appears with bounce + teal glow */
+@keyframes heartGain {
+  0%   { transform: scale(0); opacity: 0; filter: drop-shadow(0 0 0px #0ef5c2); }
+  50%  { transform: scale(1.35);          filter: drop-shadow(0 0 12px #0ef5c2); }
+  100% { transform: scale(1);  opacity: 1; filter: drop-shadow(0 0 4px #0ef5c2); }
+}
+
+/* Gem sparkle idle */
+@keyframes gemSparkle {
+  0%, 80%, 100% { filter: brightness(1);          transform: scale(1);    }
+  88%            { filter: brightness(1.8) saturate(1.4); transform: scale(1.12); }
+}
+
+/* Treasure chest burst: scale in then expand */
+@keyframes chestIn {
+  0%   { transform: scale(0) translateY(30px); opacity: 0; }
+  60%  { transform: scale(1.12) translateY(-4px); opacity: 1; }
+  100% { transform: scale(1) translateY(0); opacity: 1; }
+}
+@keyframes chestBurst {
+  0%   { transform: scale(1);   opacity: 1; }
+  40%  { transform: scale(1.3); opacity: 1; }
+  100% { transform: scale(0) rotate(20deg); opacity: 0; }
+}
+@keyframes particleFly {
+  0%   { transform: translate(0, 0) scale(1); opacity: 1; }
+  100% { transform: translate(var(--tx), var(--ty)) scale(0); opacity: 0; }
+}
+
+/* Node shockwave: expanding ring outward */
+@keyframes nodeShockwave {
+  0%   { transform: scale(1);   opacity: 0.8; }
+  100% { transform: scale(2.4); opacity: 0;   }
+}
+
+/* Combo badge pop */
+@keyframes comboPopIn {
+  0%   { transform: scale(0) rotate(-15deg); opacity: 0; }
+  60%  { transform: scale(1.2) rotate(4deg);  opacity: 1; }
+  100% { transform: scale(1) rotate(0deg);    opacity: 1; }
+}
+
+/* XP breakdown row: staggered slide in */
+@keyframes xpBreakdownRow {
+  from { opacity: 0; transform: translateX(-12px); }
+  to   { opacity: 1; transform: translateX(0);     }
+}
+
+/* Level-up ceremony: number scales in with spring bounce */
+@keyframes levelNumIn {
+  0%   { transform: scale(0);    opacity: 0; }
+  55%  { transform: scale(1.18); opacity: 1; }
+  75%  { transform: scale(0.94);             }
+  100% { transform: scale(1);    opacity: 1; }
+}
+
+/* Particle orbit ring around level number */
+@keyframes orbitParticle {
+  from { transform: rotate(var(--start-angle)) translateX(60px) scale(1);   }
+  to   { transform: rotate(calc(var(--start-angle) + 360deg)) translateX(60px) scale(0.5); }
+}
+
+/* Level-up background dim fade in */
+@keyframes levelDimIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Streak flame flicker */
+@keyframes flameFlicker {
+  0%, 100% { transform: scale(1)    skewX(0deg);   opacity: 1;   }
+  25%       { transform: scale(1.05) skewX(-2deg);  opacity: 0.9; }
+  50%       { transform: scale(0.97) skewX(1deg);   opacity: 1;   }
+  75%       { transform: scale(1.04) skewX(2deg);   opacity: 0.95; }
+}
+
+/* Node breathing pulse for active node */
+@keyframes nodeBreath {
+  0%, 100% { transform: scale(1);    box-shadow: 0 0 0  0 rgba(14,245,194,0.20); }
+  50%       { transform: scale(1.04); box-shadow: 0 0 0 10px rgba(14,245,194,0.00); }
+}
+
+/* Combo pulse: counter grows slightly per combo */
+@keyframes comboPulse {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.18); }
+  100% { transform: scale(1); }
+}
+
+/* Quest complete flash */
+@keyframes questComplete {
+  0%   { background: rgba(14,245,194,0.06); }
+  30%  { background: rgba(14,245,194,0.22); }
+  100% { background: rgba(14,245,194,0.06); }
+}
+
+/* Slide-in from right (for toasts + league card) */
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(40px); }
+  to   { opacity: 1; transform: translateX(0);    }
+}
+
+/* ── Reduced motion overrides ───────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes crackRedFade    { to { opacity: 0; } }
+  @keyframes heartShake      { to { } }
+  @keyframes redVignette     { to { opacity: 0; } }
+  @keyframes heartGain       { to { opacity: 1; } }
+  @keyframes gemSparkle      { to { } }
+  @keyframes chestIn         { to { opacity: 1; } }
+  @keyframes chestBurst      { to { opacity: 0; } }
+  @keyframes particleFly     { to { opacity: 0; } }
+  @keyframes nodeShockwave   { to { opacity: 0; } }
+  @keyframes comboPopIn      { to { opacity: 1; } }
+  @keyframes xpBreakdownRow  { to { opacity: 1; } }
+  @keyframes levelNumIn      { to { opacity: 1; } }
+  @keyframes orbitParticle   { to { } }
+  @keyframes levelDimIn      { to { opacity: 1; } }
+  @keyframes flameFlicker    { to { } }
+  @keyframes nodeBreath      { to { } }
+  @keyframes comboPulse      { to { } }
+  @keyframes questComplete   { to { } }
+  @keyframes slideInRight    { to { opacity: 1; } }
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
