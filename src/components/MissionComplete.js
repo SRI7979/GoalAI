@@ -85,7 +85,7 @@ function XPRow({ label, xp, highlight }) {
 export default function MissionComplete({ isVisible, data, onDismiss, onStartTomorrow }) {
   // data: {
   //   conceptName, dayNumber,
-  //   xpEarned, taskXp, missionBonusXp, streakBonusXp,
+  //   xpEarned, taskXp, missionBonusXp, streakBonusXp, gemsEarned,
   //   newStreak, levelUp: { fromLevel, toLevel, title } | null,
   //   tomorrowConcept, tomorrowDayNumber
   // }
@@ -103,7 +103,7 @@ export default function MissionComplete({ isVisible, data, onDismiss, onStartTom
   if (!isVisible) return null
 
   const { conceptName, dayNumber, xpEarned = 0, taskXp = 0,
-    missionBonusXp = 0, streakBonusXp = 0, newStreak = 0,
+    missionBonusXp = 0, streakBonusXp = 0, gemsEarned = 0, newStreak = 0,
     levelUp = null, tomorrowConcept = null, tomorrowDayNumber = null } = data || {}
 
   const hasBreakdown = (missionBonusXp > 0 || streakBonusXp > 0) && xpEarned > 0
@@ -258,6 +258,35 @@ export default function MissionComplete({ isVisible, data, onDismiss, onStartTom
               </>
             )}
           </div>
+
+          {/* Gems earned */}
+          {gemsEarned > 0 && (
+            <div style={{
+              background:    'rgba(14,245,194,0.05)',
+              border:        '1px solid rgba(14,245,194,0.14)',
+              borderRadius:  14,
+              padding:       '11px 16px',
+              marginBottom:  10,
+              display:       'flex',
+              alignItems:    'center',
+              gap:           10,
+              animation:     'mcXpPop 0.50s 0.35s cubic-bezier(0.34,1.3,0.64,1) both',
+            }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <path d="M6 3L2 9l10 12L22 9l-4-6H6z" fill="#0ef5c2" opacity="0.85"/>
+                <path d="M12 3l-2 6h4l-2-6z" fill="#fff" opacity="0.25"/>
+                <path d="M6 3L2 9l10 12L22 9l-4-6H6z" stroke="#0ef5c2" strokeWidth="1.5" fill="none"/>
+              </svg>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 800, color: '#0ef5c2' }}>
+                  +{gemsEarned} Gems
+                </div>
+                <div style={{ fontSize: 12, color: '#64748B' }}>
+                  Added to your balance
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Streak pill */}
           {newStreak > 0 && (

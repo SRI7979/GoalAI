@@ -6,6 +6,7 @@ import {
 } from '@/lib/learningPlan'
 import { xpForTask, XP_MISSION_BONUS, XP_STREAK_7_BONUS, getLevelProgress } from '@/lib/xp'
 import { computeStreakUpdate, isStreakMilestone } from '@/lib/streak'
+import { GEM_AWARDS } from '@/lib/tokens'
 
 function extractAccessToken(request) {
   const authHeader = request.headers.get('authorization') || request.headers.get('Authorization')
@@ -77,6 +78,9 @@ export async function POST(request) {
     let newTotalXp      = null
     let levelUp         = null
     let newStreakState   = null
+    let gemsEarned      = 0
+    let newGemTotal     = null
+    let xpBoosted       = false
 
     if (missionJustCompleted && !alreadyCompleted) {
       missionBonusXp = XP_MISSION_BONUS
@@ -87,7 +91,7 @@ export async function POST(request) {
       // Read current progress (total_xp may not exist yet — handle gracefully)
       const { data: progress } = await supabase
         .from('user_progress')
-        .select('total_xp,current_streak,longest_streak,last_activity_date')
+        .select('total_xp,current_streak,longest_streak,last_activity_date,gems,xp_boost_until')
         .eq('user_id', row.user_id)
         .eq('goal_id', row.goal_id)
         .maybeSingle()
@@ -108,6 +112,13 @@ export async function POST(request) {
         xpEarned += streakBonusXp
       }
 
+      // XP boost check — double XP if active
+      const boostUntil = progress?.xp_boost_until ? new Date(progress.xp_boost_until) : null
+      xpBoosted = !!(boostUntil && boostUntil > new Date())
+      if (xpBoosted && !alreadyCompleted) {
+        xpEarned = xpEarned * 2
+      }
+
       // Level-up detection
       const oldLevel = getLevelProgress(existingXp)
       newTotalXp     = existingXp + (alreadyCompleted ? 0 : xpEarned)
@@ -121,9 +132,25 @@ export async function POST(request) {
         }
       }
 
+      // ── Gem calculation ─────────────────────────────────────────────────────
+      if (!alreadyCompleted) {
+        gemsEarned += GEM_AWARDS.task  // +5 per task
+        if (missionJustCompleted) gemsEarned += GEM_AWARDS.mission  // +15 mission bonus
+        if (streakUpdate.streakChanged && !streakUpdate.broken
+            && isStreakMilestone(streakUpdate.newStreak)) {
+          gemsEarned += GEM_AWARDS.streakMilestone  // +25 at 7-day milestones
+        }
+      }
+      const currentGems = Number(progress?.gems) || 0
+      newGemTotal = currentGems + gemsEarned
+
       // Persist progress update
       const progressUpdate = { last_activity_date: streakUpdate.todayStr }
-      if (!alreadyCompleted) progressUpdate.total_xp = newTotalXp
+      if (!alreadyCompleted) {
+        progressUpdate.total_xp = newTotalXp
+        progressUpdate.gems = newGemTotal
+        progressUpdate.gems_earned_total = (Number(progress?.gems_earned_total) || 0) + gemsEarned
+      }
       if (streakUpdate.streakChanged) {
         progressUpdate.current_streak = streakUpdate.newStreak
         progressUpdate.longest_streak = streakUpdate.newLongest
@@ -136,6 +163,16 @@ export async function POST(request) {
         .eq('goal_id', row.goal_id)
 
       if (progressError) warnings.push(`Progress update skipped: ${progressError.message}`)
+
+      // Log gem transaction
+      if (gemsEarned > 0) {
+        try {
+          await supabase.from('gem_transactions').insert({
+            user_id: row.user_id, goal_id: row.goal_id,
+            amount: gemsEarned, reason: missionJustCompleted ? 'mission_complete' : 'task_complete',
+          })
+        } catch { /* non-critical */ }
+      }
 
       newStreakState = {
         current:   streakUpdate.newStreak,
@@ -179,9 +216,12 @@ export async function POST(request) {
       taskXp:            alreadyCompleted ? 0 : xpForTask(targetTask.type),
       missionBonusXp:    alreadyCompleted ? 0 : missionBonusXp,
       streakBonusXp:     alreadyCompleted ? 0 : streakBonusXp,
+      xpBoosted:         xpBoosted || false,
       newTotalXp,
       levelUp,
       streakState:       newStreakState,
+      gemsEarned:        alreadyCompleted ? 0 : gemsEarned,
+      newGemTotal:       newGemTotal ?? null,
       nextResult,
       warnings,
     })

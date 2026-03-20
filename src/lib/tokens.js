@@ -86,10 +86,10 @@ export const GEM_PRICES = {
 
 // ── Gem award amounts ─────────────────────────────────────────────────────────
 export const GEM_AWARDS = {
-  mission:       10,
-  streakBonus:   5,    // per day at 7+ streak
-  badge:         25,
-  weeklyChallenge: 50,
+  task:            5,   // every task completion
+  mission:         15,  // all daily tasks done
+  streakMilestone: 25,  // every 7-day streak
+  perfectQuiz:     10,  // quiz with no wrong answers
 }
 
 // ── League tiers ─────────────────────────────────────────────────────────────

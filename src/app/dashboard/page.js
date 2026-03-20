@@ -8,6 +8,11 @@ import LessonViewer from '@/components/LessonView'
 import VideoView from '@/components/VideoView'
 import ProjectView from '@/components/ProjectView'
 import MultiQuizView from '@/components/MultiQuizView'
+import ReadingView from '@/components/ReadingView'
+import FlashcardView from '@/components/FlashcardView'
+import DiscussionView from '@/components/DiscussionView'
+import ChallengeView from '@/components/ChallengeView'
+import CapstoneView from '@/components/CapstoneView'
 import MissionComplete from '@/components/MissionComplete'
 import HeartBar from '@/components/HeartBar'
 import NoHeartsOverlay from '@/components/NoHeartsOverlay'
@@ -61,6 +66,9 @@ const KEYFRAMES = `
                         100%{transform:translateX(-50%) scale(1);opacity:1}}
   @keyframes slideInLeft{from{transform:translateX(-100%)}to{transform:translateX(0)}}
   @keyframes fadeInBg   {from{opacity:0}to{opacity:1}}
+  @keyframes slideUpPreview{from{transform:translateY(100%)}to{transform:translateY(0)}}
+  @keyframes gemPulse{0%{transform:scale(1)}50%{transform:scale(1.22)}100%{transform:scale(1)}}
+  @keyframes gemFloat{0%{opacity:1;transform:translateY(0)}100%{opacity:0;transform:translateY(-36px)}}
   @media (prefers-reduced-motion:reduce){
     @keyframes fadeUp    {from{opacity:0}to{opacity:1}}
     @keyframes xpRise    {to{opacity:0}}
@@ -74,10 +82,15 @@ const KEYFRAMES = `
 
 // ─── Task type config ──────────────────────────────────────────────────────────
 const TASK_STYLE = {
-  lesson:   {color:'#0ef5c2',bg:'rgba(14,245,194,0.10)',  border:'rgba(14,245,194,0.22)',  label:'LESSON'  },
-  video:    {color:'#FBBF24',bg:'rgba(251,191,36,0.10)',  border:'rgba(251,191,36,0.22)',  label:'VIDEO'   },
-  practice: {color:'#00d4ff',bg:'rgba(0,212,255,0.10)',   border:'rgba(0,212,255,0.22)',   label:'PRACTICE'},
-  exercise: {color:'#818CF8',bg:'rgba(129,140,248,0.10)', border:'rgba(129,140,248,0.22)', label:'EXERCISE'},
+  lesson:     {color:'#0ef5c2',bg:'rgba(14,245,194,0.10)',  border:'rgba(14,245,194,0.22)',  label:'LESSON'    },
+  video:      {color:'#FBBF24',bg:'rgba(251,191,36,0.10)',  border:'rgba(251,191,36,0.22)',  label:'VIDEO'     },
+  practice:   {color:'#00d4ff',bg:'rgba(0,212,255,0.10)',   border:'rgba(0,212,255,0.22)',   label:'PRACTICE'  },
+  exercise:   {color:'#818CF8',bg:'rgba(129,140,248,0.10)', border:'rgba(129,140,248,0.22)', label:'EXERCISE'  },
+  reading:    {color:'#34D399',bg:'rgba(52,211,153,0.10)',  border:'rgba(52,211,153,0.22)',  label:'READING'   },
+  flashcard:  {color:'#A78BFA',bg:'rgba(167,139,250,0.10)', border:'rgba(167,139,250,0.22)', label:'FLASHCARDS'},
+  discussion: {color:'#60A5FA',bg:'rgba(96,165,250,0.10)',  border:'rgba(96,165,250,0.22)',  label:'DISCUSSION'},
+  challenge:  {color:'#F59E0B',bg:'rgba(245,158,11,0.10)',  border:'rgba(245,158,11,0.22)',  label:'CHALLENGE' },
+  capstone:   {color:'#F97316',bg:'rgba(249,115,22,0.10)',  border:'rgba(249,115,22,0.22)',  label:'CAPSTONE'  },
   quiz:     {color:'#FF453A',bg:'rgba(255,69,58,0.10)',   border:'rgba(255,69,58,0.22)',   label:'QUIZ'    },
   review:   {color:'#FF6B35',bg:'rgba(255,107,53,0.10)',  border:'rgba(255,107,53,0.22)',  label:'REVIEW'  },
 }
@@ -317,35 +330,195 @@ function EnergySelector({ value, onChange }) {
   )
 }
 
-// ─── Task Item (with optimistic completion) ────────────────────────────────────
-function TaskItem({ task, isCompleting, onComplete, onOpenLesson, index }) {
-  const ts      = taskStyle(task.type)
-  const xp      = xpForTask(task.type)
-  const me      = isCompleting === task.id
+// ─── Task type descriptions (for preview) ───────────────────────────────────
+const TASK_TYPE_INFO = {
+  lesson:     { icon:'📖', what:'Interactive slideshow lesson with quizzes woven in to test understanding as you learn.' },
+  video:      { icon:'🎬', what:'Watch a curated video on this topic, then reflect on the key takeaways.' },
+  practice:   { icon:'🛠️', what:'Hands-on practice project with step-by-step guidance to build something real.' },
+  exercise:   { icon:'💪', what:'Structured exercise with clear steps to work through and check off as you go.' },
+  quiz:       { icon:'❓', what:'Multi-question quiz to test your knowledge — get instant feedback on every answer.' },
+  review:     { icon:'🔄', what:'Review previously learned concepts to strengthen your understanding.' },
+  reading:    { icon:'📄', what:'In-depth article with key terms highlighted — read at your own pace.' },
+  flashcard:  { icon:'🃏', what:'Flip through cards to memorize key concepts — mark each as "Got it" or "Still learning."' },
+  discussion: { icon:'💬', what:'Thought-provoking reflection prompts — write your thinking to deepen understanding.' },
+  challenge:  { icon:'⏱️', what:'Timed challenge that tests your skills under pressure — hints available if you get stuck.' },
+  capstone:   { icon:'🏗️', what:'Multi-step capstone project with milestones — build something portfolio-worthy.' },
+}
 
-  const LESSON_LABELS = {
-    lesson:   'Start Lesson',
-    video:    'Start Video',
-    practice: 'Start Practice',
-    exercise: 'Start Exercise',
-    quiz:     'Start Quiz',
-    review:   'Start Review',
-  }
-  const lessonLabel = LESSON_LABELS[task.type] || 'Start Lesson'
+const LESSON_LABELS = {
+  lesson:     'Start Lesson',
+  video:      'Watch Video',
+  practice:   'Start Practice',
+  exercise:   'Start Exercise',
+  quiz:       'Take Quiz',
+  review:     'Start Review',
+  reading:    'Read Article',
+  flashcard:  'Study Cards',
+  discussion: 'Start Discussion',
+  challenge:  'Begin Challenge',
+  capstone:   'Open Project',
+}
+
+// ─── Task Preview Modal ────────────────────────────────────────────────────────
+function TaskPreview({ task, onClose, onStart, onComplete, isCompleting }) {
+  const ts   = taskStyle(task.type)
+  const xp   = xpForTask(task.type)
+  const info = TASK_TYPE_INFO[task.type] || TASK_TYPE_INFO.lesson
+  const me   = isCompleting === task.id
+  const anyCompleting = Boolean(isCompleting)
+  const label = LESSON_LABELS[task.type] || 'Start Lesson'
 
   return (
-    <div style={{
-      background: task.completed ? 'rgba(14,245,194,0.03)' : T.surface,
-      border:`1px solid ${task.completed?'rgba(14,245,194,0.14)':T.border}`,
-      borderRadius:18, padding:'14px 16px',
-      backdropFilter:'blur(16px)', WebkitBackdropFilter:'blur(16px)',
-      boxShadow: task.completed
-        ? 'inset 0 1px 0 rgba(14,245,194,0.10)'
-        : 'inset 0 1px 0 rgba(255,255,255,0.06)',
-      transition:'all 0.22s cubic-bezier(0.16,1,0.3,1)',
-      animation:`fadeUp 0.35s ${index*0.04}s both`,
-      opacity: task.completed ? 0.68 : 1,
+    <div onClick={onClose} style={{
+      position:'fixed', inset:0, zIndex:150,
+      background:'rgba(0,0,0,0.65)', backdropFilter:'blur(12px)', WebkitBackdropFilter:'blur(12px)',
+      display:'flex', alignItems:'flex-end', justifyContent:'center',
+      animation:'fadeInBg 0.2s ease both',
     }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        width:'100%', maxWidth:520,
+        background:'linear-gradient(180deg,#0d0d1a 0%,#080814 100%)',
+        borderRadius:'24px 24px 0 0',
+        border:'1px solid rgba(255,255,255,0.10)',
+        borderBottom:'none',
+        padding:'20px 22px 34px',
+        fontFamily:T.font,
+        animation:'slideUpPreview 0.28s cubic-bezier(0.16,1,0.3,1) both',
+        maxHeight:'85vh', overflowY:'auto',
+      }}>
+        {/* Drag handle */}
+        <div style={{width:36,height:4,borderRadius:9999,background:'rgba(255,255,255,0.15)',margin:'0 auto 18px'}}/>
+
+        {/* Type badge row */}
+        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:14}}>
+          <span style={{fontSize:22}}>{info.icon}</span>
+          <span style={{
+            padding:'4px 11px', background:ts.bg, border:`1px solid ${ts.border}`,
+            borderRadius:9999, fontSize:11, fontWeight:800, color:ts.color, letterSpacing:'0.8px',
+          }}>{ts.label}</span>
+          <div style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:10}}>
+            <span style={{fontSize:12,color:T.textMuted,fontWeight:600,display:'flex',alignItems:'center',gap:4}}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              {task.durationMin||0} min
+            </span>
+            <span style={{fontSize:12,fontWeight:700,color:'#FBBF24',display:'flex',alignItems:'center',gap:3}}>
+              <BoltIcon sz={12}/>+{xp} XP
+            </span>
+          </div>
+        </div>
+
+        {/* Title */}
+        <h2 style={{fontSize:20,fontWeight:800,color:T.text,lineHeight:1.3,marginBottom:10,letterSpacing:'-0.3px'}}>
+          {task.title}
+        </h2>
+
+        {/* Description */}
+        {task.description && (
+          <p style={{fontSize:14,color:T.textSec,lineHeight:1.65,marginBottom:16}}>
+            {task.description}
+          </p>
+        )}
+
+        {/* What to expect */}
+        <div style={{
+          padding:'14px 16px', background:'rgba(255,255,255,0.03)',
+          border:`1px solid ${T.border}`, borderRadius:14, marginBottom:16,
+        }}>
+          <div style={{fontSize:11,fontWeight:700,color:T.textMuted,textTransform:'uppercase',letterSpacing:'1px',marginBottom:6}}>
+            What to expect
+          </div>
+          <p style={{fontSize:13,color:T.textSec,lineHeight:1.6,margin:0}}>
+            {info.what}
+          </p>
+        </div>
+
+        {/* Resource link */}
+        {task.resourceUrl && (
+          <a href={task.resourceUrl} target="_blank" rel="noopener noreferrer" style={{
+            display:'inline-flex', alignItems:'center', gap:5,
+            fontSize:13, color:'#00d4ff', fontWeight:600,
+            textDecoration:'none', marginBottom:16,
+          }}>
+            {task.resourceTitle||'Open resource'} <ArrowRight sz={12}/>
+          </a>
+        )}
+
+        {/* Action buttons */}
+        {task.completed ? (
+          <div style={{
+            padding:'14px', background:'rgba(14,245,194,0.06)',
+            border:'1px solid rgba(14,245,194,0.18)', borderRadius:14,
+            textAlign:'center', fontSize:15, fontWeight:700, color:T.teal,
+          }}>
+            ✓ Completed
+          </div>
+        ) : (
+          <div style={{display:'flex',gap:10}}>
+            <button onClick={() => { onClose(); onStart(task) }} style={{
+              flex:1, padding:'14px 12px',
+              background:'rgba(14,245,194,0.06)',
+              border:`1px solid ${T.tealBorder}`, borderRadius:14,
+              color:T.teal, fontSize:14, fontWeight:700,
+              cursor: anyCompleting ? 'default' : 'pointer', fontFamily:T.font,
+              display:'flex', alignItems:'center', justifyContent:'center', gap:6,
+              opacity: anyCompleting ? 0.5 : 1,
+              transition:'all 0.18s',
+            }}
+            onMouseEnter={e=>{if(!anyCompleting)e.currentTarget.style.background='rgba(14,245,194,0.12)'}}
+            onMouseLeave={e=>{e.currentTarget.style.background='rgba(14,245,194,0.06)'}}>
+              <PlayIcon/> {label}
+            </button>
+            <button
+              disabled={anyCompleting}
+              onClick={e => { onClose(); onComplete(task, e) }}
+              style={{
+                flex:'none', padding:'14px 20px',
+                background: anyCompleting ? 'rgba(255,255,255,0.04)' : 'linear-gradient(135deg,#0ef5c2,#00d4ff)',
+                border: anyCompleting ? `1px solid ${T.border}` : 'none',
+                borderRadius:14, color: anyCompleting ? T.textMuted : '#06060f',
+                fontSize:14, fontWeight:800,
+                cursor: anyCompleting ? 'default' : 'pointer', fontFamily:T.font,
+                boxShadow: anyCompleting ? 'none' : '0 0 24px rgba(14,245,194,0.28)',
+                display:'flex', alignItems:'center', justifyContent:'center', gap:6,
+                opacity: anyCompleting && !me ? 0.5 : 1,
+                transition:'all 0.20s',
+              }}
+            >
+              {me
+                ? <><div style={{width:13,height:13,border:'2px solid rgba(255,255,255,0.06)',borderTopColor:T.teal,borderRadius:'50%',animation:'spin 0.65s linear infinite'}}/>Saving…</>
+                : anyCompleting ? 'Wait…' : <><BoltIcon sz={13}/>Complete</>}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── Task Item (with optimistic completion) ────────────────────────────────────
+function TaskItem({ task, onPreview, index }) {
+  const ts      = taskStyle(task.type)
+  const xp      = xpForTask(task.type)
+
+  return (
+    <div
+      onClick={() => onPreview(task)}
+      style={{
+        background: task.completed ? 'rgba(14,245,194,0.03)' : T.surface,
+        border:`1px solid ${task.completed?'rgba(14,245,194,0.14)':T.border}`,
+        borderRadius:18, padding:'14px 16px',
+        backdropFilter:'blur(16px)', WebkitBackdropFilter:'blur(16px)',
+        boxShadow: task.completed
+          ? 'inset 0 1px 0 rgba(14,245,194,0.10)'
+          : 'inset 0 1px 0 rgba(255,255,255,0.06)',
+        transition:'all 0.22s cubic-bezier(0.16,1,0.3,1)',
+        animation:`fadeUp 0.35s ${index*0.04}s both`,
+        opacity: task.completed ? 0.68 : 1,
+        cursor:'pointer',
+      }}
+      onMouseEnter={e=>{if(!task.completed)e.currentTarget.style.borderColor='rgba(255,255,255,0.16)'}}
+      onMouseLeave={e=>{e.currentTarget.style.borderColor=task.completed?'rgba(14,245,194,0.14)':T.border}}
+    >
       {/* Type badge + duration + xp status */}
       <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
         <span style={{
@@ -379,61 +552,16 @@ function TaskItem({ task, isCompleting, onComplete, onOpenLesson, index }) {
       {/* Description (hidden once done) */}
       {task.description && !task.completed && (
         <p style={{fontSize:13,color:T.textMuted,lineHeight:1.6,
-          marginBottom:task.resourceUrl?10:0}}>
+          marginBottom:0}}>
           {task.description.length>110 ? task.description.slice(0,110)+'…' : task.description}
         </p>
       )}
 
-      {/* Resource link */}
-      {task.resourceUrl && !task.completed && (
-        <a href={task.resourceUrl} target="_blank" rel="noopener noreferrer" style={{
-          display:'inline-flex', alignItems:'center', gap:5,
-          fontSize:12, color:'#00d4ff', fontWeight:600,
-          textDecoration:'none', marginBottom:10,
-        }}>
-          {task.resourceTitle||'Open resource'} <ArrowRight sz={12}/>
-        </a>
-      )}
-
-      {/* Action row */}
+      {/* Tap to preview hint */}
       {!task.completed && (
-        <div style={{display:'flex',gap:8,marginTop:6}}>
-          <button onClick={() => onOpenLesson(task)} style={{
-            flex:1, padding:'11px 12px',
-            background:'rgba(14,245,194,0.06)',
-            border:`1px solid ${T.tealBorder}`, borderRadius:12,
-            color:T.teal, fontSize:13, fontWeight:700,
-            cursor:'pointer', fontFamily:T.font,
-            display:'flex', alignItems:'center', justifyContent:'center', gap:5,
-            transition:'background 0.18s',
-          }}
-          onMouseEnter={e=>{e.currentTarget.style.background='rgba(14,245,194,0.12)'}}
-          onMouseLeave={e=>{e.currentTarget.style.background='rgba(14,245,194,0.06)'}}>
-            <PlayIcon/> {lessonLabel}
-          </button>
-          <button
-            disabled={Boolean(me)}
-            onClick={e => onComplete(task, e)}
-            style={{
-              flex:'none',
-              padding:'11px 16px',
-              background: me ? 'rgba(255,255,255,0.04)' : 'linear-gradient(135deg,#0ef5c2,#00d4ff)',
-              border: me ? `1px solid ${T.border}` : 'none',
-              borderRadius:12, color: me ? T.textMuted : '#06060f',
-              fontSize:13, fontWeight:800,
-              cursor: me ? 'default' : 'pointer', fontFamily:T.font,
-              boxShadow: me ? 'none' : '0 0 24px rgba(14,245,194,0.28),inset 0 1px 0 rgba(255,255,255,0.40)',
-              display:'flex', alignItems:'center', justifyContent:'center', gap:6,
-              transition:'all 0.20s cubic-bezier(0.16,1,0.3,1)',
-              minWidth:110,
-            }}
-            onMouseEnter={e=>{if(!me){e.currentTarget.style.transform='translateY(-1px)';e.currentTarget.style.boxShadow='0 0 36px rgba(14,245,194,0.42),inset 0 1px 0 rgba(255,255,255,0.40)'}}}
-            onMouseLeave={e=>{e.currentTarget.style.transform='translateY(0)';if(!me)e.currentTarget.style.boxShadow='0 0 24px rgba(14,245,194,0.28),inset 0 1px 0 rgba(255,255,255,0.40)'}}
-          >
-            {me
-              ? <><div style={{width:13,height:13,border:'2px solid rgba(255,255,255,0.06)',borderTopColor:T.teal,borderRadius:'50%',animation:'spin 0.65s linear infinite'}}/>Saving…</>
-              : <><BoltIcon sz={13}/>Complete</>}
-          </button>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:10}}>
+          <span style={{fontSize:11,color:T.textMuted,fontWeight:500}}>Tap to preview</span>
+          <ArrowRight sz={12}/>
         </div>
       )}
     </div>
@@ -519,6 +647,7 @@ export default function Dashboard() {
   const [energy,      setEnergy]      = useState('good')
   const [activeTab,   setActiveTab]   = useState('home')
   const [showLesson,  setShowLesson]  = useState(null)
+  const [previewTask, setPreviewTask] = useState(null)
   const [error,       setError]       = useState('')
 
   // Goals sidebar
@@ -531,6 +660,12 @@ export default function Dashboard() {
   const [heartsRefillAt,   setHeartsRefillAt]   = useState(null)
   const [prevHearts,       setPrevHearts]       = useState(5)
   const [showNoHearts,     setShowNoHearts]     = useState(false)
+
+  // Gems
+  const [gems,             setGems]             = useState(0)
+  const [gemPulse,         setGemPulse]         = useState(false)
+  const [gemToasts,        setGemToasts]        = useState([])
+  const [showGemShop,      setShowGemShop]      = useState(false)
 
   // Plan meta
   const [totalDaysPlanned,  setTotalDaysPlanned]  = useState(0)
@@ -587,7 +722,7 @@ export default function Dashboard() {
     setTomorrowRow(tomorrowR)
 
     const { data: prog } = await supabase
-      .from('user_progress').select('total_xp,current_streak,longest_streak,freeze_count,hearts_remaining,hearts_refill_at,total_days')
+      .from('user_progress').select('total_xp,current_streak,longest_streak,freeze_count,hearts_remaining,hearts_refill_at,total_days,gems,xp_boost_until')
       .eq('goal_id', activeGoal.id).eq('user_id', me.id).maybeSingle()
 
     const storedXp   = Number(prog?.total_xp) || 0
@@ -603,6 +738,7 @@ export default function Dashboard() {
     setPrevHearts(h)
     setHeartsRemaining(h)
     setHeartsRefillAt(prog?.hearts_refill_at || null)
+    setGems(Number(prog?.gems) || 0)
     if (prog?.total_days) setTotalDaysPlanned(Number(prog.total_days))
 
     // Comeback detection: has prior completed days but streak is 0
@@ -659,6 +795,25 @@ export default function Dashboard() {
     setXpAnimating(true)
     setTimeout(() => setXpAnimating(false), 800)
 
+    // 3b. Instant mission complete — don't wait for API
+    const allDoneNow = nextTasks.every(t => t.completed)
+    if (allDoneNow) {
+      setMissionDone(true)
+      setMcData({
+        conceptName:    todayRow?.covered_topics?.[0] || `Day ${todayRow?.day_number}`,
+        dayNumber:      todayRow?.day_number,
+        xpEarned:       xpAmount + 50, // optimistic: task + mission bonus
+        taskXp:         xpAmount,
+        missionBonusXp: 50,
+        streakBonusXp:  0,
+        gemsEarned:     20, // optimistic: 5 task + 15 mission
+        newStreak:      streakData.current || 1,
+        levelUp:        null,
+        tomorrowConcept:   tomorrowRow?.covered_topics?.[0] || null,
+        tomorrowDayNumber: tomorrowRow?.day_number || null,
+      })
+    }
+
     // 4. API call (async, non-blocking)
     try {
       const { data: { session } } = await supabase.auth.getSession()
@@ -696,6 +851,16 @@ export default function Dashboard() {
         addXpToast(data.streakBonusXp, event?.clientX || window.innerWidth/2, 120)
       }
 
+      // Gem update
+      if (data.gemsEarned > 0) {
+        setGems(data.newGemTotal ?? (g => g + data.gemsEarned))
+        setGemPulse(true)
+        setTimeout(() => setGemPulse(false), 400)
+        setGemToasts(prev => [...prev, { id: Date.now(), amount: data.gemsEarned }])
+      } else if (data.newGemTotal != null) {
+        setGems(data.newGemTotal)
+      }
+
       // Analytics: task completed
       track(EVENTS.TASK_COMPLETED, {
         taskId: task.id, taskType: task.type, xpEarned: data.taskXp ?? xpAmount,
@@ -706,10 +871,8 @@ export default function Dashboard() {
         energyMode: energy,
       })
 
-      // Mission complete overlay
-      const allDone = nextTasks.every(t => t.completed)
-      if (data.missionComplete || allDone) {
-        setMissionDone(true)
+      // Mission complete — correct optimistic data with server values
+      if (data.missionComplete || allDoneNow) {
         const mc = {
           conceptName:    todayRow.covered_topics?.[0] || `Day ${todayRow.day_number}`,
           dayNumber:      todayRow.day_number,
@@ -717,12 +880,14 @@ export default function Dashboard() {
           taskXp:         data.taskXp       ?? xpAmount,
           missionBonusXp: data.missionBonusXp ?? 0,
           streakBonusXp:  data.streakBonusXp  ?? 0,
+          gemsEarned:     data.gemsEarned   ?? 0,
           newStreak:      data.streakState?.current ?? streakData.current,
           levelUp:        data.levelUp ?? null,
           tomorrowConcept:   tomorrowRow?.covered_topics?.[0] || null,
           tomorrowDayNumber: tomorrowRow?.day_number || null,
         }
-        setMcData(mc)
+        setMcData(mc) // update with real server data
+        setMissionDone(true)
         track(EVENTS.MISSION_COMPLETED, { totalXp: mc.xpEarned, dayNumber: mc.dayNumber }, {
           userId: user?.id, goalId: goal?.id, missionId: todayRow?.id,
           streakValue: mc.newStreak, energyMode: energy,
@@ -831,8 +996,12 @@ export default function Dashboard() {
 
   // ─── Lesson complete ────────────────────────────────────────────────────────
   const handleLessonComplete = useCallback((task) => {
+    // Close lesson view first, then complete the task
     setShowLesson(null)
-    if (task && !task.completed) completeTask(task, null)
+    if (task && !task.completed) {
+      // Small delay so the view closes visually before the task completion triggers
+      setTimeout(() => completeTask(task, null), 100)
+    }
   }, [completeTask])
 
   // ─── Switch active goal ─────────────────────────────────────────────────────
@@ -1019,6 +1188,24 @@ export default function Dashboard() {
         onStartTomorrow={tomorrowRow ? handleStartTomorrow : undefined}
       />
 
+      {/* Task preview modal */}
+      {previewTask && (
+        <TaskPreview
+          task={previewTask}
+          isCompleting={completing}
+          onClose={() => setPreviewTask(null)}
+          onStart={t => {
+            setPreviewTask(null)
+            if (heartsRemaining === 0) { setShowNoHearts(true); return }
+            setShowLesson({ ...t, _concept: todayRow?.covered_topics?.[0] || t.title })
+          }}
+          onComplete={(t, e) => {
+            setPreviewTask(null)
+            completeTask(t, e)
+          }}
+        />
+      )}
+
       {/* No-hearts overlay */}
       {showNoHearts && (
         <NoHeartsOverlay
@@ -1055,7 +1242,52 @@ export default function Dashboard() {
           onComplete={() => handleLessonComplete(showLesson)}
         />
       )}
-      {showLesson && !['video','practice','exercise','quiz'].includes(showLesson.type) && (
+      {showLesson && showLesson.type === 'reading' && (
+        <ReadingView
+          task={showLesson}
+          goal={goal?.goal_text}
+          knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
+          onClose={() => setShowLesson(null)}
+          onComplete={() => handleLessonComplete(showLesson)}
+        />
+      )}
+      {showLesson && showLesson.type === 'flashcard' && (
+        <FlashcardView
+          task={showLesson}
+          goal={goal?.goal_text}
+          knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
+          onClose={() => setShowLesson(null)}
+          onComplete={() => handleLessonComplete(showLesson)}
+        />
+      )}
+      {showLesson && showLesson.type === 'discussion' && (
+        <DiscussionView
+          task={showLesson}
+          goal={goal?.goal_text}
+          knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
+          onClose={() => setShowLesson(null)}
+          onComplete={() => handleLessonComplete(showLesson)}
+        />
+      )}
+      {showLesson && showLesson.type === 'challenge' && (
+        <ChallengeView
+          task={showLesson}
+          goal={goal?.goal_text}
+          knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
+          onClose={() => setShowLesson(null)}
+          onComplete={() => handleLessonComplete(showLesson)}
+        />
+      )}
+      {showLesson && showLesson.type === 'capstone' && (
+        <CapstoneView
+          task={showLesson}
+          goal={goal?.goal_text}
+          knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
+          onClose={() => setShowLesson(null)}
+          onComplete={() => handleLessonComplete(showLesson)}
+        />
+      )}
+      {showLesson && !['video','practice','exercise','quiz','reading','flashcard','discussion','challenge','capstone'].includes(showLesson.type) && (
         <LessonViewer
           concept={showLesson._concept || showLesson.title}
           taskTitle={showLesson.title}
@@ -1121,6 +1353,37 @@ export default function Dashboard() {
 
             {/* Hearts */}
             <HeartBar hearts={heartsRemaining} prevHearts={prevHearts} />
+
+            {/* Gems */}
+            <button onClick={() => setShowGemShop(true)} style={{
+              display:'flex',alignItems:'center',gap:4,
+              padding:'5px 10px',background:T.tealDim,
+              border:`1px solid ${T.tealBorder}`,borderRadius:9999,
+              cursor:'pointer',fontFamily:T.font,position:'relative',
+            }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                style={{animation:gemPulse?'gemPulse 0.3s ease':'none'}}>
+                <path d="M6 3L2 9l10 12L22 9l-4-6H6z" fill={T.teal} opacity="0.85"/>
+                <path d="M12 3l-2 6h4l-2-6z" fill="#fff" opacity="0.25"/>
+                <path d="M6 3L2 9l10 12L22 9l-4-6H6z" stroke={T.teal} strokeWidth="1.5" fill="none"/>
+              </svg>
+              <span style={{
+                fontSize:13,fontWeight:800,color:T.teal,
+                fontFamily:T.fontMono,
+                animation:gemPulse?'gemPulse 0.3s ease':'none',
+              }}>{gems}</span>
+              {/* Floating gem toasts */}
+              {gemToasts.map(t => (
+                <span key={t.id}
+                  onAnimationEnd={() => setGemToasts(prev => prev.filter(x => x.id !== t.id))}
+                  style={{
+                    position:'absolute',top:-8,right:0,
+                    fontSize:12,fontWeight:800,color:T.teal,
+                    animation:'gemFloat 1.2s ease-out forwards',
+                    pointerEvents:'none',whiteSpace:'nowrap',
+                  }}>+{t.amount} 💎</span>
+              ))}
+            </button>
 
             {/* Level */}
             <div style={{display:'flex',alignItems:'center',gap:6,
@@ -1213,6 +1476,7 @@ export default function Dashboard() {
                       if (heartsRemaining === 0) { setShowNoHearts(true); return }
                       setShowLesson({ ...t, _concept: todayRow?.covered_topics?.[0] || t.title })
                     }}
+                    onPreview={t => setPreviewTask(t)}
                     index={i}/>
                 ))
               ) : (
