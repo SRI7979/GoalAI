@@ -1,42 +1,42 @@
-import OpenAI from 'openai'
-
 export async function POST(request) {
-  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
   try {
     const { concept, taskTitle, goal, knowledge, taskType } = await request.json()
     if (!concept || !goal) return Response.json({ error: 'Missing concept or goal' }, { status: 400 })
 
-    const prompt = `You are a hands-on learning coach. Create a mini ${taskType === 'exercise' ? 'coding exercise' : 'practice project'} for someone learning "${goal}", specifically about "${taskTitle || concept}".
-${knowledge ? `The student already knows: ${knowledge}` : ''}
+    const prompt = `You are a senior developer designing a hands-on ${taskType === 'exercise' ? 'coding exercise' : 'practice project'} for a premium learning app. Create a practical exercise about "${taskTitle || concept}" for someone learning "${goal}".
+${knowledge ? `The student already knows: ${knowledge}. Challenge them appropriately.` : ''}
 
 Return ONLY valid JSON — no markdown, no backticks:
 {
-  "title": "Short punchy project title",
-  "objective": "1 sentence: what the student will build/accomplish and why it matters",
+  "title": "Specific, action-oriented project title",
+  "objective": "What they'll build and what skill it reinforces — make them excited to start",
   "steps": [
-    { "id": 1, "title": "Step title", "description": "Clear instruction — what to do and how to do it" },
-    { "id": 2, "title": "Step title", "description": "..." },
-    { "id": 3, "title": "Step title", "description": "..." },
-    { "id": 4, "title": "Step title", "description": "..." }
+    { "id": 1, "title": "Step title", "description": "Detailed instruction with specific actions" }
   ],
-  "hint": "A helpful nudge if they get stuck",
-  "successCriteria": "How they'll know they've done it correctly"
+  "hint": "A strategic hint that unblocks without giving away the answer",
+  "successCriteria": "Specific, testable criteria — how they verify their work is correct"
 }
 
-Rules:
-- 3–5 steps, each concrete and actionable
-- Steps should build on each other
-- Keep it achievable in ${10} minutes
-- If coding: include specific code they need to write`
+PROJECT QUALITY REQUIREMENTS:
+- 4-6 steps that build on each other in a logical sequence
+- Each step description should be 2-4 sentences with:
+  * WHAT to do (specific action)
+  * HOW to do it (approach or technique)
+  * WHY it matters (what this step teaches)
+- Include code snippets, commands, or specific values where relevant
+- The project should produce a VISIBLE result the student can verify
+- The hint should address the #1 place students get stuck, not just repeat instructions
+- successCriteria should be specific and testable: "Your function should return X when given Y" or "You should see Z in the console"
+- Make it feel like building something real, not doing homework
+- Achievable in 10-15 minutes for someone who understands the concept`
 
-    const res = await client.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.5,
-      max_tokens: 900,
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+      body: JSON.stringify({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.6, max_tokens: 1400 }),
     })
-
-    const raw = res.choices[0]?.message?.content?.trim() || ''
+    const data = await res.json()
+    const raw = data.choices?.[0]?.message?.content?.trim() || ''
     const clean = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
     const parsed = JSON.parse(clean)
     return Response.json(parsed)

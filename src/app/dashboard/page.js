@@ -775,6 +775,9 @@ export default function Dashboard() {
     if (todayRow) setTasks(Array.isArray(todayRow.tasks) ? todayRow.tasks : [])
   }, [todayRow?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Scroll to top on tab change
+  useEffect(() => { window.scrollTo(0, 0) }, [activeTab])
+
   // XP boost countdown timer
   useEffect(() => {
     if (!xpBoostUntil) { setBoostTimeLeft(0); return }
@@ -1876,7 +1879,6 @@ export default function Dashboard() {
             </button>
           </div>
         )}
-      </div>
 
         {/* ══════════════════════════════════════════════════════════════ */}
         {/* SHOP TAB                                                       */}
@@ -1895,6 +1897,7 @@ export default function Dashboard() {
             }}
           />
         )}
+      </div>
 
       {/* ── iOS bottom tab bar ── */}
       <div style={{

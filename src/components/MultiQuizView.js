@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
+import AIAssistant from './AIAssistant'
 
 const font = "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif"
 
@@ -10,8 +11,10 @@ export default function MultiQuizView({ task, goal, knowledge, onClose, onComple
   const [selected, setSelected] = useState(null)
   const [answered, setAnswered] = useState(false)
   const [score, setScore] = useState(0)
+  const [results, setResults] = useState([]) // track per-question results
   const [done, setDone] = useState(false)
   const [showVignette, setShowVignette] = useState(false)
+  const [completing, setCompleting] = useState(false)
 
   useEffect(() => {
     async function load() {
@@ -35,6 +38,7 @@ export default function MultiQuizView({ task, goal, knowledge, onClose, onComple
     setSelected(idx)
     setAnswered(true)
     const correct = idx === questions[current].correctIndex
+    setResults(prev => [...prev, { questionIdx: current, selectedIdx: idx, correct }])
     if (correct) {
       setScore(s => s + 1)
     } else {
@@ -53,6 +57,11 @@ export default function MultiQuizView({ task, goal, knowledge, onClose, onComple
     }
   }
 
+  const handleComplete = () => {
+    setCompleting(true)
+    onComplete()
+  }
+
   const q = questions?.[current]
   const pct = questions ? ((current + (answered ? 1 : 0)) / questions.length) * 100 : 0
 
@@ -63,6 +72,8 @@ export default function MultiQuizView({ task, goal, knowledge, onClose, onComple
         @keyframes spin    { to{transform:rotate(360deg)} }
         @keyframes redVignette { 0%{opacity:0}20%{opacity:1}100%{opacity:0} }
         @keyframes popIn   { 0%{transform:scale(0.8);opacity:0}70%{transform:scale(1.05)}100%{transform:scale(1);opacity:1} }
+        @keyframes greenFlash { 0%{box-shadow:0 0 0 0 rgba(14,245,194,0.4)}100%{box-shadow:0 0 0 12px rgba(14,245,194,0)} }
+        @keyframes correctPulse { 0%{transform:scale(1)}50%{transform:scale(1.05)}100%{transform:scale(1)} }
       `}</style>
 
       {showVignette && (
@@ -81,20 +92,28 @@ export default function MultiQuizView({ task, goal, knowledge, onClose, onComple
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
 
-          {/* Progress */}
-          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-            {!loading && questions && !done && (
-              <>
-                <div style={{ height:6, width:120, background:'rgba(255,255,255,0.08)', borderRadius:9999, overflow:'hidden' }}>
-                  <div style={{ height:'100%', width:`${pct}%`, background:'linear-gradient(90deg,#FF453A,#FF6B35)', borderRadius:9999, transition:'width 0.3s' }}/>
-                </div>
-                <span style={{ fontSize:12, fontWeight:700, color:'#FF453A' }}>{current + 1}/{questions.length}</span>
-              </>
-            )}
+          {/* Progress dots */}
+          <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+            {!loading && questions && !done && questions.map((_, i) => {
+              const result = results.find(r => r.questionIdx === i)
+              const isCurrent = i === current
+              return (
+                <div key={i} style={{
+                  width: isCurrent ? 24 : 8, height: 8, borderRadius: 9999,
+                  background: result ? (result.correct ? '#0ef5c2' : '#FF453A') : isCurrent ? 'rgba(255,69,58,0.5)' : 'rgba(255,255,255,0.08)',
+                  transition: 'all 0.3s',
+                }}/>
+              )
+            })}
           </div>
 
-          <div style={{ padding:'4px 12px', background:'rgba(255,69,58,0.10)', border:'1px solid rgba(255,69,58,0.25)', borderRadius:9999, fontSize:11, fontWeight:700, color:'#FF453A', textTransform:'uppercase', letterSpacing:'1px' }}>
-            Quiz
+          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+            {!loading && questions && !done && (
+              <span style={{ fontSize:12, fontWeight:700, color:'#FF453A' }}>{current + 1}/{questions.length}</span>
+            )}
+            <div style={{ padding:'4px 12px', background:'rgba(255,69,58,0.10)', border:'1px solid rgba(255,69,58,0.25)', borderRadius:9999, fontSize:11, fontWeight:700, color:'#FF453A', textTransform:'uppercase', letterSpacing:'1px' }}>
+              Quiz
+            </div>
           </div>
         </div>
 
@@ -106,82 +125,138 @@ export default function MultiQuizView({ task, goal, knowledge, onClose, onComple
               <div style={{ textAlign:'center', paddingTop:80 }}>
                 <div style={{ width:44, height:44, border:'3px solid rgba(255,255,255,0.06)', borderTopColor:'#FF453A', borderRadius:'50%', animation:'spin 0.65s linear infinite', margin:'0 auto 20px' }}/>
                 <p style={{ color:'#636366', fontSize:14 }}>Generating quiz…</p>
+                <p style={{ color:'#475569', fontSize:12, marginTop:8 }}>Preparing questions that test real understanding</p>
               </div>
             ) : !questions ? (
               <div style={{ textAlign:'center', paddingTop:80 }}>
-                <p style={{ color:'#636366' }}>Could not load quiz. Try again later.</p>
+                <p style={{ color:'#636366', marginBottom:16 }}>Could not load quiz.</p>
+                <button onClick={onClose} style={{ padding:'10px 24px', background:'rgba(255,255,255,0.07)', border:'1px solid rgba(255,255,255,0.12)', borderRadius:12, color:'#8e8e93', fontSize:14, cursor:'pointer', fontFamily:font }}>Go Back</button>
               </div>
             ) : done ? (
-              <div style={{ animation:'popIn 0.45s cubic-bezier(0.34,1.56,0.64,1) both', textAlign:'center', paddingTop:60 }}>
-                <div style={{ fontSize:64, marginBottom:16 }}>
-                  {score >= 4 ? '🏆' : score >= 3 ? '⭐' : '📚'}
+              <div style={{ animation:'popIn 0.45s cubic-bezier(0.34,1.56,0.64,1) both', paddingTop:40 }}>
+                {/* Score header */}
+                <div style={{ textAlign:'center', marginBottom:32 }}>
+                  <div style={{ fontSize:56, marginBottom:16 }}>
+                    {score === questions.length ? '🏆' : score >= questions.length * 0.8 ? '🌟' : score >= questions.length * 0.6 ? '⭐' : '📚'}
+                  </div>
+                  <h2 style={{ fontSize:28, fontWeight:900, color:'#f5f5f7', marginBottom:8 }}>
+                    {score}/{questions.length} correct
+                  </h2>
+                  <p style={{ fontSize:15, color:'#8e8e93' }}>
+                    {score === questions.length ? 'Perfect score — you\'ve mastered this!' :
+                     score >= questions.length * 0.8 ? 'Excellent work! Almost perfect.' :
+                     score >= questions.length * 0.6 ? 'Good effort. Review the ones below.' :
+                     'Keep studying and try again — you\'ll improve!'}
+                  </p>
                 </div>
-                <h2 style={{ fontSize:28, fontWeight:900, color:'#f5f5f7', marginBottom:8 }}>
-                  {score}/{questions.length} correct
-                </h2>
-                <p style={{ fontSize:15, color:'#8e8e93', marginBottom:32 }}>
-                  {score === questions.length ? 'Perfect score! You nailed it.' :
-                   score >= 4 ? 'Great work — almost there!' :
-                   score >= 3 ? 'Good effort. Review the ones you missed.' :
-                   'Keep studying — you\'ll get there!'}
-                </p>
-                {/* Score breakdown */}
-                <div style={{ display:'flex', flexDirection:'column', gap:8, textAlign:'left' }}>
-                  {questions.map((qq, i) => (
-                    <div key={i} style={{ padding:'12px 16px', background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.07)', borderRadius:14 }}>
-                      <div style={{ display:'flex', gap:10, alignItems:'flex-start' }}>
-                        <span style={{ fontSize:14, flexShrink:0 }}>
-                          {/* We don't track per-question results in this simple flow; show all as checkmarks if done */}
-                          ✓
-                        </span>
-                        <div>
-                          <div style={{ fontSize:13, color:'#8e8e93' }}>{qq.question}</div>
-                          <div style={{ fontSize:12, color:'#636366', marginTop:4 }}>{qq.explanation}</div>
+
+                {/* Per-question breakdown */}
+                <div style={{ fontSize:12, fontWeight:700, color:'#636366', textTransform:'uppercase', letterSpacing:'1px', marginBottom:12 }}>Review</div>
+                <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                  {questions.map((qq, i) => {
+                    const result = results.find(r => r.questionIdx === i)
+                    const correct = result?.correct ?? false
+                    return (
+                      <div key={i} style={{ padding:'14px 16px', background: correct ? 'rgba(14,245,194,0.03)' : 'rgba(255,69,58,0.03)', border:`1px solid ${correct ? 'rgba(14,245,194,0.12)' : 'rgba(255,69,58,0.12)'}`, borderRadius:16 }}>
+                        <div style={{ display:'flex', gap:10, alignItems:'flex-start' }}>
+                          <div style={{ width:22, height:22, borderRadius:'50%', background: correct ? 'rgba(14,245,194,0.15)' : 'rgba(255,69,58,0.15)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, marginTop:1 }}>
+                            {correct
+                              ? <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#0ef5c2" strokeWidth="3" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+                              : <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#FF453A" strokeWidth="3" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                            }
+                          </div>
+                          <div style={{ flex:1 }}>
+                            <div style={{ fontSize:14, color:'#f5f5f7', fontWeight:600, marginBottom:6, lineHeight:1.4 }}>{qq.question}</div>
+                            {!correct && (
+                              <div style={{ fontSize:12, color:'#FF453A', marginBottom:4 }}>
+                                Your answer: {qq.options[result?.selectedIdx ?? 0]}
+                              </div>
+                            )}
+                            <div style={{ fontSize:12, color: correct ? '#34D399' : '#8e8e93', marginBottom:4 }}>
+                              Correct: {qq.options[qq.correctIndex]}
+                            </div>
+                            <div style={{ fontSize:12, color:'#636366', lineHeight:1.5 }}>{qq.explanation}</div>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
             ) : (
               <div key={current} style={{ animation:'fadeIn 0.3s ease both' }}>
-                <p style={{ fontSize:13, color:'#636366', fontWeight:600, marginBottom:14, textTransform:'uppercase', letterSpacing:'1px' }}>
-                  Question {current + 1} of {questions.length}
-                </p>
-                <h2 style={{ fontSize:20, fontWeight:800, color:'#f5f5f7', lineHeight:1.4, marginBottom:28 }}>
+                {/* Score tracker */}
+                <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:20 }}>
+                  <span style={{ fontSize:12, color:'#636366', fontWeight:600, textTransform:'uppercase', letterSpacing:'1px' }}>
+                    Question {current + 1} of {questions.length}
+                  </span>
+                  {score > 0 && (
+                    <span style={{ marginLeft:'auto', fontSize:12, fontWeight:700, color:'#0ef5c2', display:'flex', alignItems:'center', gap:4 }}>
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#0ef5c2" strokeWidth="3" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+                      {score} correct
+                    </span>
+                  )}
+                </div>
+
+                <h2 style={{ fontSize:20, fontWeight:800, color:'#f5f5f7', lineHeight:1.4, marginBottom:28, letterSpacing:'-0.3px' }}>
                   {q.question}
                 </h2>
+
                 <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
                   {q.options.map((opt, i) => {
                     const isCorrect = i === q.correctIndex
                     const isSelected = i === selected
-                    let bg = 'rgba(255,255,255,0.03)'
-                    let border = 'rgba(255,255,255,0.08)'
+                    let bg = 'rgba(255,255,255,0.04)'
+                    let border = 'rgba(255,255,255,0.10)'
                     let color = '#f5f5f7'
+                    let letterBg = 'rgba(255,255,255,0.06)'
+                    let letterColor = '#636366'
                     if (answered) {
-                      if (isCorrect) { bg = 'rgba(14,245,194,0.08)'; border = 'rgba(14,245,194,0.35)'; color = '#0ef5c2' }
-                      else if (isSelected && !isCorrect) { bg = 'rgba(255,69,58,0.08)'; border = 'rgba(255,69,58,0.35)'; color = '#FF453A' }
-                    } else if (isSelected) {
-                      bg = 'rgba(129,140,248,0.08)'; border = 'rgba(129,140,248,0.35)'; color = '#818CF8'
+                      if (isCorrect) {
+                        bg = 'rgba(14,245,194,0.08)'; border = 'rgba(14,245,194,0.35)'; color = '#0ef5c2'
+                        letterBg = 'rgba(14,245,194,0.15)'; letterColor = '#0ef5c2'
+                      } else if (isSelected && !isCorrect) {
+                        bg = 'rgba(255,69,58,0.08)'; border = 'rgba(255,69,58,0.35)'; color = '#FF453A'
+                        letterBg = 'rgba(255,69,58,0.15)'; letterColor = '#FF453A'
+                      } else {
+                        bg = 'rgba(255,255,255,0.02)'; color = '#636366'
+                      }
                     }
                     return (
                       <button key={i} onClick={() => handleSelect(i)}
-                        style={{ padding:'14px 16px', background:bg, border:`1.5px solid ${border}`, borderRadius:14, cursor: answered ? 'default' : 'pointer', textAlign:'left', color, fontSize:15, fontWeight:600, fontFamily:font, transition:'all 0.15s', display:'flex', gap:12, alignItems:'center' }}>
-                        <span style={{ width:24, height:24, borderRadius:'50%', background:'rgba(255,255,255,0.06)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:700, flexShrink:0 }}>
-                          {['A','B','C','D'][i]}
+                        style={{
+                          padding:'14px 16px', background:bg, border:`1.5px solid ${border}`,
+                          borderRadius:14, cursor: answered ? 'default' : 'pointer',
+                          textAlign:'left', color, fontSize:15, fontWeight:600,
+                          fontFamily:font, transition:'all 0.18s',
+                          display:'flex', gap:12, alignItems:'center',
+                          animation: answered && isCorrect ? 'correctPulse 0.3s ease' : 'none',
+                        }}
+                        onMouseEnter={e => { if (!answered) { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.18)' } }}
+                        onMouseLeave={e => { if (!answered) { e.currentTarget.style.background = bg; e.currentTarget.style.borderColor = border } }}
+                      >
+                        <span style={{ width:28, height:28, borderRadius:8, background:letterBg, display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:800, flexShrink:0, color:letterColor, transition:'all 0.18s' }}>
+                          {answered && isCorrect ? '✓' : answered && isSelected && !isCorrect ? '✗' : ['A','B','C','D'][i]}
                         </span>
-                        {opt}
+                        <span style={{ lineHeight:1.4 }}>{opt}</span>
                       </button>
                     )
                   })}
                 </div>
 
                 {answered && (
-                  <div style={{ marginTop:20, padding:'14px 16px', background: selected === q.correctIndex ? 'rgba(14,245,194,0.06)' : 'rgba(255,69,58,0.06)', border:`1px solid ${selected === q.correctIndex ? 'rgba(14,245,194,0.22)' : 'rgba(255,69,58,0.22)'}`, borderRadius:14, animation:'fadeIn 0.25s ease both' }}>
-                    <div style={{ fontSize:12, fontWeight:700, color: selected === q.correctIndex ? '#0ef5c2' : '#FF453A', textTransform:'uppercase', letterSpacing:'1px', marginBottom:6 }}>
-                      {selected === q.correctIndex ? 'Correct!' : 'Incorrect'}
+                  <div style={{
+                    marginTop:20, padding:'16px 18px',
+                    background: selected === q.correctIndex ? 'rgba(14,245,194,0.05)' : 'rgba(255,69,58,0.05)',
+                    border:`1px solid ${selected === q.correctIndex ? 'rgba(14,245,194,0.18)' : 'rgba(255,69,58,0.18)'}`,
+                    borderRadius:16, animation:'fadeIn 0.25s ease both',
+                  }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
+                      <div style={{ fontSize:12, fontWeight:800, color: selected === q.correctIndex ? '#0ef5c2' : '#FF453A', textTransform:'uppercase', letterSpacing:'1px' }}>
+                        {selected === q.correctIndex ? '✓ Correct' : '✗ Incorrect'}
+                      </div>
                     </div>
-                    <p style={{ fontSize:13, color:'#8e8e93', margin:0, lineHeight:1.6 }}>{q.explanation}</p>
+                    <p style={{ fontSize:14, color:'#9ca3af', margin:0, lineHeight:1.7 }}>{q.explanation}</p>
                   </div>
                 )}
               </div>
@@ -194,12 +269,29 @@ export default function MultiQuizView({ task, goal, knowledge, onClose, onComple
           <div style={{ maxWidth:640, margin:'0 auto', display:'flex', gap:12 }}>
             <button onClick={onClose} style={{ padding:'14px 24px', background:'rgba(255,255,255,0.07)', border:'1px solid rgba(255,255,255,0.12)', borderRadius:16, color:'#8e8e93', fontSize:15, fontWeight:600, cursor:'pointer', fontFamily:font }}>Back</button>
             {done ? (
-              <button onClick={onComplete} style={{ flex:1, padding:'14px', background:'linear-gradient(135deg,#0ef5c2,#00d4ff)', border:'none', borderRadius:16, color:'#06060f', fontSize:16, fontWeight:700, cursor:'pointer', fontFamily:font }}>
-                Complete ✓
+              <button onClick={handleComplete} disabled={completing} style={{
+                flex:1, padding:'14px',
+                background: completing ? 'rgba(14,245,194,0.06)' : 'linear-gradient(135deg,#0ef5c2,#00d4ff)',
+                border: completing ? '1px solid rgba(14,245,194,0.22)' : 'none',
+                borderRadius:16, color: completing ? '#0ef5c2' : '#06060f',
+                fontSize:16, fontWeight:700, cursor: completing ? 'default' : 'pointer', fontFamily:font,
+                display:'flex', alignItems:'center', justifyContent:'center', gap:8,
+              }}>
+                {completing ? (
+                  <><div style={{width:14,height:14,border:'2px solid rgba(14,245,194,0.2)',borderTopColor:'#0ef5c2',borderRadius:'50%',animation:'spin 0.65s linear infinite'}}/>Saving…</>
+                ) : 'Complete ✓'}
               </button>
             ) : answered ? (
-              <button onClick={handleNext} style={{ flex:1, padding:'14px', background:'linear-gradient(135deg,#818CF8,#6366F1)', border:'none', borderRadius:16, color:'#fff', fontSize:16, fontWeight:700, cursor:'pointer', fontFamily:font }}>
-                {current + 1 >= (questions?.length || 0) ? 'See Results →' : 'Next →'}
+              <button onClick={handleNext} style={{
+                flex:1, padding:'14px',
+                background:'linear-gradient(135deg,#818CF8,#6366F1)',
+                border:'none', borderRadius:16, color:'#fff',
+                fontSize:16, fontWeight:700, cursor:'pointer', fontFamily:font,
+                boxShadow:'0 0 20px rgba(129,140,248,0.25)',
+              }}
+              onMouseEnter={e=>{e.currentTarget.style.transform='translateY(-1px)'}}
+              onMouseLeave={e=>{e.currentTarget.style.transform='translateY(0)'}}>
+                {current + 1 >= (questions?.length || 0) ? 'See Results →' : 'Next Question →'}
               </button>
             ) : (
               <div style={{ flex:1, padding:'14px', background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)', borderRadius:16, color:'#636366', fontSize:15, fontWeight:600, textAlign:'center', fontFamily:font }}>
@@ -209,6 +301,8 @@ export default function MultiQuizView({ task, goal, knowledge, onClose, onComple
           </div>
         </div>
       </div>
+
+      <AIAssistant concept={task._concept || task.title} goal={goal} context={`Quiz Q${current + 1}: ${q?.question || task.title}`} />
     </>
   )
 }

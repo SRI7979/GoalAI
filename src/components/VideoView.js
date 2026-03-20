@@ -1,5 +1,6 @@
 'use client'
 import { useState } from 'react'
+import AIAssistant from './AIAssistant'
 
 function extractYouTubeId(url) {
   if (!url) return null
@@ -13,6 +14,7 @@ function extractYouTubeId(url) {
 
 export default function VideoView({ task, goal, onClose, onComplete }) {
   const [watched, setWatched] = useState(false)
+  const [completing, setCompleting] = useState(false)
 
   const ytId = extractYouTubeId(task.resourceUrl)
   const searchQuery = encodeURIComponent(`${task.title} ${goal} tutorial`)
@@ -129,16 +131,24 @@ export default function VideoView({ task, goal, onClose, onComplete }) {
             <button onClick={onClose} style={{ padding:'14px 24px', background:'rgba(255,255,255,0.07)', border:'1px solid rgba(255,255,255,0.12)', borderRadius:16, color:'#8e8e93', fontSize:15, fontWeight:600, cursor:'pointer', fontFamily:font }}>
               Back
             </button>
-            <button onClick={() => { setWatched(true); onComplete() }} style={{
-              flex:1, padding:'14px', background:'linear-gradient(135deg,#0ef5c2,#00d4ff)',
-              border:'none', borderRadius:16, color:'#06060f', fontSize:16, fontWeight:700,
-              cursor:'pointer', fontFamily:font, boxShadow:'0 0 32px rgba(14,245,194,0.28)',
+            <button onClick={() => { setCompleting(true); setWatched(true); onComplete() }} disabled={completing} style={{
+              flex:1, padding:'14px',
+              background: completing ? 'rgba(14,245,194,0.06)' : 'linear-gradient(135deg,#0ef5c2,#00d4ff)',
+              border: completing ? '1px solid rgba(14,245,194,0.22)' : 'none',
+              borderRadius:16, color: completing ? '#0ef5c2' : '#06060f',
+              fontSize:16, fontWeight:700, cursor: completing ? 'default' : 'pointer', fontFamily:font,
+              boxShadow: completing ? 'none' : '0 0 32px rgba(14,245,194,0.28)',
+              display:'flex', alignItems:'center', justifyContent:'center', gap:8,
             }}>
-              {watched ? 'Complete ✓' : 'Mark as Watched'}
+              {completing ? (
+                <><div style={{width:14,height:14,border:'2px solid rgba(14,245,194,0.2)',borderTopColor:'#0ef5c2',borderRadius:'50%',animation:'spin 0.65s linear infinite'}}/>Saving…</>
+              ) : watched ? 'Complete ✓' : 'Mark as Watched'}
             </button>
           </div>
         </div>
       </div>
+
+      <AIAssistant concept={task._concept || task.title} goal={goal} context={`Video: ${task.title}`} />
     </>
   )
 }

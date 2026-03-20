@@ -1,11 +1,13 @@
 'use client'
 import { useState, useEffect } from 'react'
+import AIAssistant from './AIAssistant'
 
 export default function ProjectView({ task, goal, knowledge, onClose, onComplete }) {
   const [loading, setLoading]   = useState(true)
   const [project, setProject]   = useState(null)
   const [checked, setChecked]   = useState({})
   const [showHint, setShowHint] = useState(false)
+  const [completing, setCompleting] = useState(false)
 
   const font = "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif"
 
@@ -75,6 +77,7 @@ export default function ProjectView({ task, goal, knowledge, onClose, onComplete
               <div style={{ textAlign:'center', paddingTop:80 }}>
                 <div style={{ width:44, height:44, border:'3px solid rgba(255,255,255,0.06)', borderTopColor:'#818CF8', borderRadius:'50%', animation:'spin 0.65s linear infinite', margin:'0 auto 20px' }}/>
                 <p style={{ color:'#636366', fontSize:14 }}>Generating your project…</p>
+                <p style={{ color:'#475569', fontSize:12, marginTop:8 }}>Building something hands-on for you</p>
               </div>
             ) : !project ? (
               <div style={{ textAlign:'center', paddingTop:80 }}>
@@ -153,17 +156,24 @@ export default function ProjectView({ task, goal, knowledge, onClose, onComplete
         <div style={{ padding:'14px 20px 30px', borderTop:'1px solid rgba(255,255,255,0.08)', background:'rgba(6,6,15,0.90)', backdropFilter:'blur(28px)' }}>
           <div style={{ maxWidth:680, margin:'0 auto', display:'flex', gap:12 }}>
             <button onClick={onClose} style={{ padding:'14px 24px', background:'rgba(255,255,255,0.07)', border:'1px solid rgba(255,255,255,0.12)', borderRadius:16, color:'#8e8e93', fontSize:15, fontWeight:600, cursor:'pointer', fontFamily:font }}>Back</button>
-            <button onClick={onComplete} style={{
+            <button onClick={() => { setCompleting(true); onComplete() }} disabled={completing} style={{
               flex:1, padding:'14px',
-              background: allChecked ? 'linear-gradient(135deg,#0ef5c2,#00d4ff)' : 'linear-gradient(135deg,#818CF8,#6366F1)',
-              border:'none', borderRadius:16, color:'#06060f', fontSize:16, fontWeight:700,
-              cursor:'pointer', fontFamily:font, boxShadow:'0 0 32px rgba(14,245,194,0.22)',
+              background: completing ? 'rgba(14,245,194,0.06)' : allChecked ? 'linear-gradient(135deg,#0ef5c2,#00d4ff)' : 'linear-gradient(135deg,#818CF8,#6366F1)',
+              border: completing ? '1px solid rgba(14,245,194,0.22)' : 'none',
+              borderRadius:16, color: completing ? '#0ef5c2' : '#06060f', fontSize:16, fontWeight:700,
+              cursor: completing ? 'default' : 'pointer', fontFamily:font,
+              boxShadow: completing ? 'none' : '0 0 32px rgba(14,245,194,0.22)',
+              display:'flex', alignItems:'center', justifyContent:'center', gap:8,
             }}>
-              {allChecked ? 'Complete ✓' : `Complete (${checkedCount}/${totalSteps} done)`}
+              {completing ? (
+                <><div style={{width:14,height:14,border:'2px solid rgba(14,245,194,0.2)',borderTopColor:'#0ef5c2',borderRadius:'50%',animation:'spin 0.65s linear infinite'}}/>Saving…</>
+              ) : allChecked ? 'Complete ✓' : `Complete (${checkedCount}/${totalSteps} done)`}
             </button>
           </div>
         </div>
       </div>
+
+      <AIAssistant concept={task._concept || task.title} goal={goal} context={`Project: ${project?.title || task.title}`} />
     </>
   )
 }
