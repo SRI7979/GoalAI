@@ -135,6 +135,7 @@ const HomeIcon     = () => <svg width="22" height="22" viewBox="0 0 24 24" fill=
 const PathIcon     = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
 const StatsIcon    = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
 const SettingsIcon = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+const ShopIcon     = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2L3 7v13a2 2 0 002 2h14a2 2 0 002-2V7l-3-5H6z"/><line x1="3" y1="7" x2="21" y2="7"/><path d="M16 11a4 4 0 01-8 0"/></svg>
 
 // ─── XP toast ──────────────────────────────────────────────────────────────────
 function XPToast({ id, amount, x, y, onDone }) {
@@ -667,8 +668,6 @@ export default function Dashboard() {
   const [gems,             setGems]             = useState(0)
   const [gemPulse,         setGemPulse]         = useState(false)
   const [gemToasts,        setGemToasts]        = useState([])
-  const [showGemShop,      setShowGemShop]      = useState(false)
-
   // XP Boost
   const [xpBoostUntil,     setXpBoostUntil]     = useState(null)
   const [boostTimeLeft,    setBoostTimeLeft]    = useState(0)
@@ -822,6 +821,9 @@ export default function Dashboard() {
     setXpAnimating(true)
     setTimeout(() => setXpAnimating(false), 800)
 
+    // 3a. Optimistic gem bump (+5 per task)
+    setGems(g => g + 5)
+
     // 3b. Instant mission complete — don't wait for API
     const allDoneNow = nextTasks.every(t => t.completed)
     if (allDoneNow) {
@@ -858,6 +860,7 @@ export default function Dashboard() {
       if (!res.ok) {
         setTasks(prevTasks)
         setXpDisplay(getLevelProgress(prevXp))
+        setGems(g => Math.max(0, g - 5)) // rollback optimistic gem
         setError('Could not save. Try again.')
         setCompleting(null)
         return
@@ -878,14 +881,15 @@ export default function Dashboard() {
         addXpToast(data.streakBonusXp, event?.clientX || window.innerWidth/2, 120)
       }
 
-      // Gem update
+      // Gem update — we already added +5 optimistically, so only add the extra (mission/streak bonuses)
+      const extraGems = (data.gemsEarned || 0) - 5
+      if (extraGems > 0) {
+        setGems(g => g + extraGems)
+      }
       if (data.gemsEarned > 0) {
-        setGems(data.newGemTotal ?? (g => g + data.gemsEarned))
         setGemPulse(true)
         setTimeout(() => setGemPulse(false), 400)
         setGemToasts(prev => [...prev, { id: Date.now(), amount: data.gemsEarned }])
-      } else if (data.newGemTotal != null) {
-        setGems(data.newGemTotal)
       }
 
       // Treasure chest — show after XP toast settles
@@ -936,6 +940,7 @@ export default function Dashboard() {
     } catch {
       setTasks(prevTasks)
       setXpDisplay(getLevelProgress(prevXp))
+      setGems(g => Math.max(0, g - 5)) // rollback optimistic gem
       setError('Network error. Check your connection.')
     } finally {
       setCompleting(null)
@@ -1239,23 +1244,6 @@ export default function Dashboard() {
         />
       )}
 
-      {/* Gem Shop */}
-      {showGemShop && (
-        <GemShop
-          gems={gems}
-          goalId={goal?.id}
-          onClose={() => setShowGemShop(false)}
-          onPurchase={(data) => {
-            if (data.newGemTotal != null) setGems(data.newGemTotal)
-            if (data.heartsRemaining != null) { setPrevHearts(heartsRemaining); setHeartsRemaining(data.heartsRemaining) }
-            if (data.freezeCount != null) setFreezeCount(data.freezeCount)
-            if (data.xpBoostUntil) setXpBoostUntil(new Date(data.xpBoostUntil))
-            setGemPulse(true)
-            setTimeout(() => setGemPulse(false), 400)
-          }}
-        />
-      )}
-
       {/* Task preview modal */}
       {previewTask && (
         <TaskPreview
@@ -1423,7 +1411,7 @@ export default function Dashboard() {
             <HeartBar hearts={heartsRemaining} prevHearts={prevHearts} />
 
             {/* Gems */}
-            <button onClick={() => setShowGemShop(true)} style={{
+            <button onClick={() => setActiveTab('shop')} style={{
               display:'flex',alignItems:'center',gap:4,
               padding:'5px 10px',background:T.tealDim,
               border:`1px solid ${T.tealBorder}`,borderRadius:9999,
@@ -1890,6 +1878,24 @@ export default function Dashboard() {
         )}
       </div>
 
+        {/* ══════════════════════════════════════════════════════════════ */}
+        {/* SHOP TAB                                                       */}
+        {/* ══════════════════════════════════════════════════════════════ */}
+        {activeTab === 'shop' && (
+          <GemShop
+            gems={gems}
+            goalId={goal?.id}
+            onPurchase={(data) => {
+              if (data.newGemTotal != null) setGems(data.newGemTotal)
+              if (data.heartsRemaining != null) { setPrevHearts(heartsRemaining); setHeartsRemaining(data.heartsRemaining) }
+              if (data.freezeCount != null) setFreezeCount(data.freezeCount)
+              if (data.xpBoostUntil) setXpBoostUntil(new Date(data.xpBoostUntil))
+              setGemPulse(true)
+              setTimeout(() => setGemPulse(false), 400)
+            }}
+          />
+        )}
+
       {/* ── iOS bottom tab bar ── */}
       <div style={{
         position:'fixed',bottom:0,left:0,right:0,zIndex:70,
@@ -1900,9 +1906,10 @@ export default function Dashboard() {
         paddingBottom:'env(safe-area-inset-bottom,0px)',
       }}>
         <div style={{maxWidth:600,margin:'0 auto',
-          display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr'}}>
+          display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr 1fr'}}>
           {[
             {key:'home',     label:'Home',  Icon:HomeIcon    },
+            {key:'shop',     label:'Shop',  Icon:ShopIcon    },
             {key:'stats',    label:'Stats', Icon:StatsIcon   },
             {key:'path',     label:'Path',  Icon:PathIcon    },
             {key:'settings', label:'More',  Icon:SettingsIcon},
