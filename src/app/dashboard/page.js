@@ -16,6 +16,7 @@ import CapstoneView from '@/components/CapstoneView'
 import MissionComplete from '@/components/MissionComplete'
 import HeartBar from '@/components/HeartBar'
 import NoHeartsOverlay from '@/components/NoHeartsOverlay'
+import GemShop from '@/components/GemShop'
 import { getLevelProgress, xpForTask, missionXpReward, computeTotalXpFromRows } from '@/lib/xp'
 import { track, EVENTS } from '@/lib/analytics'
 
@@ -667,6 +668,10 @@ export default function Dashboard() {
   const [gemToasts,        setGemToasts]        = useState([])
   const [showGemShop,      setShowGemShop]      = useState(false)
 
+  // XP Boost
+  const [xpBoostUntil,     setXpBoostUntil]     = useState(null)
+  const [boostTimeLeft,    setBoostTimeLeft]    = useState(0)
+
   // Plan meta
   const [totalDaysPlanned,  setTotalDaysPlanned]  = useState(0)
   const [generatingNext,    setGeneratingNext]    = useState(false)
@@ -739,6 +744,11 @@ export default function Dashboard() {
     setHeartsRemaining(h)
     setHeartsRefillAt(prog?.hearts_refill_at || null)
     setGems(Number(prog?.gems) || 0)
+    if (prog?.xp_boost_until) {
+      const until = new Date(prog.xp_boost_until)
+      if (until > new Date()) setXpBoostUntil(until)
+      else setXpBoostUntil(null)
+    }
     if (prog?.total_days) setTotalDaysPlanned(Number(prog.total_days))
 
     // Comeback detection: has prior completed days but streak is 0
@@ -761,6 +771,19 @@ export default function Dashboard() {
   useEffect(() => {
     if (todayRow) setTasks(Array.isArray(todayRow.tasks) ? todayRow.tasks : [])
   }, [todayRow?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // XP boost countdown timer
+  useEffect(() => {
+    if (!xpBoostUntil) { setBoostTimeLeft(0); return }
+    const tick = () => {
+      const diff = Math.max(0, Math.floor((xpBoostUntil - Date.now()) / 1000))
+      setBoostTimeLeft(diff)
+      if (diff <= 0) setXpBoostUntil(null)
+    }
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [xpBoostUntil])
 
   // ─── XP toast helpers ───────────────────────────────────────────────────────
   const addXpToast    = useCallback((amount, x, y) => {
@@ -1188,6 +1211,23 @@ export default function Dashboard() {
         onStartTomorrow={tomorrowRow ? handleStartTomorrow : undefined}
       />
 
+      {/* Gem Shop */}
+      {showGemShop && (
+        <GemShop
+          gems={gems}
+          goalId={goal?.id}
+          onClose={() => setShowGemShop(false)}
+          onPurchase={(data) => {
+            if (data.newGemTotal != null) setGems(data.newGemTotal)
+            if (data.heartsRemaining != null) { setPrevHearts(heartsRemaining); setHeartsRemaining(data.heartsRemaining) }
+            if (data.freezeCount != null) setFreezeCount(data.freezeCount)
+            if (data.xpBoostUntil) setXpBoostUntil(new Date(data.xpBoostUntil))
+            setGemPulse(true)
+            setTimeout(() => setGemPulse(false), 400)
+          }}
+        />
+      )}
+
       {/* Task preview modal */}
       {previewTask && (
         <TaskPreview
@@ -1413,6 +1453,27 @@ export default function Dashboard() {
               <span style={{fontSize:13,color:T.red}}>{error}</span>
               <button onClick={() => setError('')}
                 style={{background:'none',border:'none',color:T.red,cursor:'pointer',fontSize:16}}>×</button>
+            </div>
+          </div>
+        )}
+
+        {/* Double XP banner */}
+        {boostTimeLeft > 0 && (
+          <div style={{maxWidth:600,margin:'8px auto 0',padding:'0 20px'}}>
+            <div style={{
+              background:'linear-gradient(90deg,rgba(251,191,36,0.10),rgba(14,245,194,0.08))',
+              border:'1px solid rgba(251,191,36,0.22)',
+              borderRadius:12,padding:'10px 16px',
+              display:'flex',alignItems:'center',justifyContent:'space-between',
+              animation:'pulseActive 2s ease-in-out infinite',
+            }}>
+              <div style={{display:'flex',alignItems:'center',gap:8}}>
+                <span style={{fontSize:16}}>⚡</span>
+                <span style={{fontSize:13,fontWeight:700,color:'#FBBF24'}}>2x XP Active</span>
+              </div>
+              <span style={{fontSize:14,fontWeight:800,color:'#FBBF24',fontFamily:T.fontMono}}>
+                {Math.floor(boostTimeLeft/60)}:{String(boostTimeLeft%60).padStart(2,'0')}
+              </span>
             </div>
           </div>
         )}
