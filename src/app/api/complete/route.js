@@ -91,7 +91,7 @@ export async function POST(request) {
       // Read current progress (total_xp may not exist yet — handle gracefully)
       const { data: progress } = await supabase
         .from('user_progress')
-        .select('total_xp,current_streak,longest_streak,last_activity_date,gems,xp_boost_until')
+        .select('total_xp,current_streak,longest_streak,last_activity_date,gems,gems_earned_total,xp_boost_until,last_chest_day,freeze_count')
         .eq('user_id', row.user_id)
         .eq('goal_id', row.goal_id)
         .maybeSingle()
@@ -193,6 +193,69 @@ export async function POST(request) {
       warnings.push(`Mastery update skipped: ${e.message}`)
     }
 
+    // ── Treasure chest (lesson-type tasks only, max 1/day) ────────────────────
+    let chestReward = null
+    try {
+      const isLessonType = ['lesson','reading','flashcard','quiz'].includes(targetTask.type)
+      const lastChestDay = Number(progress?.last_chest_day) || 0
+      const currentDay   = row.day_number || 0
+
+      if (!alreadyCompleted && isLessonType && lastChestDay < currentDay) {
+        let chance = 0.30
+        if ((newStreakState?.current || 0) > 7) chance += 0.10
+        if (missionJustCompleted) chance += 0.10
+
+        if (Math.random() < chance) {
+          // Roll reward
+          const roll = Math.random()
+          if (roll < 0.05) {
+            chestReward = { type: 'gems', amount: 50, label: '50 Gems — Jackpot!' }
+          } else if (roll < 0.15) {
+            chestReward = { type: 'streakFreeze', amount: 1, label: 'Streak Freeze' }
+          } else if (roll < 0.30) {
+            chestReward = { type: 'xpBoost', amount: 15, label: 'Double XP (15 min)' }
+          } else if (roll < 0.50) {
+            chestReward = { type: 'gems', amount: 20 + Math.floor(Math.random() * 11), label: null }
+          } else {
+            chestReward = { type: 'gems', amount: 5 + Math.floor(Math.random() * 11), label: null }
+          }
+          if (chestReward.type === 'gems' && !chestReward.label) {
+            chestReward.label = `${chestReward.amount} Gems`
+          }
+
+          // Apply chest reward
+          const chestUpdate = { last_chest_day: currentDay }
+          if (chestReward.type === 'gems') {
+            const updatedGems = (newGemTotal ?? currentGems) + chestReward.amount
+            chestUpdate.gems = updatedGems
+            newGemTotal = updatedGems
+          } else if (chestReward.type === 'streakFreeze') {
+            chestUpdate.freeze_count = (Number(progress?.freeze_count) || 0) + 1
+          } else if (chestReward.type === 'xpBoost') {
+            chestUpdate.xp_boost_until = new Date(Date.now() + 15 * 60 * 1000).toISOString()
+          }
+
+          await supabase
+            .from('user_progress')
+            .update(chestUpdate)
+            .eq('user_id', row.user_id)
+            .eq('goal_id', row.goal_id)
+
+          // Log gem transaction for chest gems
+          if (chestReward.type === 'gems') {
+            try {
+              await supabase.from('gem_transactions').insert({
+                user_id: row.user_id, goal_id: row.goal_id,
+                amount: chestReward.amount, reason: 'treasure_chest',
+              })
+            } catch { /* non-critical */ }
+          }
+        }
+      }
+    } catch (e) {
+      warnings.push(`Chest check skipped: ${e.message}`)
+    }
+
     // ── Generate next tasks on day completion ─────────────────────────────────
     let nextResult = null
     if (completionStatus === 'completed') {
@@ -222,6 +285,7 @@ export async function POST(request) {
       streakState:       newStreakState,
       gemsEarned:        alreadyCompleted ? 0 : gemsEarned,
       newGemTotal:       newGemTotal ?? null,
+      chestReward,
       nextResult,
       warnings,
     })

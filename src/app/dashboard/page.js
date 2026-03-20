@@ -17,6 +17,7 @@ import MissionComplete from '@/components/MissionComplete'
 import HeartBar from '@/components/HeartBar'
 import NoHeartsOverlay from '@/components/NoHeartsOverlay'
 import GemShop from '@/components/GemShop'
+import TreasureChest from '@/components/TreasureChest'
 import { getLevelProgress, xpForTask, missionXpReward, computeTotalXpFromRows } from '@/lib/xp'
 import { track, EVENTS } from '@/lib/analytics'
 
@@ -672,6 +673,9 @@ export default function Dashboard() {
   const [xpBoostUntil,     setXpBoostUntil]     = useState(null)
   const [boostTimeLeft,    setBoostTimeLeft]    = useState(0)
 
+  // Treasure Chest
+  const [chestReward,      setChestReward]      = useState(null)
+
   // Plan meta
   const [totalDaysPlanned,  setTotalDaysPlanned]  = useState(0)
   const [generatingNext,    setGeneratingNext]    = useState(false)
@@ -882,6 +886,11 @@ export default function Dashboard() {
         setGemToasts(prev => [...prev, { id: Date.now(), amount: data.gemsEarned }])
       } else if (data.newGemTotal != null) {
         setGems(data.newGemTotal)
+      }
+
+      // Treasure chest — show after XP toast settles
+      if (data.chestReward) {
+        setTimeout(() => setChestReward(data.chestReward), 800)
       }
 
       // Analytics: task completed
@@ -1210,6 +1219,25 @@ export default function Dashboard() {
         onDismiss={() => { setMissionDone(false); setMcData(null) }}
         onStartTomorrow={tomorrowRow ? handleStartTomorrow : undefined}
       />
+
+      {/* Treasure Chest */}
+      {chestReward && (
+        <TreasureChest
+          reward={chestReward}
+          onClaim={(reward) => {
+            if (reward.type === 'gems') {
+              setGems(g => g + reward.amount)
+              setGemPulse(true)
+              setTimeout(() => setGemPulse(false), 400)
+            } else if (reward.type === 'streakFreeze') {
+              setFreezeCount(f => f + 1)
+            } else if (reward.type === 'xpBoost') {
+              setXpBoostUntil(new Date(Date.now() + 15 * 60 * 1000))
+            }
+            setChestReward(null)
+          }}
+        />
+      )}
 
       {/* Gem Shop */}
       {showGemShop && (
