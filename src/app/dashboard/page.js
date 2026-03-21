@@ -44,6 +44,7 @@ const T = {
   textDead:     '#334155',
   red:          '#FF453A',
   font:         "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif",
+  fontMono:     "'JetBrains Mono','Fira Code',Menlo,monospace",
 }
 
 // ─── Keyframes ─────────────────────────────────────────────────────────────────
@@ -71,6 +72,9 @@ const KEYFRAMES = `
   @keyframes slideUpPreview{from{transform:translateY(100%)}to{transform:translateY(0)}}
   @keyframes gemPulse{0%{transform:scale(1)}50%{transform:scale(1.22)}100%{transform:scale(1)}}
   @keyframes gemFloat{0%{opacity:1;transform:translateY(0)}100%{opacity:0;transform:translateY(-36px)}}
+  @property --chal-angle{syntax:'<angle>';initial-value:0deg;inherits:false}
+  @keyframes chalBorderSpin{to{--chal-angle:360deg}}
+  @keyframes questShimmer{0%{background-position:200% center}100%{background-position:-200% center}}
   @media (prefers-reduced-motion:reduce){
     @keyframes fadeUp    {from{opacity:0}to{opacity:1}}
     @keyframes xpRise    {to{opacity:0}}
@@ -97,6 +101,20 @@ const TASK_STYLE = {
   review:   {color:'#FF6B35',bg:'rgba(255,107,53,0.10)',  border:'rgba(255,107,53,0.22)',  label:'REVIEW'  },
 }
 const taskStyle = (type) => TASK_STYLE[type] || TASK_STYLE.lesson
+
+// Helper: current week's Monday as YYYY-MM-DD
+function getWeekStartStr() {
+  const d = new Date()
+  const day = d.getDay()
+  const off = day === 0 ? -6 : 1 - day
+  const mon = new Date(d)
+  mon.setDate(d.getDate() + off)
+  return mon.toISOString().split('T')[0]
+}
+
+// Reward calendar day gems (Mon-Sun)
+const CAL_REWARDS = [5, 8, 10, 12, 15, 20, 30]
+const CAL_DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
 
 // ─── Energy options ────────────────────────────────────────────────────────────
 const ENERGY_OPTIONS = [
@@ -685,6 +703,21 @@ export default function Dashboard() {
   const [freezeToast,    setFreezeToast]    = useState(false)
   const [isComeback,     setIsComeback]     = useState(false)
 
+  // Daily Quests
+  const [quests,         setQuests]         = useState([])
+  const [questMasterToast, setQuestMasterToast] = useState(false)
+
+  // Reward Calendar
+  const [rewardCalendar, setRewardCalendar] = useState({ week_start: null, days_claimed: [] })
+  const [claimingReward, setClaimingReward] = useState(false)
+
+  // Weekly Challenge
+  const [weeklyChallenge, setWeeklyChallenge] = useState(null)
+  const [challengeDaysLeft, setChallengeDaysLeft] = useState(0)
+
+  // XP Boost Event
+  const [showBoostEvent,   setShowBoostEvent]   = useState(false)
+
   // ─── Load ──────────────────────────────────────────────────────────────────
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
@@ -730,7 +763,7 @@ export default function Dashboard() {
     setTomorrowRow(tomorrowR)
 
     const { data: prog } = await supabase
-      .from('user_progress').select('total_xp,current_streak,longest_streak,freeze_count,hearts_remaining,hearts_refill_at,total_days,gems,xp_boost_until')
+      .from('user_progress').select('total_xp,current_streak,longest_streak,freeze_count,hearts_remaining,hearts_refill_at,total_days,gems,xp_boost_until,reward_calendar,last_event_date')
       .eq('goal_id', activeGoal.id).eq('user_id', me.id).maybeSingle()
 
     const storedXp   = Number(prog?.total_xp) || 0
@@ -753,6 +786,41 @@ export default function Dashboard() {
       else setXpBoostUntil(null)
     }
     if (prog?.total_days) setTotalDaysPlanned(Number(prog.total_days))
+
+    // Load quests from today's row
+    if (today?.quests && Array.isArray(today.quests) && today.quests.length > 0) {
+      setQuests(today.quests)
+    } else if (today) {
+      // Generate quests client-side for display (will be persisted on first task complete)
+      const { generateDailyQuests } = await import('@/lib/quests')
+      const dayTasks = Array.isArray(today.tasks) ? today.tasks : []
+      setQuests(generateDailyQuests(today.day_number || 1, dayTasks.length))
+    }
+
+    // Load reward calendar
+    if (prog?.reward_calendar) {
+      const cal = prog.reward_calendar
+      const weekStart = getWeekStartStr()
+      if (cal.week_start === weekStart) {
+        setRewardCalendar(cal)
+      } else {
+        setRewardCalendar({ week_start: weekStart, days_claimed: [] })
+      }
+    }
+
+    // Load weekly challenge
+    try {
+      const { data: { session: sess } } = await supabase.auth.getSession()
+      const tok = sess?.access_token || null
+      const chalRes = await fetch(`/api/weekly-challenge?goalId=${activeGoal.id}${tok ? `&token=${tok}` : ''}`, {
+        headers: tok ? { Authorization: `Bearer ${tok}` } : {},
+      })
+      if (chalRes.ok) {
+        const chalData = await chalRes.json()
+        setWeeklyChallenge(chalData.challenge || null)
+        setChallengeDaysLeft(chalData.daysRemaining ?? 0)
+      }
+    } catch { /* silent */ }
 
     // Comeback detection: has prior completed days but streak is 0
     const priorDone  = (taskRows || []).filter(r => r.completion_status === 'completed').length
@@ -790,6 +858,56 @@ export default function Dashboard() {
     const id = setInterval(tick, 1000)
     return () => clearInterval(id)
   }, [xpBoostUntil])
+
+  // ─── XP boost random event (25% chance, max once per day) ─────────────────
+  useEffect(() => {
+    if (loading || !goal || !user) return
+    const todayStr = new Date().toISOString().split('T')[0]
+    const lastEvent = localStorage.getItem('pathai.lastBoostEvent')
+    if (lastEvent === todayStr) return
+    if (xpBoostUntil) return // already boosted
+
+    if (Math.random() < 0.25) {
+      localStorage.setItem('pathai.lastBoostEvent', todayStr)
+      // Fire boost event after short delay for dramatic effect
+      setTimeout(() => {
+        setShowBoostEvent(true)
+        const boostEnd = new Date(Date.now() + 15 * 60 * 1000)
+        setXpBoostUntil(boostEnd)
+        // Persist to server (client supabase)
+        supabase.from('user_progress').update({
+          xp_boost_until: boostEnd.toISOString(),
+          last_event_date: todayStr,
+        }).eq('user_id', user.id).eq('goal_id', goal.id).then(() => {}).catch(() => {})
+        // Auto-dismiss event overlay after 2.5s
+        setTimeout(() => setShowBoostEvent(false), 2500)
+      }, 2000)
+    }
+  }, [loading, goal, user]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ─── Reward calendar claim handler ─────────────────────────────────────────
+  const handleClaimReward = useCallback(async () => {
+    if (claimingReward || !goal) return
+    setClaimingReward(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token || null
+      const res = await fetch('/api/claim-reward', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ goalId: goal.id, accessToken: token }),
+      })
+      const data = await res.json()
+      if (data.ok) {
+        setRewardCalendar(data.calendar)
+        if (data.newGemTotal != null) setGems(data.newGemTotal)
+        setGemPulse(true)
+        setTimeout(() => setGemPulse(false), 400)
+        setGemToasts(prev => [...prev, { id: Date.now(), amount: data.reward + (data.perfectWeekBonus || 0) }])
+      }
+    } catch { /* silent */ }
+    setClaimingReward(false)
+  }, [claimingReward, goal])
 
   // ─── XP toast helpers ───────────────────────────────────────────────────────
   const addXpToast    = useCallback((amount, x, y) => {
@@ -893,6 +1011,34 @@ export default function Dashboard() {
         setGemPulse(true)
         setTimeout(() => setGemPulse(false), 400)
         setGemToasts(prev => [...prev, { id: Date.now(), amount: data.gemsEarned }])
+      }
+
+      // Quest updates
+      if (data.questUpdate?.quests) {
+        setQuests(data.questUpdate.quests)
+        if (data.questUpdate.questGemsEarned > 0) {
+          setGems(g => g + data.questUpdate.questGemsEarned)
+          setGemPulse(true)
+          setTimeout(() => setGemPulse(false), 400)
+        }
+        if (data.questUpdate.questMasterBonus) {
+          setQuestMasterToast(true)
+          setTimeout(() => setQuestMasterToast(false), 4000)
+        }
+      }
+
+      // Weekly challenge updates
+      if (data.challengeUpdate) {
+        setWeeklyChallenge(prev => prev ? {
+          ...prev,
+          current_value: data.challengeUpdate.currentValue,
+          completed: data.challengeUpdate.completed,
+        } : prev)
+        if (data.challengeUpdate.completed && data.challengeUpdate.gemReward > 0) {
+          setGems(g => g + data.challengeUpdate.gemReward)
+          setGemPulse(true)
+          setTimeout(() => setGemPulse(false), 400)
+        }
       }
 
       // Treasure chest — show after XP toast settles
@@ -1247,6 +1393,33 @@ export default function Dashboard() {
         />
       )}
 
+      {/* XP Boost Event overlay */}
+      {showBoostEvent && (
+        <div style={{
+          position:'fixed',inset:0,zIndex:500,
+          background:'rgba(0,0,0,0.75)',backdropFilter:'blur(12px)',
+          display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',
+          animation:'fadeInBg 0.2s ease both',fontFamily:T.font,
+        }} onClick={() => setShowBoostEvent(false)}>
+          <div style={{
+            fontSize:64,marginBottom:16,
+            animation:'checkPop 0.5s cubic-bezier(0.34,1.56,0.64,1)',
+          }}>⚡</div>
+          <div style={{
+            fontSize:28,fontWeight:900,
+            background:'linear-gradient(90deg,#FBBF24,#0ef5c2)',
+            WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',
+            backgroundClip:'text',
+            animation:'levelPop 0.5s 0.15s cubic-bezier(0.34,1.3,0.64,1) both',
+            marginBottom:8,
+          }}>DOUBLE XP ACTIVATED!</div>
+          <div style={{
+            fontSize:16,fontWeight:700,color:T.textSec,
+            animation:'fadeUp 0.4s 0.3s ease both',
+          }}>15:00 remaining</div>
+        </div>
+      )}
+
       {/* Task preview modal */}
       {previewTask && (
         <TaskPreview
@@ -1505,6 +1678,278 @@ export default function Dashboard() {
             <XPLevelBar {...xpDisplay} animating={xpAnimating}/>
             <MissionHeroCard todayRow={todayRow} tasks={tasks} dayNumber={dayNumber}/>
             <EnergySelector value={energy} onChange={handleEnergyChange}/>
+
+            {/* ── Weekly Challenge ── */}
+            {weeklyChallenge && (
+              <div style={{maxWidth:600,margin:'12px auto 0',padding:'0 20px'}}>
+                <div style={{
+                  background: weeklyChallenge.completed
+                    ? 'linear-gradient(135deg,rgba(255,215,0,0.12),rgba(251,191,36,0.06))'
+                    : 'linear-gradient(135deg,rgba(14,245,194,0.06),rgba(0,212,255,0.04))',
+                  border: `1.5px solid ${weeklyChallenge.completed ? 'rgba(255,215,0,0.30)' : T.tealBorder}`,
+                  borderRadius:20,padding:'16px 18px',position:'relative',overflow:'hidden',
+                }}>
+                  {/* Animated gradient border overlay */}
+                  {!weeklyChallenge.completed && (
+                    <div style={{
+                      position:'absolute',inset:-1,borderRadius:20,
+                      background:'conic-gradient(from var(--chal-angle,0deg),transparent 60%,rgba(14,245,194,0.18) 80%,rgba(255,215,0,0.15) 90%,transparent 100%)',
+                      animation:'chalBorderSpin 10s linear infinite',
+                      pointerEvents:'none',zIndex:0,
+                    }}/>
+                  )}
+                  <div style={{position:'relative',zIndex:1}}>
+                    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
+                      <div style={{display:'flex',alignItems:'center',gap:8}}>
+                        <span style={{fontSize:18}}>{weeklyChallenge.completed ? '🏆' : '⚔️'}</span>
+                        <span style={{fontSize:10,fontWeight:800,letterSpacing:'1.5px',
+                          color:weeklyChallenge.completed ? '#FFD700' : T.teal,textTransform:'uppercase'}}>
+                          {weeklyChallenge.completed ? 'Challenge Complete!' : 'Weekly Challenge'}
+                        </span>
+                      </div>
+                      {!weeklyChallenge.completed && (
+                        <span style={{fontSize:11,color:T.textMuted,fontWeight:600}}>
+                          {challengeDaysLeft}d left
+                        </span>
+                      )}
+                    </div>
+                    <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:10}}>
+                      {weeklyChallenge.description}
+                    </div>
+                    {/* Progress bar */}
+                    <div style={{marginBottom:8}}>
+                      <div style={{height:8,background:'rgba(255,255,255,0.06)',borderRadius:9999,overflow:'hidden'}}>
+                        <div style={{
+                          height:'100%',
+                          width:`${Math.min(100, ((weeklyChallenge.current_value || 0) / (weeklyChallenge.target_value || 1)) * 100)}%`,
+                          background: weeklyChallenge.completed
+                            ? 'linear-gradient(90deg,#FFD700,#FFA500)'
+                            : 'linear-gradient(90deg,#0ef5c2,#00d4ff)',
+                          borderRadius:9999,transition:'width 0.5s',
+                          boxShadow: weeklyChallenge.completed
+                            ? '0 0 12px rgba(255,215,0,0.50)'
+                            : '0 0 10px rgba(14,245,194,0.45)',
+                        }}/>
+                      </div>
+                      <div style={{display:'flex',justifyContent:'space-between',marginTop:4}}>
+                        <span style={{fontSize:11,fontWeight:700,color:weeklyChallenge.completed ? '#FFD700' : T.teal}}>
+                          {weeklyChallenge.current_value || 0}/{weeklyChallenge.target_value}
+                        </span>
+                        <div style={{display:'flex',alignItems:'center',gap:8}}>
+                          <span style={{fontSize:11,fontWeight:700,color:T.teal,display:'flex',alignItems:'center',gap:3}}>
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
+                              <path d="M6 3L2 9l10 12L22 9l-4-6H6z" fill={T.teal} opacity="0.85"/>
+                            </svg>
+                            {weeklyChallenge.gem_reward}
+                          </span>
+                          <span style={{fontSize:11,fontWeight:700,color:'#FBBF24',display:'flex',alignItems:'center',gap:3}}>
+                            <BoltIcon sz={10}/>{weeklyChallenge.xp_reward} XP
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── Daily Quests ── */}
+            {quests.length > 0 && (
+              <div style={{maxWidth:600,margin:'12px auto 0',padding:'0 20px'}}>
+                <div style={{
+                  background:T.surface,border:`1px solid ${T.border}`,
+                  borderRadius:20,padding:'16px 18px',
+                  backdropFilter:'blur(16px)',WebkitBackdropFilter:'blur(16px)',
+                }}>
+                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
+                    <div style={{display:'flex',alignItems:'center',gap:8}}>
+                      <span style={{fontSize:16}}>🎯</span>
+                      <span style={{fontSize:12,fontWeight:800,letterSpacing:'1px',color:T.textSec,textTransform:'uppercase'}}>
+                        Daily Quests
+                      </span>
+                    </div>
+                    <span style={{fontSize:11,color:T.textMuted,fontWeight:600}}>
+                      {quests.filter(q => q.completed).length}/{quests.length} done
+                    </span>
+                  </div>
+
+                  <div style={{display:'flex',flexDirection:'column',gap:8}}>
+                    {quests.map((q) => {
+                      const pct = q.target > 0 ? Math.min(1, q.current / q.target) : 0
+                      return (
+                        <div key={q.id} style={{
+                          padding:'10px 14px',
+                          background: q.completed ? 'rgba(14,245,194,0.04)' : 'rgba(255,255,255,0.02)',
+                          border:`1px solid ${q.completed ? 'rgba(14,245,194,0.14)' : 'rgba(255,255,255,0.06)'}`,
+                          borderRadius:14,
+                          opacity: q.completed ? 0.7 : 1,
+                        }}>
+                          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:6}}>
+                            <span style={{
+                              fontSize:13,fontWeight:600,
+                              color: q.completed ? T.textMuted : T.text,
+                              textDecoration: q.completed ? 'line-through' : 'none',
+                            }}>
+                              {q.completed && <span style={{color:T.teal,marginRight:6}}>✓</span>}
+                              {q.description}
+                            </span>
+                            <span style={{
+                              fontSize:12,fontWeight:700,color:q.completed ? T.textMuted : T.teal,
+                              display:'flex',alignItems:'center',gap:3,flexShrink:0,
+                            }}>
+                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
+                                <path d="M6 3L2 9l10 12L22 9l-4-6H6z" fill={q.completed ? T.textMuted : T.teal} opacity="0.85"/>
+                              </svg>
+                              {q.completed ? 'Claimed' : `+${q.reward}`}
+                            </span>
+                          </div>
+                          {!q.completed && (
+                            <div style={{height:4,background:'rgba(255,255,255,0.06)',borderRadius:9999,overflow:'hidden'}}>
+                              <div style={{
+                                height:'100%',width:`${Math.round(pct*100)}%`,
+                                background:'linear-gradient(90deg,#0ef5c2,#00d4ff)',borderRadius:9999,
+                                transition:'width 0.4s',
+                              }}/>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+
+                  {/* Quest Master bonus */}
+                  {quests.length > 0 && quests.every(q => q.completed) && (
+                    <div style={{
+                      marginTop:10,padding:'10px 14px',
+                      background:'linear-gradient(90deg,rgba(255,215,0,0.10),rgba(14,245,194,0.06))',
+                      border:'1px solid rgba(255,215,0,0.25)',borderRadius:12,
+                      textAlign:'center',fontSize:13,fontWeight:800,color:'#FFD700',
+                      backgroundSize:'200% auto',
+                      animation:'questShimmer 3s linear infinite',
+                    }}>
+                      Quest Master +30 💎
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ── Reward Calendar ── */}
+            <div style={{maxWidth:600,margin:'12px auto 0',padding:'0 20px'}}>
+              <div style={{
+                background:T.surface,border:`1px solid ${T.border}`,
+                borderRadius:20,padding:'16px 18px',
+                backdropFilter:'blur(16px)',WebkitBackdropFilter:'blur(16px)',
+              }}>
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
+                  <div style={{display:'flex',alignItems:'center',gap:8}}>
+                    <span style={{fontSize:16}}>📅</span>
+                    <span style={{fontSize:12,fontWeight:800,letterSpacing:'1px',color:T.textSec,textTransform:'uppercase'}}>
+                      Weekly Rewards
+                    </span>
+                  </div>
+                  {rewardCalendar.days_claimed?.length === 7 && (
+                    <span style={{fontSize:11,fontWeight:700,color:'#FFD700'}}>Perfect Week! +50 💎</span>
+                  )}
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:6}}>
+                  {CAL_DAYS.map((day, i) => {
+                    const claimed = rewardCalendar.days_claimed?.includes(i)
+                    const todayIdx = new Date().getDay()
+                    const calToday = todayIdx === 0 ? 6 : todayIdx - 1
+                    const isToday = i === calToday
+                    const isPast = i < calToday
+                    const missed = isPast && !claimed
+                    const isSunday = i === 6
+
+                    return (
+                      <div key={i}
+                        onClick={isToday && !claimed ? handleClaimReward : undefined}
+                        style={{
+                          display:'flex',flexDirection:'column',alignItems:'center',gap:4,
+                          cursor: isToday && !claimed ? 'pointer' : 'default',
+                        }}>
+                        <div style={{
+                          width: isSunday ? 40 : 36, height: isSunday ? 40 : 36,
+                          borderRadius:'50%',
+                          background: claimed ? 'linear-gradient(135deg,#0ef5c2,#00d4ff)'
+                            : isToday ? 'rgba(14,245,194,0.06)'
+                            : missed ? 'rgba(255,255,255,0.02)'
+                            : 'rgba(255,255,255,0.03)',
+                          border: claimed ? '2px solid #0ef5c2'
+                            : isToday ? '2px solid rgba(14,245,194,0.50)'
+                            : isSunday && !missed ? '2px solid rgba(255,215,0,0.30)'
+                            : `1px solid ${missed ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.08)'}`,
+                          display:'flex',alignItems:'center',justifyContent:'center',
+                          animation: isToday && !claimed ? 'pulseActive 2s ease-in-out infinite' : 'none',
+                          transition:'all 0.2s',
+                          boxShadow: claimed ? '0 0 10px rgba(14,245,194,0.30)' : 'none',
+                        }}>
+                          {claimed ? (
+                            <span style={{fontSize:14,color:'#06060f',fontWeight:900}}>✓</span>
+                          ) : missed ? (
+                            <span style={{fontSize:11,color:T.textDead}}>✕</span>
+                          ) : isSunday ? (
+                            <span style={{fontSize:14}}>🎁</span>
+                          ) : (
+                            <span style={{
+                              fontSize:11,fontWeight:700,
+                              color: isToday ? T.teal : T.textMuted,
+                            }}>{CAL_REWARDS[i]}</span>
+                          )}
+                        </div>
+                        <span style={{
+                          fontSize:9,fontWeight:700,letterSpacing:'0.5px',
+                          color: claimed ? T.teal : isToday ? T.textSec : T.textMuted,
+                        }}>{day}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+                {/* Claim CTA for today */}
+                {(() => {
+                  const todayIdx = new Date().getDay()
+                  const calToday = todayIdx === 0 ? 6 : todayIdx - 1
+                  const alreadyClaimed = rewardCalendar.days_claimed?.includes(calToday)
+                  if (alreadyClaimed) return null
+                  return (
+                    <button onClick={handleClaimReward} disabled={claimingReward} style={{
+                      width:'100%',marginTop:12,padding:'10px',
+                      background:'rgba(14,245,194,0.08)',border:`1px solid ${T.tealBorder}`,
+                      borderRadius:12,color:T.teal,fontSize:13,fontWeight:700,
+                      cursor:claimingReward?'default':'pointer',fontFamily:T.font,
+                      display:'flex',alignItems:'center',justifyContent:'center',gap:6,
+                    }}>
+                      {claimingReward ? (
+                        <div style={{width:12,height:12,border:`2px solid ${T.teal}`,borderTopColor:'transparent',borderRadius:'50%',animation:'spin 0.6s linear infinite'}}/>
+                      ) : (
+                        <>Claim today's reward: +{CAL_REWARDS[calToday]} 💎</>
+                      )}
+                    </button>
+                  )
+                })()}
+              </div>
+            </div>
+
+            {/* ── Quest Master Toast ── */}
+            {questMasterToast && (
+              <div style={{
+                position:'fixed',top:80,left:'50%',transform:'translateX(-50%)',zIndex:9990,
+                background:'linear-gradient(135deg,rgba(255,215,0,0.20),rgba(14,245,194,0.12))',
+                border:'1px solid rgba(255,215,0,0.40)',borderRadius:14,
+                padding:'12px 24px',display:'flex',alignItems:'center',gap:10,
+                boxShadow:'0 8px 32px rgba(255,215,0,0.25)',
+                backdropFilter:'blur(20px)',WebkitBackdropFilter:'blur(20px)',
+                animation:'levelPop 0.50s cubic-bezier(0.34,1.3,0.64,1)',
+                fontFamily:T.font,whiteSpace:'nowrap',
+              }}>
+                <span style={{fontSize:22}}>🎯</span>
+                <div>
+                  <div style={{fontSize:14,fontWeight:800,color:'#FFD700'}}>Quest Master!</div>
+                  <div style={{fontSize:11,color:T.textMuted}}>+30 bonus gems earned</div>
+                </div>
+              </div>
+            )}
 
             {/* ── Streak freeze toast ── */}
             {freezeToast && (

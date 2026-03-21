@@ -7,6 +7,7 @@ import {
 import { xpForTask, XP_MISSION_BONUS, XP_STREAK_7_BONUS, getLevelProgress } from '@/lib/xp'
 import { computeStreakUpdate, isStreakMilestone } from '@/lib/streak'
 import { GEM_AWARDS } from '@/lib/tokens'
+import { generateDailyQuests, updateQuestProgress } from '@/lib/quests'
 
 function extractAccessToken(request) {
   const authHeader = request.headers.get('authorization') || request.headers.get('Authorization')
@@ -31,7 +32,7 @@ export async function POST(request) {
     // ── Fetch the daily_tasks row ─────────────────────────────────────────────
     const { data: row, error: rowError } = await supabase
       .from('daily_tasks')
-      .select('id,user_id,goal_id,day_number,tasks,covered_topics,tasks_completed,completion_status,mode')
+      .select('id,user_id,goal_id,day_number,tasks,covered_topics,tasks_completed,completion_status,mode,quests,quests_completed')
       .eq('id', taskRowId)
       .single()
 
@@ -256,6 +257,155 @@ export async function POST(request) {
       warnings.push(`Chest check skipped: ${e.message}`)
     }
 
+    // ── Quest progress tracking ───────────────────────────────────────────────
+    let questUpdate = null
+    try {
+      if (!alreadyCompleted) {
+        // Lazy-generate quests if missing
+        let quests = Array.isArray(row.quests) && row.quests.length > 0
+          ? row.quests
+          : generateDailyQuests(row.day_number || 1, currentTasks.length)
+
+        const result = updateQuestProgress(quests, {
+          xpEarned:       xpEarned || 0,
+          gemsEarned:     gemsEarned || 0,
+          taskType:       targetTask.type,
+          missionComplete: missionJustCompleted,
+        })
+
+        if (result) {
+          const questGemsTotal = result.gemsFromQuests || 0
+          const questsNowDone  = result.updatedQuests.filter(q => q.completed).length
+
+          // Persist quest state to daily_tasks
+          await supabase
+            .from('daily_tasks')
+            .update({ quests: result.updatedQuests, quests_completed: questsNowDone })
+            .eq('id', taskRowId)
+
+          // Award quest gems
+          if (questGemsTotal > 0) {
+            gemsEarned += questGemsTotal
+            newGemTotal = (newGemTotal ?? 0) + questGemsTotal
+            await supabase
+              .from('user_progress')
+              .update({ gems: newGemTotal, gems_earned_total: (Number(progress?.gems_earned_total) || 0) + gemsEarned })
+              .eq('user_id', row.user_id)
+              .eq('goal_id', row.goal_id)
+
+            try {
+              await supabase.from('gem_transactions').insert({
+                user_id: row.user_id, goal_id: row.goal_id,
+                amount: questGemsTotal, reason: result.questMasterBonus ? 'quest_master' : 'quest_complete',
+              })
+            } catch { /* non-critical */ }
+          }
+
+          questUpdate = {
+            quests: result.updatedQuests,
+            questsJustCompleted: result.questsJustCompleted.map(q => ({ id: q.id, reward: q.reward })),
+            questMasterBonus: result.questMasterBonus,
+            questGemsEarned: questGemsTotal,
+          }
+        }
+      }
+    } catch (e) {
+      warnings.push(`Quest update skipped: ${e.message}`)
+    }
+
+    // ── Weekly challenge progress ────────────────────────────────────────────
+    let challengeUpdate = null
+    try {
+      if (!alreadyCompleted) {
+        const today = new Date()
+        const dayOfWeek = today.getDay()
+        const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek
+        const weekStart = new Date(today)
+        weekStart.setDate(today.getDate() + mondayOffset)
+        const weekStartStr = weekStart.toISOString().split('T')[0]
+
+        const { data: challenge } = await supabase
+          .from('weekly_challenges')
+          .select('*')
+          .eq('user_id', row.user_id)
+          .eq('goal_id', row.goal_id)
+          .eq('week_start', weekStartStr)
+          .maybeSingle()
+
+        if (challenge && !challenge.completed) {
+          let increment = 0
+          switch (challenge.challenge_type) {
+            case 'tasks_completed':
+              increment = 1
+              break
+            case 'xp_earned':
+              increment = xpEarned || 0
+              break
+            case 'streak_days':
+              increment = newStreakState?.current > challenge.current_value ? 1 : 0
+              break
+            case 'quiz_perfect':
+              // incremented via client hint
+              break
+            case 'lessons_no_hearts':
+              increment = 1
+              break
+          }
+
+          if (increment > 0) {
+            const newVal = Math.min(challenge.current_value + increment, challenge.target_value)
+            const justCompleted = newVal >= challenge.target_value
+
+            const challengeUpd = { current_value: newVal }
+            if (justCompleted) {
+              challengeUpd.completed = true
+              challengeUpd.completed_at = new Date().toISOString()
+            }
+
+            await supabase
+              .from('weekly_challenges')
+              .update(challengeUpd)
+              .eq('id', challenge.id)
+
+            // Award challenge rewards on completion
+            if (justCompleted) {
+              const chalGems = challenge.gem_reward || 0
+              const chalXp   = challenge.xp_reward || 0
+              if (chalGems > 0 || chalXp > 0) {
+                newGemTotal = (newGemTotal ?? 0) + chalGems
+                newTotalXp  = (newTotalXp ?? 0) + chalXp
+                gemsEarned += chalGems
+                xpEarned   += chalXp
+                await supabase
+                  .from('user_progress')
+                  .update({ gems: newGemTotal, total_xp: newTotalXp })
+                  .eq('user_id', row.user_id)
+                  .eq('goal_id', row.goal_id)
+
+                try {
+                  await supabase.from('gem_transactions').insert({
+                    user_id: row.user_id, goal_id: row.goal_id,
+                    amount: chalGems, reason: 'weekly_challenge',
+                  })
+                } catch { /* non-critical */ }
+              }
+            }
+
+            challengeUpdate = {
+              id: challenge.id,
+              currentValue: newVal,
+              targetValue: challenge.target_value,
+              completed: justCompleted,
+              gemReward: justCompleted ? challenge.gem_reward : 0,
+              xpReward: justCompleted ? challenge.xp_reward : 0,
+            }
+          }
+        }
+      }
+    } catch (e) {
+      warnings.push(`Challenge update skipped: ${e.message}`)
+    }
+
     // ── Generate next tasks on day completion ─────────────────────────────────
     let nextResult = null
     if (completionStatus === 'completed') {
@@ -286,6 +436,8 @@ export async function POST(request) {
       gemsEarned:        alreadyCompleted ? 0 : gemsEarned,
       newGemTotal:       newGemTotal ?? null,
       chestReward,
+      questUpdate,
+      challengeUpdate,
       nextResult,
       warnings,
     })
