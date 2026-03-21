@@ -762,50 +762,55 @@ export default function Dashboard() {
     const tomorrowR  = todayIdx >= 0 ? taskRows[todayIdx+1] || null : null
     setTomorrowRow(tomorrowR)
 
-    const { data: prog } = await supabase
-      .from('user_progress').select('total_xp,current_streak,longest_streak,freeze_count,hearts_remaining,hearts_refill_at,total_days,gems,xp_boost_until,reward_calendar,last_event_date')
+    const { data: prog, error: progError } = await supabase
+      .from('user_progress').select('total_xp,current_streak,longest_streak,freeze_count,hearts_remaining,hearts_refill_at,total_days,gems,xp_boost_until')
       .eq('goal_id', activeGoal.id).eq('user_id', me.id).maybeSingle()
 
-    const storedXp   = Number(prog?.total_xp) || 0
-    const computedXp = computeTotalXpFromRows(taskRows)
-    const finalXp    = storedXp > 0 ? storedXp : computedXp
-    setXpDisplay(getLevelProgress(finalXp))
-    const streak = prog?.current_streak || 0
-    const longest = prog?.longest_streak || 0
-    setStreakData({ current: streak, longest })
-    setFreezeCount(Number(prog?.freeze_count) || 0)
+    // Only update state if the query succeeded — never reset gems/xp to 0 on error
+    if (!progError && prog) {
+      const storedXp   = Number(prog.total_xp) || 0
+      const computedXp = computeTotalXpFromRows(taskRows)
+      const finalXp    = storedXp > 0 ? storedXp : computedXp
+      setXpDisplay(getLevelProgress(finalXp))
+      setStreakData({ current: prog.current_streak || 0, longest: prog.longest_streak || 0 })
+      setFreezeCount(Number(prog.freeze_count) || 0)
 
-    const h = prog?.hearts_remaining != null ? Number(prog.hearts_remaining) : 5
-    setPrevHearts(h)
-    setHeartsRemaining(h)
-    setHeartsRefillAt(prog?.hearts_refill_at || null)
-    setGems(Number(prog?.gems) || 0)
-    if (prog?.xp_boost_until) {
-      const until = new Date(prog.xp_boost_until)
-      if (until > new Date()) setXpBoostUntil(until)
-      else setXpBoostUntil(null)
+      const h = prog.hearts_remaining != null ? Number(prog.hearts_remaining) : 5
+      setPrevHearts(h)
+      setHeartsRemaining(h)
+      setHeartsRefillAt(prog.hearts_refill_at || null)
+      setGems(Number(prog.gems) || 0)
+      if (prog.total_days) setTotalDaysPlanned(Number(prog.total_days))
+      if (prog.xp_boost_until) {
+        const until = new Date(prog.xp_boost_until)
+        if (until > new Date()) setXpBoostUntil(until)
+        else setXpBoostUntil(null)
+      }
+    } else {
+      // Fallback: compute XP from rows, keep current gem/heart state
+      setXpDisplay(getLevelProgress(computeTotalXpFromRows(taskRows)))
     }
-    if (prog?.total_days) setTotalDaysPlanned(Number(prog.total_days))
+
+    // Load new columns separately (won't break if columns don't exist yet)
+    try {
+      const { data: extra } = await supabase
+        .from('user_progress').select('reward_calendar,last_event_date')
+        .eq('goal_id', activeGoal.id).eq('user_id', me.id).maybeSingle()
+      if (extra?.reward_calendar) {
+        const cal = extra.reward_calendar
+        const weekStart = getWeekStartStr()
+        if (cal.week_start === weekStart) setRewardCalendar(cal)
+        else setRewardCalendar({ week_start: weekStart, days_claimed: [] })
+      }
+    } catch { /* new columns may not exist yet */ }
 
     // Load quests from today's row
     if (today?.quests && Array.isArray(today.quests) && today.quests.length > 0) {
       setQuests(today.quests)
     } else if (today) {
-      // Generate quests client-side for display (will be persisted on first task complete)
       const { generateDailyQuests } = await import('@/lib/quests')
       const dayTasks = Array.isArray(today.tasks) ? today.tasks : []
       setQuests(generateDailyQuests(today.day_number || 1, dayTasks.length))
-    }
-
-    // Load reward calendar
-    if (prog?.reward_calendar) {
-      const cal = prog.reward_calendar
-      const weekStart = getWeekStartStr()
-      if (cal.week_start === weekStart) {
-        setRewardCalendar(cal)
-      } else {
-        setRewardCalendar({ week_start: weekStart, days_claimed: [] })
-      }
     }
 
     // Load weekly challenge
@@ -822,15 +827,16 @@ export default function Dashboard() {
       }
     } catch { /* silent */ }
 
-    // Comeback detection: has prior completed days but streak is 0
+    // Comeback detection
+    const currentStreak = prog?.current_streak || 0
     const priorDone  = (taskRows || []).filter(r => r.completion_status === 'completed').length
-    const isBack     = streak === 0 && priorDone > 0
+    const isBack     = currentStreak === 0 && priorDone > 0
     setIsComeback(isBack)
 
     // Analytics: app opened
     track(EVENTS.APP_OPENED, { isComeback: isBack }, {
       userId: me.id, goalId: activeGoal.id,
-      streakValue: streak, xpBalance: finalXp,
+      streakValue: currentStreak, xpBalance: Number(prog?.total_xp) || 0,
     })
 
     setLoading(false)
@@ -900,10 +906,20 @@ export default function Dashboard() {
       const data = await res.json()
       if (data.ok) {
         setRewardCalendar(data.calendar)
-        if (data.newGemTotal != null) setGems(data.newGemTotal)
+        // Use additive gem update instead of absolute to avoid resetting
+        const earned = (data.reward || 0) + (data.perfectWeekBonus || 0)
+        setGems(g => g + earned)
         setGemPulse(true)
         setTimeout(() => setGemPulse(false), 400)
-        setGemToasts(prev => [...prev, { id: Date.now(), amount: data.reward + (data.perfectWeekBonus || 0) }])
+        setGemToasts(prev => [...prev, { id: Date.now(), amount: earned }])
+      } else if (data.error === 'Already claimed today') {
+        // Silently update calendar to reflect claimed state
+        const todayIdx = new Date().getDay()
+        const calToday = todayIdx === 0 ? 6 : todayIdx - 1
+        setRewardCalendar(prev => ({
+          ...prev,
+          days_claimed: prev.days_claimed?.includes(calToday) ? prev.days_claimed : [...(prev.days_claimed || []), calToday],
+        }))
       }
     } catch { /* silent */ }
     setClaimingReward(false)

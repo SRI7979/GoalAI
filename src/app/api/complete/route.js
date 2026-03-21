@@ -82,6 +82,8 @@ export async function POST(request) {
     let gemsEarned      = 0
     let newGemTotal     = null
     let xpBoosted       = false
+    let progress        = null
+    let currentGems     = 0
 
     if (missionJustCompleted && !alreadyCompleted) {
       missionBonusXp = XP_MISSION_BONUS
@@ -90,13 +92,14 @@ export async function POST(request) {
 
     try {
       // Read current progress (total_xp may not exist yet — handle gracefully)
-      const { data: progress } = await supabase
+      const { data: progressData } = await supabase
         .from('user_progress')
         .select('total_xp,current_streak,longest_streak,last_activity_date,gems,gems_earned_total,xp_boost_until,last_chest_day,freeze_count')
         .eq('user_id', row.user_id)
         .eq('goal_id', row.goal_id)
         .maybeSingle()
 
+      progress = progressData
       const existingXp = Number(progress?.total_xp) || 0
 
       // Streak update
@@ -142,7 +145,7 @@ export async function POST(request) {
           gemsEarned += GEM_AWARDS.streakMilestone  // +25 at 7-day milestones
         }
       }
-      const currentGems = Number(progress?.gems) || 0
+      currentGems = Number(progress?.gems) || 0
       newGemTotal = currentGems + gemsEarned
 
       // Persist progress update
