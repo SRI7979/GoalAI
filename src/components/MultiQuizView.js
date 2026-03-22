@@ -15,10 +15,19 @@ export default function MultiQuizView({ task, goal, knowledge, onClose, onComple
   const [done, setDone] = useState(false)
   const [showVignette, setShowVignette] = useState(false)
   const [completing, setCompleting] = useState(false)
+  const [combo, setCombo] = useState(0)
 
   useEffect(() => {
     async function load() {
       setLoading(true)
+      const cacheKey = `pathai.quiz.v1::${task.id || task.title}`
+      try {
+        const cached = localStorage.getItem(cacheKey)
+        if (cached) {
+          const data = JSON.parse(cached)
+          if (data.questions) { setQuestions(data.questions); setLoading(false); return }
+        }
+      } catch {}
       try {
         const res = await fetch('/api/quiz-multi', {
           method: 'POST',
@@ -26,12 +35,15 @@ export default function MultiQuizView({ task, goal, knowledge, onClose, onComple
           body: JSON.stringify({ concept: task._concept || task.title, goal, knowledge }),
         })
         const data = await res.json()
-        if (data.questions) setQuestions(data.questions)
+        if (data.questions) {
+          setQuestions(data.questions)
+          try { localStorage.setItem(cacheKey, JSON.stringify(data)) } catch {}
+        }
       } catch {}
       setLoading(false)
     }
     load()
-  }, [task.title, goal, knowledge, task._concept])
+  }, [task.id, task.title, goal, knowledge, task._concept])
 
   function handleSelect(idx) {
     if (answered) return
@@ -41,7 +53,9 @@ export default function MultiQuizView({ task, goal, knowledge, onClose, onComple
     setResults(prev => [...prev, { questionIdx: current, selectedIdx: idx, correct }])
     if (correct) {
       setScore(s => s + 1)
+      setCombo(c => c + 1)
     } else {
+      setCombo(0)
       setShowVignette(true)
       setTimeout(() => setShowVignette(false), 400)
     }
@@ -72,6 +86,7 @@ export default function MultiQuizView({ task, goal, knowledge, onClose, onComple
         @keyframes spin    { to{transform:rotate(360deg)} }
         @keyframes redVignette { 0%{opacity:0}20%{opacity:1}100%{opacity:0} }
         @keyframes popIn   { 0%{transform:scale(0.8);opacity:0}70%{transform:scale(1.05)}100%{transform:scale(1);opacity:1} }
+        @keyframes comboPopIn { 0%{transform:scale(0.6);opacity:0}70%{transform:scale(1.15)}100%{transform:scale(1);opacity:1} }
         @keyframes greenFlash { 0%{box-shadow:0 0 0 0 rgba(14,245,194,0.4)}100%{box-shadow:0 0 0 12px rgba(14,245,194,0)} }
         @keyframes correctPulse { 0%{transform:scale(1)}50%{transform:scale(1.05)}100%{transform:scale(1)} }
       `}</style>
@@ -190,6 +205,17 @@ export default function MultiQuizView({ task, goal, knowledge, onClose, onComple
                   <span style={{ fontSize:12, color:'#636366', fontWeight:600, textTransform:'uppercase', letterSpacing:'1px' }}>
                     Question {current + 1} of {questions.length}
                   </span>
+                  {combo >= 2 && (
+                    <span key={combo} style={{
+                      padding:'3px 10px', borderRadius:9999, fontSize:11, fontWeight:800,
+                      background: combo >= 5 ? 'rgba(255,215,0,0.15)' : 'rgba(14,245,194,0.10)',
+                      border: `1px solid ${combo >= 5 ? 'rgba(255,215,0,0.35)' : 'rgba(14,245,194,0.25)'}`,
+                      color: combo >= 5 ? '#FFD700' : '#0ef5c2',
+                      animation:'comboPopIn 0.3s cubic-bezier(0.34,1.56,0.64,1)',
+                    }}>
+                      🎯 {combo}x
+                    </span>
+                  )}
                   {score > 0 && (
                     <span style={{ marginLeft:'auto', fontSize:12, fontWeight:700, color:'#0ef5c2', display:'flex', alignItems:'center', gap:4 }}>
                       <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#0ef5c2" strokeWidth="3" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>

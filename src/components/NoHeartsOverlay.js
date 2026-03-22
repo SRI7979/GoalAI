@@ -21,12 +21,22 @@ export default function NoHeartsOverlay({ refillAt, onClose, onPractice }) {
     function tick() {
       if (!refillAt) { setRemaining(0); return }
       const diff = new Date(refillAt).getTime() - Date.now()
-      setRemaining(Math.max(0, diff))
+      if (diff <= 0) {
+        setRemaining(0)
+        clearInterval(interval)
+        return
+      }
+      setRemaining(diff)
     }
     tick()
     const interval = setInterval(tick, 1000)
     return () => clearInterval(interval)
   }, [refillAt])
+
+  // Auto-dismiss when hearts have refilled
+  useEffect(() => {
+    if (remaining <= 0 && refillAt) onClose?.()
+  }, [remaining, refillAt, onClose])
 
   const refillTime = formatTime(remaining)
   const autoRefill = remaining <= 0

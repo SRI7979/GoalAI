@@ -8,6 +8,8 @@ import { xpForTask, XP_MISSION_BONUS, XP_STREAK_7_BONUS, getLevelProgress } from
 import { computeStreakUpdate, isStreakMilestone } from '@/lib/streak'
 import { GEM_AWARDS } from '@/lib/tokens'
 import { generateDailyQuests, updateQuestProgress } from '@/lib/quests'
+import { checkAndAwardBadges } from '@/lib/badges'
+import { calculateUnderstandingScore, calculateAdaptiveDifficulty } from '@/lib/learningEngine'
 
 function extractAccessToken(request) {
   const authHeader = request.headers.get('authorization') || request.headers.get('Authorization')
@@ -16,12 +18,28 @@ function extractAccessToken(request) {
   return authHeader.slice(7).trim() || null
 }
 
+function normalizeTaskId(value) {
+  return String(value)
+}
+
 export async function POST(request) {
   let supabase
 
   try {
     const body = await request.json()
     const { taskRowId, taskId } = body
+    const clientCompletedTaskIds = Array.isArray(body?.completedTaskIds) ? body.completedTaskIds : []
+    const clientHour = Number.isFinite(body?.clientHour) ? body.clientHour : -1
+    const comboMax = Number.isFinite(body?.comboMax) ? body.comboMax : 0
+    const quizPerfect = Boolean(body?.quizPerfect)
+    const lessonTimeSec = Number.isFinite(body?.lessonTimeSec) ? body.lessonTimeSec : 0
+    // Learning engine signals
+    const hintsUsed = Number.isFinite(body?.hintsUsed) ? body.hintsUsed : 0
+    const maxHints = Number.isFinite(body?.maxHints) ? body.maxHints : 3
+    const reflectionQuality = Number.isFinite(body?.reflectionQuality) ? body.reflectionQuality : 0
+    const challengeScore = Number.isFinite(body?.challengeScore) ? body.challengeScore : 0
+    const aiInteractionDepth = Number.isFinite(body?.aiInteractionDepth) ? body.aiInteractionDepth : 0
+    const bossDefeated = Boolean(body?.bossDefeated)
     const accessToken = extractAccessToken(request) || body?.accessToken || null
     supabase = getSupabaseServerClient({ accessToken })
 
@@ -44,7 +62,8 @@ export async function POST(request) {
     }
 
     const currentTasks = Array.isArray(row.tasks) ? row.tasks : []
-    const targetTask   = currentTasks.find((t) => t.id === taskId)
+    const completedTaskIdSet = new Set(clientCompletedTaskIds.map(normalizeTaskId))
+    const targetTask   = currentTasks.find((t) => normalizeTaskId(t.id) === normalizeTaskId(taskId))
     if (!targetTask) {
       return Response.json({ error: 'Task not found in this day plan' }, { status: 400 })
     }
@@ -52,7 +71,10 @@ export async function POST(request) {
     const alreadyCompleted = Boolean(targetTask.completed)
 
     // ── Update tasks array ───────────────────────────────────────────────────
-    const updatedTasks     = currentTasks.map((t) => t.id === taskId ? { ...t, completed: true } : t)
+    const updatedTasks     = currentTasks.map((t) => {
+      const shouldBeCompleted = completedTaskIdSet.has(normalizeTaskId(t.id)) || normalizeTaskId(t.id) === normalizeTaskId(taskId)
+      return shouldBeCompleted && !t.completed ? { ...t, completed: true } : t
+    })
     const tasksCompleted   = updatedTasks.filter((t) => t.completed).length
     const completionStatus = tasksCompleted === updatedTasks.length ? 'completed' : 'in_progress'
     const missionJustCompleted = completionStatus === 'completed' && row.completion_status !== 'completed'
@@ -190,11 +212,71 @@ export async function POST(request) {
     }
 
     // ── Concept mastery ───────────────────────────────────────────────────────
+    let conceptMasteryScore = 0
     try {
       const conceptId = row.concept_id ?? row.covered_topics?.[0] ?? row.day_number
       await updateConceptMastery({ supabase, userId: row.user_id, goalId: row.goal_id, conceptId })
+      // Read back the updated mastery score for badge checking
+      const { data: masteryRow } = await supabase
+        .from('concept_mastery')
+        .select('mastery_score')
+        .eq('user_id', row.user_id)
+        .eq('goal_id', row.goal_id)
+        .eq('concept_id', String(conceptId))
+        .maybeSingle()
+      conceptMasteryScore = masteryRow?.mastery_score || 0
     } catch (e) {
       warnings.push(`Mastery update skipped: ${e.message}`)
+    }
+
+    // ── Understanding score & adaptive difficulty ────────────────────────────
+    let understandingScore = 0
+    let adaptiveDifficulty = 2
+    try {
+      if (!alreadyCompleted) {
+        const expectedTimeSec = (targetTask.durationMin || 15) * 60
+        const completionTimeRatio = lessonTimeSec > 0 && expectedTimeSec > 0
+          ? lessonTimeSec / expectedTimeSec : 1
+
+        understandingScore = calculateUnderstandingScore({
+          quizScore: quizPerfect ? 100 : (comboMax > 3 ? 80 : 60),
+          hintsUsed,
+          maxHints,
+          completionTimeRatio,
+          reflectionQuality,
+          aiInteractionDepth,
+          challengeScore,
+          retryCount: 0,
+        })
+
+        adaptiveDifficulty = calculateAdaptiveDifficulty({
+          recentQuizScores: quizPerfect ? [100] : comboMax > 3 ? [80] : [60],
+          avgCompletionTime: lessonTimeSec || null,
+          expectedTime: expectedTimeSec || null,
+          hintsUsed,
+          totalHintsAvailable: maxHints,
+          streakCorrect: comboMax,
+          currentDifficulty: targetTask._difficulty || 2,
+          conceptMastery: conceptMasteryScore,
+        })
+
+        // Boss bonus: extra XP and gems for defeating a boss
+        if (targetTask.type === 'boss' && bossDefeated) {
+          const bossXp = 200
+          const bossGems = 50
+          xpEarned += bossXp
+          gemsEarned += bossGems
+          newTotalXp = (newTotalXp ?? 0) + bossXp
+          newGemTotal = (newGemTotal ?? 0) + bossGems
+          await supabase
+            .from('user_progress')
+            .update({ total_xp: newTotalXp, gems: newGemTotal })
+            .eq('user_id', row.user_id)
+            .eq('goal_id', row.goal_id)
+        }
+      }
+    } catch (e) {
+      warnings.push(`Understanding tracking skipped: ${e.message}`)
     }
 
     // ── Treasure chest (lesson-type tasks only, max 1/day) ────────────────────
@@ -422,6 +504,64 @@ export async function POST(request) {
       }
     }
 
+    // ── Achievement badge checks ──────────────────────────────────────────────
+    let newBadges = []
+    try {
+      if (!alreadyCompleted) {
+        // Count total completed individual tasks across all day rows for this goal
+        const { data: allRows } = await supabase
+          .from('daily_tasks')
+          .select('tasks')
+          .eq('user_id', row.user_id)
+          .eq('goal_id', row.goal_id)
+        const totalCompletedTasks = (allRows || []).reduce((sum, r) => {
+          const tasks = Array.isArray(r.tasks) ? r.tasks : []
+          return sum + tasks.filter(t => t.completed).length
+        }, 0)
+        const completedDayRows = (allRows || []).filter(r => {
+          const tasks = Array.isArray(r.tasks) ? r.tasks : []
+          return tasks.length > 0 && tasks.every(t => t.completed)
+        }).length
+
+        const { data: goalRow } = await supabase
+          .from('goals')
+          .select('mode,deadline')
+          .eq('id', row.goal_id)
+          .maybeSingle()
+
+        const { data: progressRow } = await supabase
+          .from('user_progress')
+          .select('total_days')
+          .eq('user_id', row.user_id)
+          .eq('goal_id', row.goal_id)
+          .maybeSingle()
+
+        const newLevel = newTotalXp != null ? getLevelProgress(newTotalXp).level : 1
+
+        newBadges = await checkAndAwardBadges({
+          supabase,
+          userId: row.user_id,
+          state: {
+            streak: newStreakState?.current || 0,
+            level: newLevel,
+            totalTasksCompleted: totalCompletedTasks,
+            missionJustCompleted,
+            taskType: targetTask.type,
+            goalMode: goalRow?.mode || 'goal',
+            clientHour,
+            completedDays: completedDayRows,
+            totalDays: Number(progressRow?.total_days) || 0,
+            conceptMasteryScore,
+            comboMax,
+            quizPerfect,
+            lessonTimeSec,
+          },
+        })
+      }
+    } catch (e) {
+      warnings.push(`Badge check skipped: ${e.message}`)
+    }
+
     return Response.json({
       ok:                true,
       alreadyCompleted,
@@ -441,7 +581,10 @@ export async function POST(request) {
       chestReward,
       questUpdate,
       challengeUpdate,
+      newBadges,
       nextResult,
+      understandingScore: alreadyCompleted ? 0 : understandingScore,
+      adaptiveDifficulty,
       warnings,
     })
   } catch (error) {

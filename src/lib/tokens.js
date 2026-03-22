@@ -73,15 +73,35 @@ export const T = {
 }
 
 // ── Heart utilities ──────────────────────────────────────────────────────────
-export const HEARTS_MAX = 5
+export const HEARTS_BASE = 5
+export const HEARTS_MAX_CAP = 8
+export const HEARTS_MAX = HEARTS_BASE
 
 // ── Gem shop prices ───────────────────────────────────────────────────────────
 export const GEM_PRICES = {
   streakFreeze:  50,
   heartRefill:   30,
+  heartContainer: 120,
+  freezeBundle:  135,
   xpBoost:       75,
+  megaXpBoost:   160,
   streakRepair:  200,
   pathTheme:     100,
+}
+
+export const GEM_SHOP_ITEMS = {
+  heartRefill:    { cost: GEM_PRICES.heartRefill,    label: 'Heart Refill' },
+  heartContainer: { cost: GEM_PRICES.heartContainer, label: 'Heart Container' },
+  streakFreeze:   { cost: GEM_PRICES.streakFreeze,   label: 'Streak Freeze' },
+  freezeBundle:   { cost: GEM_PRICES.freezeBundle,   label: 'Freeze Bundle' },
+  xpBoost:        { cost: GEM_PRICES.xpBoost,        label: 'Double XP (15 min)' },
+  megaXpBoost:    { cost: GEM_PRICES.megaXpBoost,    label: 'Double XP (60 min)' },
+  streakRepair:   { cost: GEM_PRICES.streakRepair,   label: 'Streak Repair' },
+  themeOcean:     { cost: 150,                       label: 'Path Theme: Ocean' },
+  themeSunset:    { cost: 150,                       label: 'Path Theme: Sunset' },
+  themeForest:    { cost: 165,                       label: 'Path Theme: Forest' },
+  themeMidnight:  { cost: 175,                       label: 'Path Theme: Midnight' },
+  themeRose:      { cost: 165,                       label: 'Path Theme: Rose' },
 }
 
 // ── Gem award amounts ─────────────────────────────────────────────────────────

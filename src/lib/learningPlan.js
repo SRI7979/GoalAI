@@ -1,8 +1,13 @@
+import { buildFlowSequence } from '@/lib/learningEngine'
+
 // ─────────────────────────────────────────────
 // Constants & helpers
 // ─────────────────────────────────────────────
 
 const TASK_SEQUENCE = ['lesson', 'video', 'practice', 'exercise', 'quiz', 'review']
+
+// Extended task types (includes learning engine types)
+const EXTENDED_TASK_TYPES = [...TASK_SEQUENCE, 'guided_practice', 'challenge', 'ai_interaction', 'reflection', 'boss']
 
 const typeVerbs = {
   lesson: 'Learn',
@@ -11,6 +16,11 @@ const typeVerbs = {
   exercise: 'Build',
   quiz: 'Test',
   review: 'Review',
+  guided_practice: 'Practice',
+  challenge: 'Challenge',
+  ai_interaction: 'Explain',
+  reflection: 'Reflect',
+  boss: 'Battle',
 }
 
 export const resourcesByCategory = {
@@ -75,7 +85,229 @@ export function buildFallbackConcepts(goal, days) {
 }
 
 // ─────────────────────────────────────────────
-// Concept generation
+// Skill level inference
+// ─────────────────────────────────────────────
+
+function inferSkillLevel(knowledge) {
+  if (!knowledge || knowledge.trim().length === 0) return 'beginner'
+  const words = knowledge.trim().split(/\s+/).length
+  if (words >= 30 || /advanced|expert|proficient|years|senior|deep/i.test(knowledge)) return 'advanced'
+  if (words >= 10 || /intermediate|some|familiar|basic|know|understand/i.test(knowledge)) return 'intermediate'
+  return 'beginner'
+}
+
+// ─────────────────────────────────────────────
+// Completion probability
+// ─────────────────────────────────────────────
+
+function calculateCompletionProbability({ totalDays, minutesPerDay, skillLevel, targetDays }) {
+  if (!targetDays || targetDays <= 0) return { probability: 85, recommendedDays: totalDays }
+
+  // Base probability from time ratio
+  const ratio = targetDays / totalDays
+  let probability = Math.round(Math.min(98, ratio * 80))
+
+  // Skill level adjustment
+  if (skillLevel === 'advanced') probability = Math.min(98, probability + 10)
+  else if (skillLevel === 'intermediate') probability = Math.min(98, probability + 5)
+  else probability = Math.max(5, probability - 5)
+
+  // Daily time adjustment — more time = more buffer
+  if (minutesPerDay >= 60) probability = Math.min(98, probability + 8)
+  else if (minutesPerDay >= 30) probability = Math.min(98, probability + 3)
+  else probability = Math.max(5, probability - 5)
+
+  const recommendedDays = probability >= 70 ? targetDays : Math.ceil(totalDays * 1.15)
+
+  return { probability: Math.max(5, Math.min(98, probability)), recommendedDays }
+}
+
+// ─────────────────────────────────────────────
+// Full course outline generation (module-structured)
+// ─────────────────────────────────────────────
+
+export async function generateCourseOutline({ goal, knowledge, days, minutesPerDay, openaiApiKey }) {
+  const skillLevel = inferSkillLevel(knowledge)
+
+  try {
+    const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${openaiApiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        max_tokens: 4000,
+        temperature: 0.35,
+        messages: [
+          {
+            role: 'system',
+            content: `You are an expert curriculum designer and learning scientist. Design structured learning paths that feel like a real course — not a list of generic tasks. Every day should feel like a concrete step forward. Concepts must build logically with progressive difficulty.`,
+          },
+          {
+            role: 'user',
+            content: [
+              `Design a COMPLETE learning path for: "${goal}"`,
+              `Time per day: ${minutesPerDay || 30} minutes`,
+              `Total days available: ${days}`,
+              `Current skill level: ${skillLevel}`,
+              knowledge ? `Prior knowledge: ${knowledge}` : 'Starting from scratch.',
+              '',
+              'REQUIREMENTS:',
+              '1. Break the skill into 4-8 Modules (high-level topics that group related concepts)',
+              '2. Each module contains multiple days',
+              '3. Each day must have: title, concepts array (1-3 key concepts), estimated time in minutes',
+              `4. Total days MUST equal exactly ${days}`,
+              `5. Each day must fit within ${minutesPerDay || 30} minutes`,
+              '6. Distribute difficulty progressively — start simple, build complexity',
+              '7. No fluff, no generic tasks — each day must teach something specific and concrete',
+              '8. Concepts must build logically — later days should depend on earlier ones',
+              knowledge ? '9. SKIP topics the learner already knows based on their prior knowledge' : '',
+              '',
+              'Return ONLY valid JSON:',
+              '{',
+              '  "modules": [',
+              '    {',
+              '      "title": "Module Name",',
+              '      "description": "What this module covers and why it matters",',
+              '      "days": [',
+              '        {',
+              '          "day": 1,',
+              '          "title": "Specific Day Title",',
+              '          "concepts": ["concept1", "concept2"],',
+              '          "estimatedMinutes": 30,',
+              '          "difficulty": 1',
+              '        }',
+              '      ]',
+              '    }',
+              '  ]',
+              '}',
+              '',
+              'Rules:',
+              '- 4-8 modules, each with 3-12 days',
+              '- Day numbers must be sequential starting from 1',
+              '- difficulty: 1 (intro) to 5 (advanced)',
+              '- Every concept mentioned should be specific and actionable, not vague',
+              '- Module titles should be clear topic groupings',
+            ].filter(Boolean).join('\n'),
+          },
+        ],
+      }),
+    })
+
+    if (!openaiRes.ok) throw new Error(`OpenAI request failed with ${openaiRes.status}`)
+
+    const openaiData = await openaiRes.json()
+    const text = openaiData.choices?.[0]?.message?.content || ''
+    let jsonStr = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim()
+    const firstBrace = jsonStr.indexOf('{')
+    if (firstBrace >= 0) jsonStr = jsonStr.slice(firstBrace)
+
+    const parsed = JSON.parse(jsonStr)
+    if (!Array.isArray(parsed?.modules) || parsed.modules.length === 0) {
+      throw new Error('Invalid course outline: missing modules')
+    }
+
+    // Validate and normalize day numbers
+    let dayCounter = 1
+    const normalizedModules = parsed.modules.map(mod => ({
+      title: mod.title || 'Untitled Module',
+      description: mod.description || '',
+      days: (Array.isArray(mod.days) ? mod.days : []).map(d => {
+        const normalized = {
+          day: dayCounter++,
+          title: d.title || `Day ${dayCounter - 1}`,
+          concepts: Array.isArray(d.concepts) ? d.concepts : [d.title || 'General'],
+          estimatedMinutes: Math.min(minutesPerDay || 30, Number(d.estimatedMinutes) || minutesPerDay || 30),
+          difficulty: Math.max(1, Math.min(5, Number(d.difficulty) || 1)),
+        }
+        return normalized
+      }),
+    }))
+
+    // Compute totals
+    const totalOutlineDays = normalizedModules.reduce((sum, m) => sum + m.days.length, 0)
+    const totalHours = Math.round(totalOutlineDays * (minutesPerDay || 30) / 60)
+    const { probability, recommendedDays } = calculateCompletionProbability({
+      totalDays: totalOutlineDays,
+      minutesPerDay: minutesPerDay || 30,
+      skillLevel,
+      targetDays: days,
+    })
+
+    // Extract flat concepts list for backward compatibility with buildDailyTasks
+    const concepts = []
+    let conceptId = 1
+    normalizedModules.forEach(mod => {
+      mod.days.forEach(d => {
+        concepts.push({
+          id: conceptId++,
+          name: d.concepts[0] || d.title,
+          description: `${mod.title}: ${d.title}. Concepts: ${d.concepts.join(', ')}`,
+          estimatedDays: 1,
+          dependencies: conceptId > 2 ? [conceptId - 2] : [],
+          difficulty: d.difficulty,
+          _moduleTitle: mod.title,
+          _dayTitle: d.title,
+          _allConcepts: d.concepts,
+        })
+      })
+    })
+
+    return {
+      version: 'v1',
+      goal,
+      skillLevel,
+      totalDays: totalOutlineDays,
+      estimatedHours: totalHours,
+      completionProbability: probability,
+      recommendedDays,
+      modules: normalizedModules,
+      concepts, // flat list for backward compat
+      previous_version: null,
+    }
+  } catch {
+    // Fallback: build a basic outline from fallback concepts
+    const fallbackConcepts = buildFallbackConcepts(goal, days)
+    const fallbackModules = [
+      { title: 'Foundations', description: `Core fundamentals of ${goal}`, days: [] },
+      { title: 'Core Skills', description: `Build practical skills in ${goal}`, days: [] },
+      { title: 'Application', description: `Apply ${goal} to real problems`, days: [] },
+      { title: 'Mastery', description: `Advanced ${goal} and integration`, days: [] },
+    ]
+
+    let dayNum = 1
+    fallbackConcepts.forEach((concept, i) => {
+      const moduleIdx = Math.min(3, Math.floor(i / Math.ceil(fallbackConcepts.length / 4)))
+      for (let d = 0; d < concept.estimatedDays && dayNum <= days; d++) {
+        fallbackModules[moduleIdx].days.push({
+          day: dayNum++,
+          title: concept.name,
+          concepts: [concept.name],
+          estimatedMinutes: minutesPerDay || 30,
+          difficulty: concept.difficulty,
+        })
+      }
+    })
+
+    return {
+      version: 'v1',
+      goal,
+      skillLevel,
+      totalDays: days,
+      estimatedHours: Math.round(days * (minutesPerDay || 30) / 60),
+      completionProbability: 75,
+      recommendedDays: days,
+      modules: fallbackModules.filter(m => m.days.length > 0),
+      concepts: fallbackConcepts,
+      previous_version: null,
+    }
+  }
+}
+
+// ─────────────────────────────────────────────
+// Legacy concept map generation (used by generateNextTasksIfNeeded)
 // ─────────────────────────────────────────────
 
 export async function generateConceptMap({ goal, knowledge, days, openaiApiKey }) {
@@ -206,7 +438,7 @@ function expandConceptTimeline(concepts, targetDays) {
 function normalizeTaskType(type, index) {
   if (!type) return TASK_SEQUENCE[index % TASK_SEQUENCE.length]
   const normalized = String(type).toLowerCase().trim()
-  return TASK_SEQUENCE.includes(normalized) ? normalized : TASK_SEQUENCE[index % TASK_SEQUENCE.length]
+  return EXTENDED_TASK_TYPES.includes(normalized) ? normalized : TASK_SEQUENCE[index % TASK_SEQUENCE.length]
 }
 
 function normalizeTitle(title, fallback) {
@@ -292,15 +524,18 @@ async function generateTeachingTasksForDay({
             `Goal: ${goal}`,
             `Prior knowledge: ${knowledge || 'Beginner'}`,
             `Day: ${dayNumber}`,
+            concept._moduleTitle ? `Module: ${concept._moduleTitle}` : '',
+            concept._dayTitle ? `Day topic: ${concept._dayTitle}` : '',
             `Concept: ${concept.name}`,
             `Concept description: ${concept.description || 'N/A'}`,
+            concept._allConcepts?.length > 1 ? `Related concepts for today: ${concept._allConcepts.join(', ')}` : '',
             `Each task should be ~${durationMin} minutes. Total session = ${taskCount * durationMin} minutes.`,
             modeInstruction,
             `Allowed task types: ${TASK_SEQUENCE.join(', ')}`,
             `Resource candidates JSON: ${JSON.stringify(resources)}`,
             'Return ONLY strict JSON: {"tasks":[{"type":"lesson","title":"...","action":"...","outcome":"...","description":"...","durationMin":15,"resourceUrl":"https://...","resourceTitle":"...","resourceType":"article"}]}',
-            'Rules: tasks must be practical and specific, titles must be distinct, action and outcome required, include concrete resourceUrl and resourceTitle for every task.',
-          ].join('\n'),
+            'Rules: tasks must be practical and specific — each task should feel like a real step forward. Titles must be distinct, action and outcome required, include concrete resourceUrl and resourceTitle for every task. No generic fluff.',
+          ].filter(Boolean).join('\n'),
         }],
       }),
     })
@@ -393,7 +628,14 @@ export async function buildDailyTasks(goal, concepts, weekdayMins, weekendMins, 
     // FIX: durationMin now always fits within totalMinutes
     const durationMin = Math.max(8, Math.floor(totalMinutes / taskCount))
 
-    const tasks = await generateTeachingTasksForDay({
+    // Determine flow-based task sequence for this day
+    const isBossDay = dayNumber % 7 === 0 && dayNumber > 0
+    const difficulty = concept.difficulty || 2
+    const condensed = totalMinutes < 20
+    const flowSequence = buildFlowSequence(dayNumber, difficulty, { isBossDay, condensed })
+
+    // Core AI-generated tasks (lessons, quizzes, etc.)
+    const coreTasks = await generateTeachingTasksForDay({
       goal,
       knowledge,
       concept,
@@ -405,6 +647,96 @@ export async function buildDailyTasks(goal, concepts, weekdayMins, weekendMins, 
       usedTitles,
       mode,
     })
+
+    // Inject learning engine tasks based on flow sequence
+    const tasks = [...coreTasks]
+    const coreTypes = new Set(coreTasks.map(t => t.type))
+
+    for (const flowItem of flowSequence) {
+      // Skip if a task of this type already exists from AI generation
+      if (coreTypes.has(flowItem.type)) continue
+      // Skip types that map to the same thing (e.g. practice ≈ guided_practice)
+      if (flowItem.type === 'guided_practice' && (coreTypes.has('practice') || coreTypes.has('exercise'))) continue
+
+      if (flowItem.type === 'guided_practice') {
+        tasks.push({
+          id: `d${dayNumber}gp`,
+          type: 'guided_practice',
+          title: uniqueTitle(`Practice: ${concept.name}`, usedTitles, dayNumber, tasks.length),
+          description: `Guided practice with scaffolded hints for ${concept.name}`,
+          durationMin: Math.max(8, Math.round(durationMin * 1.2)),
+          _concept: concept.name,
+          _difficulty: difficulty,
+          _flowStage: 'apply',
+          completed: false,
+        })
+      } else if (flowItem.type === 'challenge') {
+        tasks.push({
+          id: `d${dayNumber}ch`,
+          type: 'challenge',
+          title: uniqueTitle(`Challenge: ${concept.name}`, usedTitles, dayNumber, tasks.length),
+          description: `Harder problem with minimal guidance — test your deep understanding of ${concept.name}`,
+          durationMin: Math.max(10, Math.round(durationMin * 1.5)),
+          _concept: concept.name,
+          _difficulty: Math.min(5, difficulty + 1),
+          _flowStage: 'struggle',
+          completed: false,
+        })
+      } else if (flowItem.type === 'ai_interaction') {
+        tasks.push({
+          id: `d${dayNumber}ai`,
+          type: 'ai_interaction',
+          title: uniqueTitle(`Explain & Debug: ${concept.name}`, usedTitles, dayNumber, tasks.length),
+          description: `Teach the concept back, debug scenarios, and predict outcomes for ${concept.name}`,
+          durationMin: Math.max(8, durationMin),
+          _concept: concept.name,
+          _difficulty: difficulty,
+          _flowStage: 'explain',
+          completed: false,
+        })
+      } else if (flowItem.type === 'reflection') {
+        tasks.push({
+          id: `d${dayNumber}ref`,
+          type: 'reflection',
+          title: uniqueTitle(`Reflect: ${concept.name}`, usedTitles, dayNumber, tasks.length),
+          description: `Reflect on what you learned about ${concept.name} — what clicked, what's fuzzy`,
+          durationMin: 5,
+          _concept: concept.name,
+          _difficulty: difficulty,
+          _flowStage: 'reflect',
+          completed: false,
+        })
+      } else if (flowItem.type === 'boss' && isBossDay) {
+        tasks.push({
+          id: `d${dayNumber}boss`,
+          type: 'boss',
+          title: uniqueTitle(`Boss Challenge: ${concept._moduleTitle || concept.name}`, usedTitles, dayNumber, tasks.length),
+          description: `Multi-phase boss battle — prove your mastery of everything in this module`,
+          durationMin: 15,
+          _concept: concept.name,
+          _moduleName: concept._moduleTitle || concept.name,
+          _concepts: concept._allConcepts || [concept.name],
+          _difficulty: Math.min(5, difficulty + 1),
+          _flowStage: 'prove',
+          xpReward: 200,
+          completed: false,
+        })
+      }
+    }
+
+    // Inject a portfolio project task every 5 days
+    if (dayNumber % 5 === 0 && dayNumber > 0) {
+      tasks.push({
+        id: `d${dayNumber}project`,
+        type: 'project',
+        title: `Milestone Project: Apply ${concept.name}`,
+        description: 'Apply what you\'ve learned in a hands-on portfolio project',
+        durationMin: 60,
+        isProjectTrigger: true,
+        xpReward: 100,
+        completed: false,
+      })
+    }
 
     days.push({
       day: dayNumber,
@@ -479,7 +811,7 @@ export async function saveDailyTasks({ supabase, goalId, userId, dailyPlan }) {
     mode: day.mode || 'goal',
   }))
 
-  const { data, error } = await supabase.from('daily_tasks').insert(rows).select('id')
+  const { data, error } = await supabase.from('daily_tasks').insert(rows).select('*')
   if (error) throw new Error(`Failed to save tasks: ${error.message}`)
   return data || []
 }
@@ -587,20 +919,29 @@ export async function generateNextTasksIfNeeded({ supabase, goalId, userId }) {
 
   const { data: goalRow, error: goalError } = await supabase
     .from('goals')
-    .select('goal_text,weekday_mins,weekend_mins,constraints')
+    .select('goal_text,weekday_mins,weekend_mins,constraints,course_outline')
     .eq('id', goalId)
     .single()
 
   if (goalError) throw new Error(`Failed to load goal for next tasks: ${goalError.message}`)
 
-  // FIX: use generateConceptMap (AI) not buildFallbackConcepts for next-week generation
   const knowledge = Array.isArray(goalRow.constraints) ? goalRow.constraints.join(', ') : (goalRow.constraints || '')
-  const concepts = await generateConceptMap({
-    goal: goalRow.goal_text,
-    knowledge,
-    days: 14,
-    openaiApiKey: process.env.OPENAI_API_KEY,
-  })
+
+  // Use stored course outline concepts if available, else generate fresh concept map
+  let concepts
+  const outline = goalRow.course_outline
+  if (outline?.concepts?.length > 0) {
+    // Filter outline concepts to those relevant for the upcoming days
+    const upcomingConcepts = outline.concepts.filter(c => c.id > maxDay - 2)
+    concepts = upcomingConcepts.length > 0 ? upcomingConcepts : outline.concepts.slice(-6)
+  } else {
+    concepts = await generateConceptMap({
+      goal: goalRow.goal_text,
+      knowledge,
+      days: 14,
+      openaiApiKey: process.env.OPENAI_API_KEY,
+    })
+  }
 
   const nextPlan = await buildDailyTasks(
     goalRow.goal_text,
@@ -612,8 +953,8 @@ export async function generateNextTasksIfNeeded({ supabase, goalId, userId }) {
     { knowledge, openaiApiKey: process.env.OPENAI_API_KEY, mode: 'goal' },
   )
 
-  await saveDailyTasks({ supabase, goalId, userId, dailyPlan: nextPlan })
-  return { generated: true, daysGenerated: nextPlan.length, startDay: maxDay + 1 }
+  const insertedRows = await saveDailyTasks({ supabase, goalId, userId, dailyPlan: nextPlan })
+  return { generated: true, daysGenerated: nextPlan.length, startDay: maxDay + 1, rows: insertedRows }
 }
 
 // ─────────────────────────────────────────────
@@ -672,6 +1013,6 @@ export async function generateNextExploreDay({ supabase, goalId, userId }) {
     { knowledge, openaiApiKey: process.env.OPENAI_API_KEY },
   )
 
-  await saveDailyTasks({ supabase, goalId, userId, dailyPlan: [nextDay] })
-  return { generated: true, day: nextDay }
+  const insertedRows = await saveDailyTasks({ supabase, goalId, userId, dailyPlan: [nextDay] })
+  return { generated: true, day: nextDay, rows: insertedRows }
 }

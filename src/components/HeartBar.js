@@ -1,9 +1,8 @@
-// HeartBar — displays up to 5 hearts in the top bar with crack animation on loss
+// HeartBar — displays the current heart cap in the top bar with crack animation on loss
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-
-const HEARTS_MAX = 5
+import { HEARTS_MAX } from '@/lib/tokens'
 
 function HeartSvg({ filled, cracking, sz = 18 }) {
   return (
@@ -25,7 +24,7 @@ function HeartSvg({ filled, cracking, sz = 18 }) {
   )
 }
 
-export default function HeartBar({ hearts = HEARTS_MAX, prevHearts = null }) {
+export default function HeartBar({ hearts = HEARTS_MAX, prevHearts = null, maxHearts = HEARTS_MAX }) {
   const [crackingIndex, setCrackingIndex] = useState(null)
   const prevRef = useRef(hearts)
 
@@ -33,16 +32,16 @@ export default function HeartBar({ hearts = HEARTS_MAX, prevHearts = null }) {
     if (prevHearts !== null && prevHearts > hearts) {
       // A heart was lost — crack the one that just disappeared
       const lostIndex = hearts // hearts is now lower; the lost heart was at index `hearts`
-      setCrackingIndex(lostIndex)
-      const t = setTimeout(() => setCrackingIndex(null), 500)
-      return () => clearTimeout(t)
+      const start = setTimeout(() => setCrackingIndex(lostIndex), 0)
+      const end = setTimeout(() => setCrackingIndex(null), 500)
+      return () => { clearTimeout(start); clearTimeout(end) }
     }
     prevRef.current = hearts
   }, [hearts, prevHearts])
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-      {Array.from({ length: HEARTS_MAX }, (_, i) => {
+      {Array.from({ length: maxHearts }, (_, i) => {
         const isFilled   = i < hearts
         const isCracking = i === crackingIndex
         return (

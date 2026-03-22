@@ -8,6 +8,7 @@ import { supabase } from '@/lib/supabase'
 import { getLevelProgress, LEVEL_TITLES } from '@/lib/xp'
 import { streakStatusLabel } from '@/lib/streak'
 import { trackStatsViewed } from '@/lib/analytics'
+import BadgeShowcase from '@/components/BadgeShowcase'
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const T = {
@@ -276,38 +277,51 @@ function MasteryList({ masteries, loading }) {
     </div>
   )
 
+  const now = new Date()
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
       {masteries.slice(0,8).map((m, i) => {
         const pct = Math.min(1, (m.mastery_score || 0) / 100)
-        const color = pct >= 0.8 ? T.teal : pct >= 0.5 ? T.blue : pct >= 0.3 ? T.mastery : T.textMuted
+        const daysSince = m.last_review ? Math.floor((now - new Date(m.last_review)) / (1000*60*60*24)) : 0
+        const isDecaying = daysSince >= 7 && m.mastery_score > 0
+        const color = isDecaying ? T.amber : pct >= 0.8 ? T.teal : pct >= 0.5 ? T.blue : pct >= 0.3 ? T.mastery : T.textMuted
         return (
           <div key={m.concept_id || i} style={{
-            background:T.surface, border:`1px solid ${T.border}`,
+            background: isDecaying ? 'rgba(251,191,36,0.04)' : T.surface,
+            border:`1px solid ${isDecaying ? 'rgba(251,191,36,0.18)' : T.border}`,
             borderRadius:12, padding:'11px 14px',
             backdropFilter:'blur(12px)', WebkitBackdropFilter:'blur(12px)',
             animation:`fadeUp 0.35s ${i*0.05}s both`,
           }}>
             <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:6 }}>
               <span style={{ fontSize:13, fontWeight:600, color:T.text,
-                overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:'75%' }}>
+                overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:'65%' }}>
                 {m.concept_id}
               </span>
-              <span style={{ fontSize:12, fontWeight:800, color }}>
-                {Math.round(pct*100)}%
-              </span>
+              <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                {isDecaying && (
+                  <span style={{ fontSize:10, fontWeight:700, color:T.amber, padding:'2px 6px', background:'rgba(251,191,36,0.10)', borderRadius:9999 }}>
+                    {daysSince}d ago
+                  </span>
+                )}
+                <span style={{ fontSize:12, fontWeight:800, color }}>
+                  {Math.round(pct*100)}%
+                </span>
+              </div>
             </div>
             <div style={{ height:4, background:'rgba(255,255,255,0.06)', borderRadius:9999, overflow:'hidden' }}>
               <div style={{
                 height:'100%', borderRadius:9999,
-                background: pct >= 0.8
+                background: isDecaying
+                  ? 'linear-gradient(90deg,#FBBF24,#F59E0B)'
+                  : pct >= 0.8
                   ? 'linear-gradient(90deg,#0ef5c2,#00d4ff)'
                   : pct >= 0.5
                   ? 'linear-gradient(90deg,#00d4ff,#818CF8)'
                   : '#818CF8',
                 width:`${Math.round(pct*100)}%`,
                 transition:'width 0.7s cubic-bezier(0.16,1,0.3,1)',
-                boxShadow: pct >= 0.8 ? '0 0 6px rgba(14,245,194,0.40)' : 'none',
+                boxShadow: isDecaying ? '0 0 6px rgba(251,191,36,0.40)' : pct >= 0.8 ? '0 0 6px rgba(14,245,194,0.40)' : 'none',
               }}/>
             </div>
           </div>
@@ -321,8 +335,8 @@ function MasteryList({ masteries, loading }) {
 function consistencyGrade(completedDays, totalDays, currentStreak) {
   if (totalDays === 0) return { grade:'—', color:T.textMuted, desc:'No data yet' }
   const rate = completedDays / totalDays
-  if (rate >= 0.90 || currentStreak >= 14) return { grade:'A+', color:T.teal,    desc:'Outstanding consistency' }
-  if (rate >= 0.75 || currentStreak >= 7)  return { grade:'A',  color:T.teal,    desc:'Excellent momentum'      }
+  if (rate >= 0.90 || (rate >= 0.70 && currentStreak >= 14)) return { grade:'A+', color:T.teal,    desc:'Outstanding consistency' }
+  if (rate >= 0.75 || (rate >= 0.50 && currentStreak >= 7))  return { grade:'A',  color:T.teal,    desc:'Excellent momentum'      }
   if (rate >= 0.60)                         return { grade:'B',  color:T.blue,    desc:'Solid progress'          }
   if (rate >= 0.45)                         return { grade:'C',  color:T.amber,   desc:'Room to grow'            }
   if (rate >= 0.25)                         return { grade:'D',  color:T.flame,   desc:'Showing up is step one'  }
@@ -369,13 +383,15 @@ function PersonalBestCard({ longestStreak, totalMissions, totalXp, delay=0 }) {
 // ─── "Ahead of last week" comparison card ────────────────────────────────────
 function MomentumCard({ rows }) {
   const { thisWeek, lastWeek, diff } = useMemo(() => {
-    const now  = new Date()
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
     let tw = 0, lw = 0
 
     for (const row of rows) {
       if (!row.task_date && !row.created_at) continue
-      const d    = new Date(row.task_date || row.created_at)
-      const diffDays = Math.floor((now - d) / (1000*60*60*24))
+      const d = new Date(row.task_date || row.created_at)
+      d.setHours(0, 0, 0, 0)
+      const diffDays = Math.round((today - d) / (1000*60*60*24))
       const tasks    = Array.isArray(row.tasks) ? row.tasks : []
       const done     = tasks.filter(t => t.completed).length
       if (diffDays < 7)       tw += done
@@ -488,6 +504,7 @@ export default function StatsPage() {
   const [progress,   setProgress]   = useState(null)
   const [masteries,  setMasteries]  = useState([])
   const [goal,       setGoal]       = useState(null)
+  const [earnedBadgeIds, setEarnedBadgeIds] = useState(new Set())
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -501,7 +518,7 @@ export default function StatsPage() {
     if (!activeGoal) { setLoading(false); return }
     setGoal(activeGoal)
 
-    const [{ data: taskRows }, { data: prog }, { data: mast }] = await Promise.all([
+    const [{ data: taskRows }, { data: prog }, { data: mast }, { data: badges }] = await Promise.all([
       supabase.from('daily_tasks').select('*')
         .eq('goal_id', activeGoal.id).eq('user_id', me.id)
         .order('day_number', { ascending:true }),
@@ -510,11 +527,14 @@ export default function StatsPage() {
       supabase.from('concept_mastery').select('*')
         .eq('goal_id', activeGoal.id).eq('user_id', me.id)
         .order('mastery_score', { ascending:false }),
+      supabase.from('achievements').select('badge_id')
+        .eq('user_id', me.id),
     ])
 
     setRows(taskRows || [])
     setProgress(prog || null)
     setMasteries(mast || [])
+    setEarnedBadgeIds(new Set((badges || []).map(b => b.badge_id)))
 
     trackStatsViewed({
       userId: me.id,
@@ -526,7 +546,13 @@ export default function StatsPage() {
     setLoading(false)
   }, [router])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      load()
+    }, 0)
+
+    return () => clearTimeout(timer)
+  }, [load])
 
   // ── Derived stats ──────────────────────────────────────────────────────────
   const stats = useMemo(() => {
@@ -647,7 +673,7 @@ export default function StatsPage() {
                   label="Total XP"
                   value={stats.xp.toLocaleString()}
                   color={T.amber}
-                  sub={`${LEVEL_TITLES[Math.min(stats.levelProg.level-1,19)]}`}
+                  sub={`${LEVEL_TITLES[Math.max(0, Math.min(stats.levelProg.level-1, 19))]}`}
                   delay={0.12}
                 />
                 <HeroStat
@@ -679,6 +705,30 @@ export default function StatsPage() {
                 totalXp={stats.xp}
                 delay={0.20}
               />
+
+              {/* Achievement vault */}
+              <div style={{ animation:'fadeUp 0.40s 0.24s both' }}>
+                <BadgeShowcase earnedIds={earnedBadgeIds} maxWidth={560} outerPadding="0 0 4px" />
+              </div>
+
+              {/* Portfolio link */}
+              <a href="/portfolio" style={{
+                display:'flex', alignItems:'center', justifyContent:'space-between',
+                padding:'16px 18px', borderRadius:16,
+                background:T.surface, border:`1px solid ${T.border}`,
+                backdropFilter:'blur(16px)', WebkitBackdropFilter:'blur(16px)',
+                textDecoration:'none', cursor:'pointer',
+                animation:'fadeUp 0.40s 0.23s both',
+              }}>
+                <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                  <span style={{ fontSize:20 }}>🚀</span>
+                  <div>
+                    <div style={{ fontSize:14, fontWeight:700, color:T.text }}>My Portfolio</div>
+                    <div style={{ fontSize:11, color:T.textMuted }}>View completed projects & AI reviews</div>
+                  </div>
+                </div>
+                <span style={{ color:T.textMuted, fontSize:18 }}>›</span>
+              </a>
 
               {/* Mastery list */}
               <div style={{

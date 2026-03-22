@@ -280,6 +280,12 @@ a {
   to   { opacity: 1; transform: translateY(0); }
 }
 
+@keyframes badgeSlideIn {
+  0%   { opacity: 0; transform: translateY(-30px) scale(0.85); }
+  70%  { transform: translateY(4px) scale(1.04); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
 @keyframes fadeInSlow {
   from { opacity: 0; transform: translateY(10px); }
   to   { opacity: 1; transform: translateY(0); }

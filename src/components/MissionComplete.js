@@ -1,12 +1,17 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useMemo } from 'react'
 
 // ─── Confetti ─────────────────────────────────────────────────────────────────
 const CONFETTI_COLORS = [
   '#0ef5c2', '#00d4ff', '#818CF8', '#FBBF24',
   '#FF6B35', '#F472B6', '#34D399', '#60A5FA',
 ]
+
+const pseudoRandom = (seed) => {
+  const x = Math.sin(seed * 9999) * 10000
+  return x - Math.floor(x)
+}
 
 function ConfettiParticle({ x, delay, duration, color, size, spin }) {
   return (
@@ -27,22 +32,17 @@ function ConfettiParticle({ x, delay, duration, color, size, spin }) {
 }
 
 function ConfettiLayer({ active }) {
-  const [particles, setParticles] = useState([])
-
-  useEffect(() => {
-    if (!active) { setParticles([]); return }
-    const ps = Array.from({ length: 48 }, (_, i) => ({
+  const particles = useMemo(() => {
+    if (!active) return []
+    return Array.from({ length: 48 }, (_, i) => ({
       id:       i,
-      x:        Math.random() * 100,
-      delay:    Math.random() * 0.9,
-      duration: 1.8 + Math.random() * 1.2,
+      x:        pseudoRandom(i + 1) * 100,
+      delay:    pseudoRandom(i + 101) * 0.9,
+      duration: 1.8 + pseudoRandom(i + 201) * 1.2,
       color:    CONFETTI_COLORS[i % CONFETTI_COLORS.length],
-      size:     4 + Math.random() * 5,
-      spin:     Math.floor(Math.random() * 360),
+      size:     4 + pseudoRandom(i + 301) * 5,
+      spin:     Math.floor(pseudoRandom(i + 401) * 360),
     }))
-    setParticles(ps)
-    const t = setTimeout(() => setParticles([]), 4500)
-    return () => clearTimeout(t)
   }, [active])
 
   if (!particles.length) return null
@@ -82,24 +82,13 @@ function XPRow({ label, xp, highlight }) {
 }
 
 // ─── Main overlay ─────────────────────────────────────────────────────────────
-export default function MissionComplete({ isVisible, data, onDismiss, onStartTomorrow }) {
+export default function MissionComplete({ isVisible, data, onDoLater, onStartTomorrow, isStartingTomorrow = false }) {
   // data: {
   //   conceptName, dayNumber,
   //   xpEarned, taskXp, missionBonusXp, streakBonusXp, gemsEarned,
   //   newStreak, levelUp: { fromLevel, toLevel, title } | null,
   //   tomorrowConcept, tomorrowDayNumber
   // }
-  const dismissRef = useRef(onDismiss)
-  useEffect(() => { dismissRef.current = onDismiss }, [onDismiss])
-
-  // Keyboard dismiss
-  useEffect(() => {
-    if (!isVisible) return
-    const handler = (e) => { if (e.key === 'Escape') dismissRef.current?.() }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [isVisible])
-
   if (!isVisible) return null
 
   const { conceptName, dayNumber, xpEarned = 0, taskXp = 0,
@@ -117,9 +106,9 @@ export default function MissionComplete({ isVisible, data, onDismiss, onStartTom
           100% { opacity: 0; transform: translateY(110vh) rotate(720deg) scaleX(0.6); }
         }
         @keyframes mcBackdrop  { from { opacity: 0 } to { opacity: 1 } }
-        @keyframes mcSlideUp   {
-          from { transform: translateY(72px); opacity: 0 }
-          to   { transform: translateY(0);    opacity: 1 }
+        @keyframes mcScaleIn   {
+          from { transform: scale(0.92); opacity: 0 }
+          to   { transform: scale(1);    opacity: 1 }
         }
         @keyframes mcXpPop {
           0%   { transform: scale(0.5); opacity: 0 }
@@ -132,7 +121,7 @@ export default function MissionComplete({ isVisible, data, onDismiss, onStartTom
         }
         @media (prefers-reduced-motion: reduce) {
           @keyframes confettiFall { 0% { opacity: 0 } 100% { opacity: 0 } }
-          @keyframes mcSlideUp    { from { opacity: 0 } to { opacity: 1 } }
+          @keyframes mcScaleIn    { from { opacity: 0 } to { opacity: 1 } }
           @keyframes mcXpPop      { from { opacity: 0 } to { opacity: 1 } }
           @keyframes mcLevelGlow  { to {} }
         }
@@ -142,10 +131,6 @@ export default function MissionComplete({ isVisible, data, onDismiss, onStartTom
 
       {/* Backdrop */}
       <div
-        onClick={onDismiss}
-        role="button"
-        tabIndex={-1}
-        aria-label="Dismiss mission complete"
         style={{
           position:         'fixed',
           inset:            0,
@@ -154,7 +139,6 @@ export default function MissionComplete({ isVisible, data, onDismiss, onStartTom
           backdropFilter:   'blur(18px)',
           WebkitBackdropFilter: 'blur(18px)',
           animation:        'mcBackdrop 0.30s ease',
-          cursor:           'pointer',
         }}
       />
 
@@ -165,27 +149,25 @@ export default function MissionComplete({ isVisible, data, onDismiss, onStartTom
         aria-label="Mission complete"
         style={{
           position:  'fixed',
-          bottom:    0,
-          left:      0,
-          right:     0,
+          inset:     0,
           zIndex:    901,
-          padding:   '0 16px env(safe-area-inset-bottom, 24px)',
-          animation: 'mcSlideUp 0.40s cubic-bezier(0.34,1.3,0.64,1)',
+          padding:   '24px 16px',
+          display:   'flex',
+          alignItems:'center',
+          justifyContent:'center',
         }}
       >
         <div style={{
           background:  'linear-gradient(180deg, rgba(15,23,42,0.99) 0%, rgba(6,6,15,1) 100%)',
           border:      '1px solid rgba(14,245,194,0.28)',
           borderRadius: 28,
-          padding:     '0 24px 28px',
-          boxShadow:   '0 -32px 80px rgba(14,245,194,0.10), inset 0 1px 0 rgba(14,245,194,0.24)',
-          marginBottom: 8,
+          padding:     '24px 24px 28px',
+          boxShadow:   '0 32px 80px rgba(0,0,0,0.42), inset 0 1px 0 rgba(14,245,194,0.24)',
+          width:       'min(100%, 460px)',
+          maxHeight:   'min(90vh, 760px)',
+          overflowY:   'auto',
+          animation:   'mcScaleIn 0.28s cubic-bezier(0.34,1.3,0.64,1)',
         }}>
-          {/* Handle */}
-          <div style={{ display: 'flex', justifyContent: 'center', padding: '16px 0 20px' }}>
-            <div style={{ width: 40, height: 4, borderRadius: 9999, background: 'rgba(255,255,255,0.15)' }} />
-          </div>
-
           {/* Trophy + heading */}
           <div style={{ textAlign: 'center', marginBottom: 24 }}>
             <div style={{
@@ -356,21 +338,22 @@ export default function MissionComplete({ isVisible, data, onDismiss, onStartTom
           )}
 
           {/* CTAs */}
-          {tomorrowConcept && onStartTomorrow ? (
+          {onStartTomorrow ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {/* Primary: start tomorrow */}
               <button
                 onClick={onStartTomorrow}
+                disabled={isStartingTomorrow}
                 style={{
                   width:        '100%',
                   padding:      '16px',
-                  background:   'linear-gradient(135deg, #0ef5c2, #00d4ff)',
-                  border:       'none',
+                  background:   isStartingTomorrow ? 'rgba(14,245,194,0.10)' : 'linear-gradient(135deg, #0ef5c2, #00d4ff)',
+                  border:       isStartingTomorrow ? '1px solid rgba(14,245,194,0.24)' : 'none',
                   borderRadius: 16,
-                  color:        '#06060f',
+                  color:        isStartingTomorrow ? '#0ef5c2' : '#06060f',
                   fontSize:     16,
                   fontWeight:   800,
-                  cursor:       'pointer',
+                  cursor:       isStartingTomorrow ? 'default' : 'pointer',
                   fontFamily:   'inherit',
                   boxShadow:    '0 0 32px rgba(14,245,194,0.28), inset 0 1px 0 rgba(255,255,255,0.40)',
                   display:      'flex',
@@ -383,40 +366,46 @@ export default function MissionComplete({ isVisible, data, onDismiss, onStartTom
                 onMouseLeave={(e) => { e.currentTarget.style.opacity = '1' }}
               >
                 <span>
-                  Start Day {tomorrowDayNumber ?? ''}: {tomorrowConcept}
+                  {isStartingTomorrow
+                    ? 'Loading next day...'
+                    : tomorrowConcept
+                    ? `Start Day ${tomorrowDayNumber ?? ''}: ${tomorrowConcept}`
+                    : 'Start next day'}
                 </span>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-                  stroke="#06060f" strokeWidth="2.5" strokeLinecap="round">
+                  stroke={isStartingTomorrow ? '#0ef5c2' : '#06060f'} strokeWidth="2.5" strokeLinecap="round">
                   <line x1="5" y1="12" x2="19" y2="12"/>
                   <polyline points="12 5 19 12 12 19"/>
                 </svg>
               </button>
 
-              {/* Secondary: dismiss */}
+              {/* Secondary: do later */}
               <button
-                onClick={onDismiss}
+                onClick={onDoLater}
+                disabled={isStartingTomorrow}
                 style={{
                   width:        '100%',
                   padding:      '13px',
                   background:   'rgba(255,255,255,0.04)',
                   border:       '1px solid rgba(255,255,255,0.08)',
                   borderRadius: 16,
-                  color:        '#64748B',
+                  color:        isStartingTomorrow ? 'rgba(100,116,139,0.55)' : '#64748B',
                   fontSize:     14,
                   fontWeight:   600,
-                  cursor:       'pointer',
+                  cursor:       isStartingTomorrow ? 'default' : 'pointer',
                   fontFamily:   'inherit',
                   transition:   'opacity 0.15s',
+                  opacity:      isStartingTomorrow ? 0.7 : 1,
                 }}
                 onMouseEnter={(e) => { e.currentTarget.style.color = '#94A3B8' }}
                 onMouseLeave={(e) => { e.currentTarget.style.color = '#64748B' }}
               >
-                I'll continue tomorrow
+                I&apos;ll do it later
               </button>
             </div>
           ) : (
             <button
-              onClick={onDismiss}
+              onClick={onDoLater}
               style={{
                 width:       '100%',
                 padding:     '16px',
@@ -434,7 +423,7 @@ export default function MissionComplete({ isVisible, data, onDismiss, onStartTom
               onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.92' }}
               onMouseLeave={(e) => { e.currentTarget.style.opacity = '1' }}
             >
-              Continue
+              Close
             </button>
           )}
         </div>

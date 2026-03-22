@@ -1,7 +1,7 @@
 // Dashboard — Daily Mission Hub
 'use client'
 
-import { useEffect, useMemo, useState, useCallback } from 'react'
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import LessonViewer from '@/components/LessonView'
@@ -13,36 +13,61 @@ import FlashcardView from '@/components/FlashcardView'
 import DiscussionView from '@/components/DiscussionView'
 import ChallengeView from '@/components/ChallengeView'
 import CapstoneView from '@/components/CapstoneView'
+import ProjectViewer from '@/components/ProjectViewer'
+import GuidedPracticeView from '@/components/GuidedPracticeView'
+import ReflectionView from '@/components/ReflectionView'
+import BossChallengeView from '@/components/BossChallengeView'
+import AIInteractionView from '@/components/AIInteractionView'
 import MissionComplete from '@/components/MissionComplete'
 import HeartBar from '@/components/HeartBar'
 import NoHeartsOverlay from '@/components/NoHeartsOverlay'
 import GemShop from '@/components/GemShop'
 import TreasureChest from '@/components/TreasureChest'
+import { BADGES, RARITY_COLORS } from '@/lib/badges'
+import StreakFlame from '@/components/StreakFlame'
+import BadgeShowcase from '@/components/BadgeShowcase'
 import { getLevelProgress, xpForTask, missionXpReward, computeTotalXpFromRows } from '@/lib/xp'
 import { track, EVENTS } from '@/lib/analytics'
+import {
+  APP_THEMES,
+  getDashboardThemeVars,
+  getStoredActiveTheme,
+  getStoredOwnedThemes,
+  setStoredActiveTheme,
+} from '@/lib/appThemes'
+import { getStoredMaxHearts, setStoredMaxHearts } from '@/lib/shopStorage'
+import { HEARTS_BASE, HEARTS_MAX_CAP } from '@/lib/tokens'
 
 // ─── Design tokens ─────────────────────────────────────────────────────────────
 const T = {
-  bg:           '#06060f',
-  surface:      'rgba(255,255,255,0.04)',
-  border:       'rgba(255,255,255,0.08)',
-  borderAlt:    'rgba(255,255,255,0.05)',
-  teal:         '#0ef5c2',
-  tealDim:      'rgba(14,245,194,0.10)',
-  tealBorder:   'rgba(14,245,194,0.22)',
-  blue:         '#00d4ff',
-  flame:        '#FF6B35',
-  flameDim:     'rgba(255,107,53,0.08)',
-  flameBorder:  'rgba(255,107,53,0.22)',
-  amber:        '#FBBF24',
-  mastery:      '#818CF8',
-  masteryDim:   'rgba(129,140,248,0.10)',
-  masteryBorder:'rgba(129,140,248,0.22)',
-  text:         '#F1F5F9',
-  textSec:      '#94A3B8',
-  textMuted:    '#475569',
-  textDead:     '#334155',
-  red:          '#FF453A',
+  bg:           'var(--theme-bg)',
+  chrome:       'var(--theme-chrome)',
+  shell:        'var(--theme-shell)',
+  surface:      'var(--theme-surface)',
+  border:       'var(--theme-border)',
+  borderAlt:    'var(--theme-border-alt)',
+  teal:         'var(--theme-primary)',
+  tealDim:      'var(--theme-primary-dim)',
+  tealBorder:   'var(--theme-primary-border)',
+  blue:         'var(--theme-secondary)',
+  flame:        'var(--theme-warm)',
+  flameDim:     'var(--theme-warm-dim)',
+  flameBorder:  'var(--theme-warm-border)',
+  amber:        'var(--theme-highlight)',
+  mastery:      'var(--theme-mastery)',
+  masteryDim:   'var(--theme-mastery-dim)',
+  masteryBorder:'var(--theme-mastery-border)',
+  text:         'var(--theme-text)',
+  textSec:      'var(--theme-text-sec)',
+  textMuted:    'var(--theme-text-muted)',
+  textDead:     'var(--theme-text-dead)',
+  red:          'var(--theme-red)',
+  ink:          'var(--theme-ink)',
+  primaryGradient:'linear-gradient(135deg,var(--theme-primary),var(--theme-secondary))',
+  primaryGradientSoft:'linear-gradient(90deg,var(--theme-primary),var(--theme-secondary))',
+  masteryGradient:'linear-gradient(135deg,var(--theme-mastery),var(--theme-mastery-strong))',
+  masteryGradientSoft:'linear-gradient(90deg,var(--theme-mastery),var(--theme-mastery-strong))',
+  highlightGradient:'linear-gradient(90deg,var(--theme-highlight),var(--theme-primary))',
   font:         "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif",
   fontMono:     "'JetBrains Mono','Fira Code',Menlo,monospace",
 }
@@ -72,6 +97,7 @@ const KEYFRAMES = `
   @keyframes slideUpPreview{from{transform:translateY(100%)}to{transform:translateY(0)}}
   @keyframes gemPulse{0%{transform:scale(1)}50%{transform:scale(1.22)}100%{transform:scale(1)}}
   @keyframes gemFloat{0%{opacity:1;transform:translateY(0)}100%{opacity:0;transform:translateY(-36px)}}
+  @keyframes nextDayProgress{0%{transform:translateX(-120%)}100%{transform:translateX(240%)}}
   @property --chal-angle{syntax:'<angle>';initial-value:0deg;inherits:false}
   @keyframes chalBorderSpin{to{--chal-angle:360deg}}
   @keyframes questShimmer{0%{background-position:200% center}100%{background-position:-200% center}}
@@ -88,17 +114,22 @@ const KEYFRAMES = `
 
 // ─── Task type config ──────────────────────────────────────────────────────────
 const TASK_STYLE = {
-  lesson:     {color:'#0ef5c2',bg:'rgba(14,245,194,0.10)',  border:'rgba(14,245,194,0.22)',  label:'LESSON'    },
+  lesson:     {color:'var(--theme-primary)',bg:'var(--theme-primary-dim)',  border:'var(--theme-primary-border)',  label:'LESSON'    },
   video:      {color:'#FBBF24',bg:'rgba(251,191,36,0.10)',  border:'rgba(251,191,36,0.22)',  label:'VIDEO'     },
-  practice:   {color:'#00d4ff',bg:'rgba(0,212,255,0.10)',   border:'rgba(0,212,255,0.22)',   label:'PRACTICE'  },
-  exercise:   {color:'#818CF8',bg:'rgba(129,140,248,0.10)', border:'rgba(129,140,248,0.22)', label:'EXERCISE'  },
+  practice:   {color:'var(--theme-secondary)',bg:'rgba(0,212,255,0.10)',   border:'var(--theme-primary-border)',   label:'PRACTICE'  },
+  exercise:   {color:'var(--theme-mastery)',bg:'var(--theme-mastery-dim)', border:'var(--theme-mastery-border)', label:'EXERCISE'  },
   reading:    {color:'#34D399',bg:'rgba(52,211,153,0.10)',  border:'rgba(52,211,153,0.22)',  label:'READING'   },
   flashcard:  {color:'#A78BFA',bg:'rgba(167,139,250,0.10)', border:'rgba(167,139,250,0.22)', label:'FLASHCARDS'},
   discussion: {color:'#60A5FA',bg:'rgba(96,165,250,0.10)',  border:'rgba(96,165,250,0.22)',  label:'DISCUSSION'},
   challenge:  {color:'#F59E0B',bg:'rgba(245,158,11,0.10)',  border:'rgba(245,158,11,0.22)',  label:'CHALLENGE' },
   capstone:   {color:'#F97316',bg:'rgba(249,115,22,0.10)',  border:'rgba(249,115,22,0.22)',  label:'CAPSTONE'  },
-  quiz:     {color:'#FF453A',bg:'rgba(255,69,58,0.10)',   border:'rgba(255,69,58,0.22)',   label:'QUIZ'    },
-  review:   {color:'#FF6B35',bg:'rgba(255,107,53,0.10)',  border:'rgba(255,107,53,0.22)',  label:'REVIEW'  },
+  project:          {color:'#EC4899',bg:'rgba(236,72,153,0.10)', border:'rgba(236,72,153,0.22)', label:'PROJECT'  },
+  quiz:             {color:'#FF453A',bg:'rgba(255,69,58,0.10)',   border:'rgba(255,69,58,0.22)',   label:'QUIZ'    },
+  review:           {color:'#FF6B35',bg:'rgba(255,107,53,0.10)',  border:'rgba(255,107,53,0.22)',  label:'REVIEW'  },
+  guided_practice:  {color:'#00d4ff',bg:'rgba(0,212,255,0.10)',   border:'rgba(0,212,255,0.22)',   label:'PRACTICE' },
+  ai_interaction:   {color:'#818CF8',bg:'rgba(129,140,248,0.10)', border:'rgba(129,140,248,0.22)', label:'EXPLAIN'  },
+  reflection:       {color:'#A78BFA',bg:'rgba(167,139,250,0.10)', border:'rgba(167,139,250,0.22)', label:'REFLECT'  },
+  boss:             {color:'#EC4899',bg:'rgba(236,72,153,0.12)', border:'rgba(236,72,153,0.30)', label:'BOSS'     },
 }
 const taskStyle = (type) => TASK_STYLE[type] || TASK_STYLE.lesson
 
@@ -128,12 +159,12 @@ function getFilteredTasks(tasks, energy) {
   if (!tasks?.length) return tasks || []
   if (energy === 'energized' || energy === 'good') return tasks
   if (energy === 'okay') {
-    // Hide exercise and quiz, show the rest
-    return tasks.filter(t => !['exercise','quiz'].includes(t.type))
+    // Hide exercise, quiz, challenge, boss — show the rest
+    return tasks.filter(t => !['exercise','quiz','challenge','boss'].includes(t.type))
   }
   if (energy === 'tired') {
-    // Show only lessons and reviews (easiest), max 2
-    const easy = tasks.filter(t => ['lesson','review'].includes(t.type))
+    // Show only lessons, reviews, and reflections (low-effort), max 2
+    const easy = tasks.filter(t => ['lesson','review','reflection'].includes(t.type))
     return easy.slice(0, 2)
   }
   if (energy === 'drained') {
@@ -154,6 +185,7 @@ const PathIcon     = () => <svg width="22" height="22" viewBox="0 0 24 24" fill=
 const StatsIcon    = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
 const SettingsIcon = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
 const ShopIcon     = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2L3 7v13a2 2 0 002 2h14a2 2 0 002-2V7l-3-5H6z"/><line x1="3" y1="7" x2="21" y2="7"/><path d="M16 11a4 4 0 01-8 0"/></svg>
+const BadgesIcon   = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89L17 22l-5-3-5 3 1.523-9.11"/></svg>
 
 // ─── XP toast ──────────────────────────────────────────────────────────────────
 function XPToast({ id, amount, x, y, onDone }) {
@@ -177,22 +209,22 @@ function LevelUpBanner({ data, onDismiss }) {
   return (
     <div onClick={onDismiss} style={{
       position:'fixed', top:72, left:'50%', zIndex:9990,
-      background:'linear-gradient(135deg,rgba(129,140,248,0.22),rgba(99,102,241,0.14))',
-      border:'1px solid rgba(129,140,248,0.40)', borderRadius:14,
+      background:'linear-gradient(135deg,var(--theme-mastery-dim),rgba(99,102,241,0.14))',
+      border:`1px solid ${T.masteryBorder}`, borderRadius:14,
       padding:'12px 20px', display:'flex', alignItems:'center', gap:12,
-      boxShadow:'0 8px 32px rgba(129,140,248,0.28)',
+      boxShadow:'0 8px 32px rgba(129,140,248,0.22)',
       backdropFilter:'blur(20px)', WebkitBackdropFilter:'blur(20px)',
       animation:'levelPop 0.50s cubic-bezier(0.34,1.3,0.64,1)',
       cursor:'pointer', userSelect:'none', whiteSpace:'nowrap',
     }}>
       <div style={{
         width:34, height:34, borderRadius:'50%',
-        background:'linear-gradient(135deg,#818CF8,#6366F1)',
+        background:T.masteryGradient,
         display:'flex', alignItems:'center', justifyContent:'center',
         fontWeight:900, fontSize:15, color:'#fff',
       }}>{data.toLevel}</div>
       <div>
-        <div style={{fontSize:13,fontWeight:800,color:'#818CF8'}}>Level up — {data.title}</div>
+        <div style={{fontSize:13,fontWeight:800,color:T.mastery}}>Level up — {data.title}</div>
         <div style={{fontSize:11,color:T.textMuted}}>Level {data.fromLevel} → {data.toLevel}</div>
       </div>
     </div>
@@ -211,7 +243,7 @@ function XPLevelBar({ level, title, xpInLevel, xpForLevel, pct, animating }) {
           <div style={{display:'flex',alignItems:'center',gap:8}}>
             <div style={{
               width:28, height:28, borderRadius:'50%',
-              background:'linear-gradient(135deg,#818CF8,#6366F1)',
+              background:T.masteryGradient,
               display:'flex', alignItems:'center', justifyContent:'center',
               fontWeight:900, fontSize:13, color:'#fff', flexShrink:0,
               boxShadow:'0 0 14px rgba(129,140,248,0.35)',
@@ -226,7 +258,7 @@ function XPLevelBar({ level, title, xpInLevel, xpForLevel, pct, animating }) {
         <div style={{height:5,background:'rgba(255,255,255,0.06)',borderRadius:9999,overflow:'hidden'}}>
           <div style={{
             height:'100%', width:`${Math.round(pct*100)}%`,
-            background:'linear-gradient(90deg,#0ef5c2,#00d4ff)', borderRadius:9999,
+            background:T.primaryGradientSoft, borderRadius:9999,
             transition: animating ? 'width 0.55s cubic-bezier(0.16,1,0.3,1)' : 'none',
             boxShadow: animating ? '0 0 12px rgba(14,245,194,0.55)' : '0 0 6px rgba(14,245,194,0.25)',
             animation: animating ? 'xpBarGlow 1.2s ease' : 'none',
@@ -268,7 +300,7 @@ function MissionHeroCard({ todayRow, tasks, dayNumber }) {
             Day {dayNumber} Mission
           </span>
           {allDone && (
-            <span style={{fontSize:10,fontWeight:700,color:'#06060f',
+            <span style={{fontSize:10,fontWeight:700,color:T.ink,
               background:T.teal,padding:'2px 8px',borderRadius:9999}}>Complete</span>
           )}
         </div>
@@ -302,7 +334,7 @@ function MissionHeroCard({ todayRow, tasks, dayNumber }) {
             borderRadius:9999,overflow:'hidden'}}>
             <div style={{
               height:'100%', width:`${Math.round(pct*100)}%`,
-              background:'linear-gradient(90deg,#0ef5c2,#00d4ff)', borderRadius:9999,
+              background:T.primaryGradientSoft, borderRadius:9999,
               transition:'width 0.50s cubic-bezier(0.16,1,0.3,1)',
               boxShadow: pct>0 ? '0 0 10px rgba(14,245,194,0.45)' : 'none',
             }}/>
@@ -364,6 +396,7 @@ const TASK_TYPE_INFO = {
   discussion: { icon:'💬', what:'Thought-provoking reflection prompts — write your thinking to deepen understanding.' },
   challenge:  { icon:'⏱️', what:'Timed challenge that tests your skills under pressure — hints available if you get stuck.' },
   capstone:   { icon:'🏗️', what:'Multi-step capstone project with milestones — build something portfolio-worthy.' },
+  project:    { icon:'🚀', what:'Portfolio project — build something real, get AI feedback, and add it to your portfolio.' },
 }
 
 const LESSON_LABELS = {
@@ -378,6 +411,7 @@ const LESSON_LABELS = {
   discussion: 'Start Discussion',
   challenge:  'Begin Challenge',
   capstone:   'Open Project',
+  project:    'Start Project',
 }
 
 // ─── Task Preview Modal ────────────────────────────────────────────────────────
@@ -457,7 +491,7 @@ function TaskPreview({ task, onClose, onStart, onComplete, isCompleting }) {
         {task.resourceUrl && (
           <a href={task.resourceUrl} target="_blank" rel="noopener noreferrer" style={{
             display:'inline-flex', alignItems:'center', gap:5,
-            fontSize:13, color:'#00d4ff', fontWeight:600,
+            fontSize:13, color:T.blue, fontWeight:600,
             textDecoration:'none', marginBottom:16,
           }}>
             {task.resourceTitle||'Open resource'} <ArrowRight sz={12}/>
@@ -494,9 +528,9 @@ function TaskPreview({ task, onClose, onStart, onComplete, isCompleting }) {
               onClick={e => { onClose(); onComplete(task, e) }}
               style={{
                 flex:'none', padding:'14px 20px',
-                background: anyCompleting ? 'rgba(255,255,255,0.04)' : 'linear-gradient(135deg,#0ef5c2,#00d4ff)',
+                background: anyCompleting ? 'rgba(255,255,255,0.04)' : T.primaryGradient,
                 border: anyCompleting ? `1px solid ${T.border}` : 'none',
-                borderRadius:14, color: anyCompleting ? T.textMuted : '#06060f',
+                borderRadius:14, color: anyCompleting ? T.textMuted : T.ink,
                 fontSize:14, fontWeight:800,
                 cursor: anyCompleting ? 'default' : 'pointer', fontFamily:T.font,
                 boxShadow: anyCompleting ? 'none' : '0 0 24px rgba(14,245,194,0.28)',
@@ -637,6 +671,57 @@ function Skeleton({w='100%',h=16,r=8,mb=0}) {
   return <div style={{width:w,height:h,borderRadius:r,background:'rgba(255,255,255,0.05)',marginBottom:mb}}/>
 }
 
+function countCompletedTasks(tasks) {
+  const safeTasks = Array.isArray(tasks) ? tasks : []
+  return safeTasks.filter((task) => task.completed).length
+}
+
+function deriveTaskRowStatus(tasks, fallback = 'not_started') {
+  const safeTasks = Array.isArray(tasks) ? tasks : []
+  const completedCount = countCompletedTasks(safeTasks)
+  if (safeTasks.length > 0 && completedCount === safeTasks.length) return 'completed'
+  if (completedCount > 0) return 'in_progress'
+  return fallback
+}
+
+function applyCompletedTaskFloor(rows, completionFloor) {
+  if (!Array.isArray(rows) || !completionFloor?.size) return Array.isArray(rows) ? rows : []
+
+  return rows.map((row) => {
+    const completedIds = completionFloor.get(row.id)
+    const rowTasks = Array.isArray(row.tasks) ? row.tasks : []
+    if (!completedIds?.size || rowTasks.length === 0) return row
+
+    let changed = false
+    const nextTasks = rowTasks.map((task) => {
+      if (!completedIds.has(String(task.id)) || task.completed) return task
+      changed = true
+      return { ...task, completed: true }
+    })
+
+    if (!changed) return row
+
+    const tasksCompleted = countCompletedTasks(nextTasks)
+    return {
+      ...row,
+      tasks: nextTasks,
+      tasks_completed: Math.max(Number(row.tasks_completed) || 0, tasksCompleted),
+      completion_status: deriveTaskRowStatus(nextTasks, row.completion_status || 'not_started'),
+    }
+  })
+}
+
+function mergeRowsByDayNumber(existingRows, incomingRows) {
+  const byDayNumber = new Map()
+  ;(Array.isArray(existingRows) ? existingRows : []).forEach((row) => {
+    byDayNumber.set(Number(row.day_number), row)
+  })
+  ;(Array.isArray(incomingRows) ? incomingRows : []).forEach((row) => {
+    byDayNumber.set(Number(row.day_number), row)
+  })
+  return [...byDayNumber.values()].sort((a, b) => (Number(a.day_number) || 0) - (Number(b.day_number) || 0))
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Main Dashboard component
 // ─────────────────────────────────────────────────────────────────────────────
@@ -663,10 +748,15 @@ export default function Dashboard() {
   const [levelUpData, setLevelUpData] = useState(null)
   const [missionDone, setMissionDone] = useState(false)
   const [mcData,      setMcData]     = useState(null)
+  const [showNextDayModal, setShowNextDayModal] = useState(false)
+  const [showNextDayCTA, setShowNextDayCTA] = useState(false)
+  const [advancingNextDay, setAdvancingNextDay] = useState(false)
 
   // UI
   const [energy,      setEnergy]      = useState('good')
   const [activeTab,   setActiveTab]   = useState('home')
+  const [ownedThemes, setOwnedThemes] = useState([])
+  const [activeTheme, setActiveTheme] = useState('default')
   const [showLesson,  setShowLesson]  = useState(null)
   const [previewTask, setPreviewTask] = useState(null)
   const [error,       setError]       = useState('')
@@ -677,6 +767,7 @@ export default function Dashboard() {
   const [switchingGoal,    setSwitchingGoal]    = useState(null)
 
   // Hearts
+  const [maxHearts,        setMaxHearts]        = useState(5)
   const [heartsRemaining,  setHeartsRemaining]  = useState(5)
   const [heartsRefillAt,   setHeartsRefillAt]   = useState(null)
   const [prevHearts,       setPrevHearts]       = useState(5)
@@ -706,6 +797,12 @@ export default function Dashboard() {
   // Daily Quests
   const [quests,         setQuests]         = useState([])
   const [questMasterToast, setQuestMasterToast] = useState(false)
+  const [badgeToasts, setBadgeToasts] = useState([]) // newly earned badges to show
+  useEffect(() => {
+    if (badgeToasts.length === 0) return
+    const t = setTimeout(() => setBadgeToasts([]), 5000)
+    return () => clearTimeout(t)
+  }, [badgeToasts])
 
   // Reward Calendar
   const [rewardCalendar, setRewardCalendar] = useState({ week_start: null, days_claimed: [] })
@@ -718,8 +815,67 @@ export default function Dashboard() {
   // XP Boost Event
   const [showBoostEvent,   setShowBoostEvent]   = useState(false)
 
+  // Mastery Decay
+  const [decayingConcepts, setDecayingConcepts] = useState([])
+
+  // Earned badges
+  const [earnedBadgeIds, setEarnedBadgeIds] = useState(new Set())
+
+  const nextDayModalTimerRef = useRef(null)
+  const taskReloadTimerRef = useRef(null)
+  const holdCompletedDayRef = useRef(false)
+  const currentDayRowIdRef = useRef(null)
+  const completedTaskIdsByRowRef = useRef(new Map())
+  const missionCompletionPromiseRef = useRef(Promise.resolve(true))
+  const missionCompletionResolverRef = useRef(null)
+  const loadIdRef = useRef(0)  // monotonic counter — stale loads bail out
+  const boostCheckedRef = useRef(false)
+  const pendingTimersRef = useRef([])
+  const isMountedRef = useRef(true)
+
+  const themeVars = useMemo(() => getDashboardThemeVars(activeTheme), [activeTheme])
+  const pageThemeStyle = useMemo(() => ({
+    ...themeVars,
+    background: 'radial-gradient(circle at top, var(--theme-page-glow), transparent 34%), var(--theme-bg)',
+  }), [themeVars])
+
+  const applyTheme = useCallback((themeId) => {
+    const nextTheme = themeId === 'default' || ownedThemes.includes(themeId) ? themeId : 'default'
+    setActiveTheme(nextTheme)
+    setStoredActiveTheme(nextTheme)
+  }, [ownedThemes])
+
+  const resolveMissionCompletion = useCallback((didPersist = true) => {
+    if (missionCompletionResolverRef.current) {
+      missionCompletionResolverRef.current(didPersist)
+      missionCompletionResolverRef.current = null
+    }
+    missionCompletionPromiseRef.current = Promise.resolve(didPersist)
+  }, [])
+
+  const activateDayRow = useCallback((nextRow, rowPool = allRows) => {
+    if (!nextRow) return
+    const normalizedRows = Array.isArray(rowPool) ? rowPool : []
+    const rowIndex = normalizedRows.findIndex((row) => (
+      row.id === nextRow.id || Number(row.day_number) === Number(nextRow.day_number)
+    ))
+    const followingRow = rowIndex >= 0 ? normalizedRows[rowIndex + 1] || null : null
+
+    holdCompletedDayRef.current = false
+    currentDayRowIdRef.current = nextRow.id || null
+    setTodayRow(nextRow)
+    setTasks(Array.isArray(nextRow.tasks) ? nextRow.tasks : [])
+    setMissionDone(nextRow.completion_status === 'completed')
+    setTomorrowRow(followingRow)
+    setMcData(null)
+  }, [allRows])
+
   // ─── Load ──────────────────────────────────────────────────────────────────
-  const load = useCallback(async (silent = false) => {
+  const load = useCallback(async (silent = false, options = {}) => {
+    const thisLoadId = ++loadIdRef.current  // claim a load slot
+    const preserveGemFloor = Number.isFinite(options?.preserveGemFloor) ? Number(options.preserveGemFloor) : null
+    const preferredRowId = options?.preferredRowId || null
+    const preferredDayNumber = Number.isFinite(options?.preferredDayNumber) ? Number(options.preferredDayNumber) : null
     if (!silent) setLoading(true)
     setError('')
 
@@ -747,15 +903,57 @@ export default function Dashboard() {
       .order('day_number', { ascending: true })
     if (re) { setError(re.message); setLoading(false); return }
 
-    const taskRows = rows || []
+    // If a newer load() was started while we were awaiting, bail out — it will handle state
+    if (thisLoadId !== loadIdRef.current) { setLoading(false); return }
+
+    const taskRows = applyCompletedTaskFloor(rows || [], completedTaskIdsByRowRef.current)
+    const nextCompletionFloor = new Map(completedTaskIdsByRowRef.current)
+    taskRows.forEach((row) => {
+      const completedIds = (Array.isArray(row.tasks) ? row.tasks : [])
+        .filter((task) => task.completed)
+        .map((task) => String(task.id))
+      if (completedIds.length === 0) return
+      const mergedIds = new Set([...(nextCompletionFloor.get(row.id) || []), ...completedIds])
+      nextCompletionFloor.set(row.id, mergedIds)
+    })
+    completedTaskIdsByRowRef.current = nextCompletionFloor
     setAllRows(taskRows)
 
-    const today = taskRows.find(r => r.completion_status !== 'completed') || taskRows[taskRows.length-1]
+    const heldCompletedDay = holdCompletedDayRef.current && currentDayRowIdRef.current
+      ? taskRows.find(r => r.id === currentDayRowIdRef.current) || null
+      : null
+    const shouldPreserveCompletedDay = heldCompletedDay?.completion_status === 'completed'
+    const preferredRow = !shouldPreserveCompletedDay
+      ? (preferredRowId
+          ? taskRows.find((row) => row.id === preferredRowId) || null
+          : preferredDayNumber != null
+          ? taskRows.find((row) => Number(row.day_number) === preferredDayNumber) || null
+          : null)
+      : null
+    const today = shouldPreserveCompletedDay
+      ? heldCompletedDay
+      : preferredRow
+      || taskRows.find(r => r.completion_status !== 'completed') || taskRows[taskRows.length-1]
+    if (!shouldPreserveCompletedDay) holdCompletedDayRef.current = false
     setTodayRow(today || null)
     if (today) {
       const dayTasks = Array.isArray(today.tasks) ? today.tasks : []
-      setTasks(dayTasks)
-      setMissionDone(today.completion_status === 'completed')
+      // Use functional updater so we never uncomplete a task that's already completed in UI
+      setTasks(prevTasks => {
+        if (!prevTasks.length) return dayTasks
+        const prevCompletedIds = new Set(prevTasks.filter(t => t.completed).map(t => String(t.id)))
+        if (prevCompletedIds.size === 0) return dayTasks
+        let patched = false
+        const merged = dayTasks.map(t => {
+          if (!t.completed && prevCompletedIds.has(String(t.id))) { patched = true; return { ...t, completed: true } }
+          return t
+        })
+        return patched ? merged : dayTasks
+      })
+      const dayDone = today.completion_status === 'completed'
+      setMissionDone(dayDone)
+      // If day is already complete on load, show the Next Day button inline
+      if (dayDone) setShowNextDayCTA(true)
     }
 
     const todayIdx   = taskRows.findIndex(r => r.id === today?.id)
@@ -775,11 +973,62 @@ export default function Dashboard() {
       setStreakData({ current: prog.current_streak || 0, longest: prog.longest_streak || 0 })
       setFreezeCount(Number(prog.freeze_count) || 0)
 
-      const h = prog.hearts_remaining != null ? Number(prog.hearts_remaining) : 5
+      const h = prog.hearts_remaining != null ? Number(prog.hearts_remaining) : HEARTS_BASE
+      let resolvedMaxHearts = Math.min(HEARTS_MAX_CAP, Math.max(getStoredMaxHearts(), HEARTS_BASE, h))
+      try {
+        const { data: heartUpgradeData } = await supabase
+          .from('gem_transactions')
+          .select('id')
+          .eq('user_id', me.id)
+          .eq('goal_id', activeGoal.id)
+          .eq('reason', 'shop_heartContainer')
+        const purchasedHeartSlots = (heartUpgradeData || []).length
+        const derivedMaxHearts = Math.min(HEARTS_MAX_CAP, HEARTS_BASE + purchasedHeartSlots)
+        resolvedMaxHearts = Math.max(resolvedMaxHearts, derivedMaxHearts)
+      } catch { /* optional upgrade sync */ }
+      setStoredMaxHearts(resolvedMaxHearts)
+      setMaxHearts(resolvedMaxHearts)
       setPrevHearts(h)
       setHeartsRemaining(h)
       setHeartsRefillAt(prog.hearts_refill_at || null)
-      setGems(Number(prog.gems) || 0)
+
+      // ── Gem reconciliation: ensure DB gems reflect actual earnings ──
+      const dbGems = Number(prog.gems) || 0
+      const completedTaskCount = taskRows.reduce((sum, row) => {
+        const ts = Array.isArray(row.tasks) ? row.tasks : []
+        return sum + ts.filter(t => t.completed).length
+      }, 0)
+      const completedDayCount = taskRows.filter(r => r.completion_status === 'completed').length
+      const minEarnedGems = completedTaskCount * 5 + completedDayCount * 15
+
+      let finalGems = dbGems
+      if (dbGems < minEarnedGems) {
+        // DB is behind — compute correct balance accounting for spent gems
+        let totalSpent = 0
+        try {
+          const { data: spentData } = await supabase
+            .from('gem_transactions')
+            .select('amount')
+            .eq('user_id', me.id)
+            .eq('goal_id', activeGoal.id)
+            .lt('amount', 0)
+          totalSpent = (spentData || []).reduce((s, t) => s + (Number(t.amount) || 0), 0)
+        } catch { /* no transaction table yet — treat spent as 0 */ }
+
+        finalGems = Math.max(dbGems, minEarnedGems + totalSpent) // totalSpent is negative
+        if (finalGems > dbGems) {
+          supabase
+            .from('user_progress')
+            .update({ gems: finalGems })
+            .eq('user_id', me.id)
+            .eq('goal_id', activeGoal.id)
+            .then(() => {})
+            .catch(() => {})
+        }
+      }
+      if (preserveGemFloor != null) finalGems = Math.max(finalGems, preserveGemFloor)
+      setGems(finalGems)
+
       if (prog.total_days) setTotalDaysPlanned(Number(prog.total_days))
       if (prog.xp_boost_until) {
         const until = new Date(prog.xp_boost_until)
@@ -839,15 +1088,53 @@ export default function Dashboard() {
       streakValue: currentStreak, xpBalance: Number(prog?.total_xp) || 0,
     })
 
+    // Mastery decay check (non-blocking)
+    try {
+      const { data: { session: decaySess } } = await supabase.auth.getSession()
+      const dToken = decaySess?.access_token || null
+      fetch('/api/decay-check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(dToken ? { Authorization: `Bearer ${dToken}` } : {}) },
+        body: JSON.stringify({ userId: me.id, goalId: activeGoal.id, accessToken: dToken }),
+      }).then(r => r.json()).then(d => {
+        if (d.decaying?.length > 0) setDecayingConcepts(d.decaying)
+      }).catch(() => {})
+    } catch {}
+
+    // Fetch earned badges (non-blocking)
+    supabase.from('achievements').select('badge_id').eq('user_id', me.id)
+      .then(({ data: badges }) => {
+        if (badges) setEarnedBadgeIds(new Set(badges.map(b => b.badge_id)))
+      })
+
     setLoading(false)
   }, [router])
 
   useEffect(() => { load() }, [load])
 
-  // Sync tasks array when todayRow changes
+  // Hydrate theme + maxHearts from localStorage after mount (avoids SSR/client mismatch)
   useEffect(() => {
-    if (todayRow) setTasks(Array.isArray(todayRow.tasks) ? todayRow.tasks : [])
-  }, [todayRow?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+    const owned = getStoredOwnedThemes()
+    setOwnedThemes(owned)
+    setActiveTheme(getStoredActiveTheme(owned))
+    setMaxHearts(getStoredMaxHearts())
+  }, [])
+
+  useEffect(() => {
+    currentDayRowIdRef.current = todayRow?.id || null
+  }, [todayRow?.id])
+
+  // Unmount cleanup — clear all pending timers
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+      if (nextDayModalTimerRef.current) clearTimeout(nextDayModalTimerRef.current)
+      if (taskReloadTimerRef.current) clearTimeout(taskReloadTimerRef.current)
+      pendingTimersRef.current.forEach(clearTimeout)
+      pendingTimersRef.current = []
+    }
+  }, [])
 
   // Scroll to top on tab change
   useEffect(() => { window.scrollTo(0, 0) }, [activeTab])
@@ -867,29 +1154,33 @@ export default function Dashboard() {
 
   // ─── XP boost random event (25% chance, max once per day) ─────────────────
   useEffect(() => {
-    if (loading || !goal || !user) return
+    if (boostCheckedRef.current || loading || !goal || !user) return
+    boostCheckedRef.current = true // one-shot — never re-check this session
+
     const todayStr = new Date().toISOString().split('T')[0]
     const lastEvent = localStorage.getItem('pathai.lastBoostEvent')
     if (lastEvent === todayStr) return
-    if (xpBoostUntil) return // already boosted
+    if (xpBoostUntil) return
 
     if (Math.random() < 0.25) {
       localStorage.setItem('pathai.lastBoostEvent', todayStr)
-      // Fire boost event after short delay for dramatic effect
-      setTimeout(() => {
+      const outerTimer = setTimeout(() => {
+        if (!isMountedRef.current) return
         setShowBoostEvent(true)
         const boostEnd = new Date(Date.now() + 15 * 60 * 1000)
         setXpBoostUntil(boostEnd)
-        // Persist to server (client supabase)
         supabase.from('user_progress').update({
           xp_boost_until: boostEnd.toISOString(),
           last_event_date: todayStr,
         }).eq('user_id', user.id).eq('goal_id', goal.id).then(() => {}).catch(() => {})
-        // Auto-dismiss event overlay after 2.5s
-        setTimeout(() => setShowBoostEvent(false), 2500)
+        const innerTimer = setTimeout(() => {
+          if (isMountedRef.current) setShowBoostEvent(false)
+        }, 2500)
+        pendingTimersRef.current.push(innerTimer)
       }, 2000)
+      pendingTimersRef.current.push(outerTimer)
     }
-  }, [loading, goal, user]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [loading, goal, user, xpBoostUntil])
 
   // ─── Reward calendar claim handler ─────────────────────────────────────────
   const handleClaimReward = useCallback(async () => {
@@ -910,7 +1201,7 @@ export default function Dashboard() {
         const earned = (data.reward || 0) + (data.perfectWeekBonus || 0)
         setGems(g => g + earned)
         setGemPulse(true)
-        setTimeout(() => setGemPulse(false), 400)
+        pendingTimersRef.current.push(setTimeout(() => { if (isMountedRef.current) setGemPulse(false) }, 400))
         setGemToasts(prev => [...prev, { id: Date.now(), amount: earned }])
       } else if (data.error === 'Already claimed today') {
         // Silently update calendar to reflect claimed state
@@ -938,32 +1229,74 @@ export default function Dashboard() {
   const completeTask = useCallback(async (task, event) => {
     if (task.completed || completing) return
 
+    if (taskReloadTimerRef.current) {
+      clearTimeout(taskReloadTimerRef.current)
+      taskReloadTimerRef.current = null
+    }
+
+    const rowId = todayRow?.id
     const prevTasks = tasks
+    const prevCompletedCount = countCompletedTasks(prevTasks)
+    const prevRowStatus = deriveTaskRowStatus(prevTasks, todayRow?.completion_status || 'not_started')
     const xpAmount  = xpForTask(task.type)
+    const optimisticTaskGems = 5
+    let nextGemFloor = gems + optimisticTaskGems
+
+    // Capture event coordinates eagerly — synthetic event will be recycled after await
+    const tapX = event ? event.currentTarget.getBoundingClientRect().left + event.currentTarget.getBoundingClientRect().width / 2 : null
+    const tapY = event ? event.currentTarget.getBoundingClientRect().top : null
+    const streakTapX = event?.clientX || (typeof window !== 'undefined' ? window.innerWidth / 2 : 200)
 
     // 1. Immediate optimistic update
     const nextTasks = tasks.map(t => t.id === task.id ? { ...t, completed: true } : t)
+    const nextCompletedCount = countCompletedTasks(nextTasks)
+    const nextRowStatus = deriveTaskRowStatus(nextTasks, todayRow?.completion_status || 'in_progress')
     setTasks(nextTasks)
+    if (rowId) {
+      const completedIds = new Set(completedTaskIdsByRowRef.current.get(rowId) || [])
+      completedIds.add(String(task.id))
+      completedTaskIdsByRowRef.current.set(rowId, completedIds)
+      setTodayRow(prev => prev?.id === rowId ? {
+        ...prev,
+        tasks: nextTasks,
+        tasks_completed: nextCompletedCount,
+        completion_status: nextRowStatus,
+      } : prev)
+      setAllRows(prev => prev.map(row => row.id === rowId ? {
+        ...row,
+        tasks: nextTasks,
+        tasks_completed: nextCompletedCount,
+        completion_status: nextRowStatus,
+      } : row))
+    }
     setCompleting(task.id)
 
     // 2. XP toast at tap position
-    if (event) {
-      const rect = event.currentTarget.getBoundingClientRect()
-      addXpToast(xpAmount, rect.left + rect.width/2, rect.top)
+    if (tapX != null) {
+      addXpToast(xpAmount, tapX, tapY)
     }
 
     // 3. Optimistic XP bar
     const prevXp = xpDisplay.totalXp
     setXpDisplay(getLevelProgress(prevXp + xpAmount))
     setXpAnimating(true)
-    setTimeout(() => setXpAnimating(false), 800)
+    pendingTimersRef.current.push(setTimeout(() => {
+      if (isMountedRef.current) setXpAnimating(false)
+    }, 800))
 
     // 3a. Optimistic gem bump (+5 per task)
-    setGems(g => g + 5)
+    setGems(g => g + optimisticTaskGems)
 
     // 3b. Instant mission complete — don't wait for API
     const allDoneNow = nextTasks.every(t => t.completed)
     if (allDoneNow) {
+      if (missionCompletionResolverRef.current) missionCompletionResolverRef.current(false)
+      missionCompletionPromiseRef.current = new Promise((resolve) => {
+        missionCompletionResolverRef.current = resolve
+      })
+      holdCompletedDayRef.current = true
+      setShowNextDayCTA(false)
+      setAdvancingNextDay(false)
       setMissionDone(true)
       setMcData({
         conceptName:    todayRow?.covered_topics?.[0] || `Day ${todayRow?.day_number}`,
@@ -978,9 +1311,15 @@ export default function Dashboard() {
         tomorrowConcept:   tomorrowRow?.covered_topics?.[0] || null,
         tomorrowDayNumber: tomorrowRow?.day_number || null,
       })
+      if (nextDayModalTimerRef.current) clearTimeout(nextDayModalTimerRef.current)
+      nextDayModalTimerRef.current = setTimeout(() => {
+        setShowNextDayModal(true)
+        nextDayModalTimerRef.current = null
+      }, 500)
     }
 
     // 4. API call (async, non-blocking)
+    let apiOk = false
     try {
       const { data: { session } } = await supabase.auth.getSession()
       const token = session?.access_token || null
@@ -991,89 +1330,151 @@ export default function Dashboard() {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ taskRowId: todayRow.id, taskId: task.id, accessToken: token }),
+        body: JSON.stringify({
+          taskRowId: todayRow.id,
+          taskId: task.id,
+          completedTaskIds: prevTasks.filter((entry) => entry.completed).map((entry) => entry.id),
+          accessToken: token,
+          clientHour: new Date().getHours(),
+        }),
       })
 
       if (!res.ok) {
         setTasks(prevTasks)
+        if (rowId) {
+          const completedIds = new Set(completedTaskIdsByRowRef.current.get(rowId) || [])
+          completedIds.delete(String(task.id))
+          if (completedIds.size > 0) completedTaskIdsByRowRef.current.set(rowId, completedIds)
+          else completedTaskIdsByRowRef.current.delete(rowId)
+          setTodayRow(prev => prev?.id === rowId ? {
+            ...prev,
+            tasks: prevTasks,
+            tasks_completed: prevCompletedCount,
+            completion_status: prevRowStatus,
+          } : prev)
+          setAllRows(prev => prev.map(row => row.id === rowId ? {
+            ...row,
+            tasks: prevTasks,
+            tasks_completed: prevCompletedCount,
+            completion_status: prevRowStatus,
+          } : row))
+        }
         setXpDisplay(getLevelProgress(prevXp))
-        setGems(g => Math.max(0, g - 5)) // rollback optimistic gem
+        setGems(g => Math.max(0, g - optimisticTaskGems)) // rollback optimistic gem
+        if (allDoneNow) {
+          resolveMissionCompletion(false)
+          holdCompletedDayRef.current = false
+          if (nextDayModalTimerRef.current) {
+            clearTimeout(nextDayModalTimerRef.current)
+            nextDayModalTimerRef.current = null
+          }
+          setShowNextDayModal(false)
+          setShowNextDayCTA(false)
+          setMissionDone(false)
+          setMcData(null)
+        }
         setError('Could not save. Try again.')
         setCompleting(null)
         return
       }
 
       const data = await res.json()
+      // API succeeded — task is persisted. NEVER revert after this point.
+      apiOk = true
 
-      // Apply server corrections
-      if (data.newTotalXp != null) setXpDisplay(getLevelProgress(data.newTotalXp))
-      if (data.levelUp)             setLevelUpData(data.levelUp)
-      if (data.streakState?.current != null) {
-        setStreakData(prev => ({
-          current: data.streakState.current,
-          longest: Math.max(prev.longest, data.streakState.longest || 0),
-        }))
-      }
-      if (data.streakBonusXp > 0) {
-        addXpToast(data.streakBonusXp, event?.clientX || window.innerWidth/2, 120)
-      }
+      // Apply server corrections (wrapped separately so errors don't revert task)
+      try {
+        if (data.newTotalXp != null) setXpDisplay(getLevelProgress(data.newTotalXp))
+        if (data.levelUp)             setLevelUpData(data.levelUp)
+        if (data.streakState?.current != null) {
+          setStreakData(prev => ({
+            current: data.streakState.current,
+            longest: Math.max(prev.longest, data.streakState.longest || 0),
+          }))
+        }
+        if (data.streakBonusXp > 0) {
+          addXpToast(data.streakBonusXp, streakTapX, 120)
+        }
 
-      // Gem update — we already added +5 optimistically, so only add the extra (mission/streak bonuses)
-      const extraGems = (data.gemsEarned || 0) - 5
-      if (extraGems > 0) {
-        setGems(g => g + extraGems)
-      }
-      if (data.gemsEarned > 0) {
-        setGemPulse(true)
-        setTimeout(() => setGemPulse(false), 400)
-        setGemToasts(prev => [...prev, { id: Date.now(), amount: data.gemsEarned }])
-      }
-
-      // Quest updates
-      if (data.questUpdate?.quests) {
-        setQuests(data.questUpdate.quests)
-        if (data.questUpdate.questGemsEarned > 0) {
-          setGems(g => g + data.questUpdate.questGemsEarned)
+        // Gem update — add server-confirmed rewards without ever stomping the live balance
+        const chestGemReward = data.chestReward?.type === 'gems' ? (Number(data.chestReward.amount) || 0) : 0
+        const extraGems = Math.max(0, (Number(data.gemsEarned) || 0) - optimisticTaskGems) + chestGemReward
+        if (extraGems > 0) {
+          nextGemFloor += extraGems
+          setGems(g => g + extraGems)
+        }
+        if (data.newGemTotal != null && Number(data.newGemTotal) > nextGemFloor) {
+          const serverCorrection = Number(data.newGemTotal) - nextGemFloor
+          nextGemFloor = Number(data.newGemTotal)
+          setGems(g => g + serverCorrection)
+        }
+        if (data.gemsEarned > 0) {
           setGemPulse(true)
-          setTimeout(() => setGemPulse(false), 400)
+          pendingTimersRef.current.push(setTimeout(() => { if (isMountedRef.current) setGemPulse(false) }, 400))
+          setGemToasts(prev => [...prev, { id: Date.now(), amount: data.gemsEarned }])
         }
-        if (data.questUpdate.questMasterBonus) {
-          setQuestMasterToast(true)
-          setTimeout(() => setQuestMasterToast(false), 4000)
+
+        // Quest updates (gems already included in newGemTotal — only animate)
+        if (data.questUpdate?.quests) {
+          setQuests(data.questUpdate.quests)
+          if (data.questUpdate.questGemsEarned > 0) {
+            setGemPulse(true)
+            pendingTimersRef.current.push(setTimeout(() => { if (isMountedRef.current) setGemPulse(false) }, 400))
+            setGemToasts(prev => [...prev, { id: Date.now() + 1, amount: data.questUpdate.questGemsEarned }])
+          }
+          if (data.questUpdate.questMasterBonus) {
+            setQuestMasterToast(true)
+            pendingTimersRef.current.push(setTimeout(() => { if (isMountedRef.current) setQuestMasterToast(false) }, 4000))
+          }
         }
-      }
 
-      // Weekly challenge updates
-      if (data.challengeUpdate) {
-        setWeeklyChallenge(prev => prev ? {
-          ...prev,
-          current_value: data.challengeUpdate.currentValue,
-          completed: data.challengeUpdate.completed,
-        } : prev)
-        if (data.challengeUpdate.completed && data.challengeUpdate.gemReward > 0) {
-          setGems(g => g + data.challengeUpdate.gemReward)
-          setGemPulse(true)
-          setTimeout(() => setGemPulse(false), 400)
+        // Weekly challenge updates (gems already included in newGemTotal — only animate)
+        if (data.challengeUpdate) {
+          setWeeklyChallenge(prev => prev ? {
+            ...prev,
+            current_value: data.challengeUpdate.currentValue,
+            completed: data.challengeUpdate.completed,
+          } : prev)
+          if (data.challengeUpdate.completed && data.challengeUpdate.gemReward > 0) {
+            setGemPulse(true)
+            pendingTimersRef.current.push(setTimeout(() => { if (isMountedRef.current) setGemPulse(false) }, 400))
+            setGemToasts(prev => [...prev, { id: Date.now() + 2, amount: data.challengeUpdate.gemReward }])
+          }
         }
-      }
 
-      // Treasure chest — show after XP toast settles
-      if (data.chestReward) {
-        setTimeout(() => setChestReward(data.chestReward), 800)
-      }
+        // Badge toasts — show newly earned badges
+        if (data.newBadges?.length > 0) {
+          pendingTimersRef.current.push(setTimeout(() => {
+            if (isMountedRef.current) {
+              setBadgeToasts(prev => [...prev, ...data.newBadges])
+              setEarnedBadgeIds(prev => {
+                const next = new Set(prev)
+                data.newBadges.forEach(b => next.add(b.id))
+                return next
+              })
+            }
+          }, 600))
+        }
 
-      // Analytics: task completed
-      track(EVENTS.TASK_COMPLETED, {
-        taskId: task.id, taskType: task.type, xpEarned: data.taskXp ?? xpAmount,
-      }, {
-        userId: user?.id, goalId: goal?.id, missionId: todayRow?.id,
-        streakValue: data.streakState?.current ?? streakData.current,
-        xpBalance: data.newTotalXp ?? (xpDisplay.totalXp + xpAmount),
-        energyMode: energy,
-      })
+        // Treasure chest — show after XP toast settles
+        if (data.chestReward) {
+          pendingTimersRef.current.push(setTimeout(() => { if (isMountedRef.current) setChestReward(data.chestReward) }, 800))
+        }
+
+        // Analytics: task completed
+        track(EVENTS.TASK_COMPLETED, {
+          taskId: task.id, taskType: task.type, xpEarned: data.taskXp ?? xpAmount,
+        }, {
+          userId: user?.id, goalId: goal?.id, missionId: todayRow?.id,
+          streakValue: data.streakState?.current ?? streakData.current,
+          xpBalance: data.newTotalXp ?? (xpDisplay.totalXp + xpAmount),
+          energyMode: energy,
+        })
+      } catch { /* Post-API processing error — task is already saved, don't revert */ }
 
       // Mission complete — correct optimistic data with server values
       if (data.missionComplete || allDoneNow) {
+        const stillViewingCompletedDay = currentDayRowIdRef.current === rowId
         const mc = {
           conceptName:    todayRow.covered_topics?.[0] || `Day ${todayRow.day_number}`,
           dayNumber:      todayRow.day_number,
@@ -1087,30 +1488,90 @@ export default function Dashboard() {
           tomorrowConcept:   tomorrowRow?.covered_topics?.[0] || null,
           tomorrowDayNumber: tomorrowRow?.day_number || null,
         }
-        setMcData(mc) // update with real server data
-        setMissionDone(true)
-        track(EVENTS.MISSION_COMPLETED, { totalXp: mc.xpEarned, dayNumber: mc.dayNumber }, {
-          userId: user?.id, goalId: goal?.id, missionId: todayRow?.id,
-          streakValue: mc.newStreak, energyMode: energy,
-        })
+        if (stillViewingCompletedDay) {
+          holdCompletedDayRef.current = true
+          setMcData(mc) // update with real server data
+          setMissionDone(true)
+          setTodayRow(prev => prev?.id === rowId ? {
+            ...prev,
+            tasks: nextTasks,
+            completion_status: 'completed',
+          } : prev)
+        }
+        setAllRows(prev => prev.map(row => row.id === rowId ? {
+          ...row,
+          tasks: nextTasks,
+          completion_status: 'completed',
+        } : row))
+        try {
+          track(EVENTS.MISSION_COMPLETED, { totalXp: mc.xpEarned, dayNumber: mc.dayNumber }, {
+            userId: user?.id, goalId: goal?.id, missionId: todayRow?.id,
+            streakValue: mc.newStreak, energyMode: energy,
+          })
+        } catch { /* analytics never blocks */ }
       }
+
+      if (allDoneNow) resolveMissionCompletion(true)
 
       if (data.levelUp) {
-        track(EVENTS.LEVEL_UP, { fromLevel: data.levelUp.fromLevel, toLevel: data.levelUp.toLevel, title: data.levelUp.title }, {
-          userId: user?.id, goalId: goal?.id, xpBalance: data.newTotalXp,
-        })
+        try {
+          track(EVENTS.LEVEL_UP, { fromLevel: data.levelUp.fromLevel, toLevel: data.levelUp.toLevel, title: data.levelUp.title }, {
+            userId: user?.id, goalId: goal?.id, xpBalance: data.newTotalXp,
+          })
+        } catch { /* analytics never blocks */ }
       }
 
-      setTimeout(() => load(true), 1200)
+      if (!(data.missionComplete || allDoneNow)) {
+        if (taskReloadTimerRef.current) clearTimeout(taskReloadTimerRef.current)
+        taskReloadTimerRef.current = setTimeout(() => {
+          if (isMountedRef.current) load(true, { preserveGemFloor: nextGemFloor })
+          taskReloadTimerRef.current = null
+        }, 1200)
+        pendingTimersRef.current.push(taskReloadTimerRef.current)
+      }
     } catch {
-      setTasks(prevTasks)
-      setXpDisplay(getLevelProgress(prevXp))
-      setGems(g => Math.max(0, g - 5)) // rollback optimistic gem
-      setError('Network error. Check your connection.')
+      // Only revert if the API itself failed (network error, auth error, etc.)
+      if (!apiOk) {
+        setTasks(prevTasks)
+        if (rowId) {
+          const completedIds = new Set(completedTaskIdsByRowRef.current.get(rowId) || [])
+          completedIds.delete(String(task.id))
+          if (completedIds.size > 0) completedTaskIdsByRowRef.current.set(rowId, completedIds)
+          else completedTaskIdsByRowRef.current.delete(rowId)
+          setTodayRow(prev => prev?.id === rowId ? {
+            ...prev,
+            tasks: prevTasks,
+            tasks_completed: prevCompletedCount,
+            completion_status: prevRowStatus,
+          } : prev)
+          setAllRows(prev => prev.map(row => row.id === rowId ? {
+            ...row,
+            tasks: prevTasks,
+            tasks_completed: prevCompletedCount,
+            completion_status: prevRowStatus,
+          } : row))
+        }
+        setXpDisplay(getLevelProgress(prevXp))
+        setGems(g => Math.max(0, g - optimisticTaskGems)) // rollback optimistic gem
+        if (allDoneNow) {
+          resolveMissionCompletion(false)
+          holdCompletedDayRef.current = false
+          if (nextDayModalTimerRef.current) {
+            clearTimeout(nextDayModalTimerRef.current)
+            nextDayModalTimerRef.current = null
+          }
+          setShowNextDayModal(false)
+          setShowNextDayCTA(false)
+          setMissionDone(false)
+          setMcData(null)
+        }
+        setError('Network error. Check your connection.')
+      }
     } finally {
+      if (allDoneNow && !apiOk) resolveMissionCompletion(false)
       setCompleting(null)
     }
-  }, [tasks, completing, xpDisplay, todayRow, tomorrowRow, streakData, addXpToast, load])
+  }, [tasks, completing, xpDisplay, todayRow, tomorrowRow, streakData, addXpToast, load, gems, user, goal, energy, resolveMissionCompletion])
 
   // ─── Streak freeze ─────────────────────────────────────────────────────────
   const handleFreeze = useCallback(async () => {
@@ -1128,7 +1589,7 @@ export default function Dashboard() {
       if (data.ok) {
         setFreezeCount(prev => Math.max(0, prev - 1))
         setFreezeToast(true)
-        setTimeout(() => setFreezeToast(false), 3500)
+        pendingTimersRef.current.push(setTimeout(() => { if (isMountedRef.current) setFreezeToast(false) }, 3500))
         track(EVENTS.STREAK_FREEZE_USED, { freezesRemaining: (freezeCount - 1) }, {
           userId: user?.id, goalId: goal?.id, streakValue: streakData.current,
         })
@@ -1169,32 +1630,92 @@ export default function Dashboard() {
     } catch { /* optimistic value stays */ }
   }, [goal, heartsRemaining])
 
-  // ─── Fast-forward to next day ───────────────────────────────────────────────
-  const handleStartTomorrow = useCallback(() => {
-    if (!tomorrowRow) return
-    setTodayRow(tomorrowRow)
-    setTasks(Array.isArray(tomorrowRow.tasks) ? tomorrowRow.tasks : [])
-    setMissionDone(tomorrowRow.completion_status === 'completed')
-    setMcData(null)
-    load(true)
-  }, [tomorrowRow, load])
-
   // ─── Generate next day on-demand (when AI generation lagged) ────────────────
-  const handleGenerateNext = useCallback(async () => {
+  const handleGenerateNext = useCallback(async (options = {}) => {
     if (generatingNext || !goal || !user) return
     setGeneratingNext(true)
+    let generatedData = null
     try {
       const { data: { session } } = await supabase.auth.getSession()
       const token = session?.access_token || null
-      await fetch('/api/generate-next', {
+      const res = await fetch('/api/generate-next', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({ goalId: goal.id, userId: user.id, mode: goal.mode || 'goal', accessToken: token }),
       })
+      generatedData = await res.json().catch(() => null)
     } catch { /* silent */ }
-    await load(true)
+    const insertedRows = Array.isArray(generatedData?.rows) ? generatedData.rows : []
+    const nextDayNumber = Number.isFinite(options?.preferredDayNumber)
+      ? Number(options.preferredDayNumber)
+      : Number(insertedRows[0]?.day_number) || Number(generatedData?.day?.day) || Number(generatedData?.startDay) || null
+
+    if (insertedRows.length > 0) {
+      const mergedRows = mergeRowsByDayNumber(allRows, insertedRows)
+      const preferredInsertedRow = nextDayNumber != null
+        ? mergedRows.find((row) => Number(row.day_number) === nextDayNumber) || insertedRows[0]
+        : insertedRows[0]
+      setAllRows(mergedRows)
+      activateDayRow(preferredInsertedRow, mergedRows)
+      await load(true, {
+        preferredRowId: preferredInsertedRow?.id || null,
+        preferredDayNumber: nextDayNumber != null ? nextDayNumber : Number(preferredInsertedRow?.day_number) || null,
+      })
+    } else {
+      await load(true, nextDayNumber != null ? { preferredDayNumber: nextDayNumber } : {})
+    }
     setGeneratingNext(false)
-  }, [generatingNext, goal, user, load])
+    return generatedData
+  }, [generatingNext, goal, user, load, allRows, activateDayRow])
+
+  // ─── Fast-forward to next day ───────────────────────────────────────────────
+  const advanceDay = useCallback(async () => {
+    if (tomorrowRow) {
+      activateDayRow(tomorrowRow, allRows)
+      await load(true, { preferredRowId: tomorrowRow.id, preferredDayNumber: tomorrowRow.day_number })
+      return
+    }
+    const fallbackNextDayNumber = Number.isFinite(Number(todayRow?.day_number))
+      ? Number(todayRow.day_number) + 1
+      : null
+    await handleGenerateNext({ preferredDayNumber: fallbackNextDayNumber })
+  }, [tomorrowRow, allRows, load, handleGenerateNext, todayRow, activateDayRow])
+
+  const handleStartNextDay = useCallback(async () => {
+    if (advancingNextDay) return
+    if (nextDayModalTimerRef.current) {
+      clearTimeout(nextDayModalTimerRef.current)
+      nextDayModalTimerRef.current = null
+    }
+    setAdvancingNextDay(true)
+    setShowNextDayModal(false)
+    setShowNextDayCTA(false)
+    try {
+      // Wait for mission to persist, but don't hang forever — timeout after 2s
+      // By the time the inline CTA is visible, the API has already completed
+      await Promise.race([
+        missionCompletionPromiseRef.current.catch(() => true),
+        new Promise(resolve => setTimeout(() => resolve(true), 2000)),
+      ])
+      await advanceDay()
+    } catch {
+      // If advancing fails, restore the CTA so the user can retry
+      if (isMountedRef.current) setShowNextDayCTA(true)
+    } finally {
+      if (isMountedRef.current) setAdvancingNextDay(false)
+    }
+  }, [advancingNextDay, advanceDay])
+
+  const handleDoLater = useCallback(() => {
+    if (advancingNextDay) return
+    if (nextDayModalTimerRef.current) {
+      clearTimeout(nextDayModalTimerRef.current)
+      nextDayModalTimerRef.current = null
+    }
+    holdCompletedDayRef.current = true
+    setShowNextDayModal(false)
+    setShowNextDayCTA(true)
+  }, [advancingNextDay])
 
   // ─── Lesson complete ────────────────────────────────────────────────────────
   const handleLessonComplete = useCallback((task) => {
@@ -1225,6 +1746,20 @@ export default function Dashboard() {
   // ─── Computed ───────────────────────────────────────────────────────────────
   const visibleTasks = useMemo(() => getFilteredTasks(tasks, energy), [tasks, energy])
   const hiddenCount = tasks.length - visibleTasks.length
+  const isTodayComplete = Boolean(
+    todayRow && (
+      missionDone
+      || todayRow.completion_status === 'completed'
+      || (tasks.length > 0 && tasks.every((task) => task.completed))
+    )
+  )
+  const nextDayBusy = advancingNextDay || generatingNext
+  const showInlineNextDayCTA = !showNextDayModal && showNextDayCTA
+  const showInlineNextDayProgress = !showNextDayModal && nextDayBusy
+  const nextDayStatusLabel = generatingNext ? 'Generating your next day...' : 'Loading next day...'
+  const nextDayStatusDetail = generatingNext
+    ? 'Building the next mission and pulling it into your dashboard now.'
+    : 'Switching you into the next day\'s unfinished tasks.'
 
   const doneRows   = allRows.filter(r => r.completion_status === 'completed').length
   const totalRows  = allRows.length
@@ -1234,10 +1769,9 @@ export default function Dashboard() {
   }, 0)
   const weekDays   = allRows.slice(-7).filter(r=>r.completion_status==='completed').length
   const dayNumber  = todayRow?.day_number || 1
-
   // ─── Loading state ─────────────────────────────────────────────────────────
   if (loading) return (
-    <div style={{minHeight:'100vh',fontFamily:T.font,padding:'0 20px'}}>
+    <div style={{...pageThemeStyle,minHeight:'100vh',fontFamily:T.font,padding:'0 20px'}}>
       <style>{KEYFRAMES}</style>
       <div style={{height:64,display:'flex',alignItems:'center',gap:12,
         borderBottom:`1px solid ${T.border}`,marginBottom:16}}>
@@ -1253,15 +1787,15 @@ export default function Dashboard() {
 
   // ─── No goal state ─────────────────────────────────────────────────────────
   if (!goal) return (
-    <div style={{minHeight:'100vh',display:'grid',placeItems:'center',
+    <div style={{...pageThemeStyle,minHeight:'100vh',display:'grid',placeItems:'center',
       fontFamily:T.font,padding:24}}>
       <style>{KEYFRAMES}</style>
       <div style={{textAlign:'center'}}>
         <div style={{fontSize:40,marginBottom:16}}>🎯</div>
         <p style={{color:T.textSec,marginBottom:20,fontSize:15}}>No active goal yet.</p>
         <button onClick={() => router.push('/onboarding')} style={{
-          padding:'14px 32px', background:'linear-gradient(135deg,#0ef5c2,#00d4ff)',
-          border:'none', borderRadius:14, color:'#06060f',
+          padding:'14px 32px', background:T.primaryGradient,
+          border:'none', borderRadius:14, color:T.ink,
           fontWeight:800, fontSize:15, cursor:'pointer', fontFamily:T.font,
           boxShadow:'0 0 32px rgba(14,245,194,0.28)',
         }}>Set a Goal</button>
@@ -1271,7 +1805,7 @@ export default function Dashboard() {
 
   // ─── Main render ───────────────────────────────────────────────────────────
   return (
-    <>
+    <div style={themeVars}>
       <style>{KEYFRAMES}</style>
 
       {/* Goals sidebar */}
@@ -1346,7 +1880,7 @@ export default function Dashboard() {
                       </div>
                     </div>
                     {isActive && (
-                      <span style={{fontSize:10,fontWeight:700,color:'#06060f',
+                      <span style={{fontSize:10,fontWeight:700,color:T.ink,
                         background:T.teal,padding:'2px 8px',borderRadius:9999,flexShrink:0}}>
                         NOW
                       </span>
@@ -1365,9 +1899,9 @@ export default function Dashboard() {
             <div style={{padding:'12px 12px',borderTop:'1px solid rgba(255,255,255,0.07)'}}>
               <button onClick={() => { setShowGoalsSidebar(false); router.push('/onboarding') }} style={{
                 width:'100%',padding:'13px',
-                background:'linear-gradient(135deg,#0ef5c2,#00d4ff)',
+                background:T.primaryGradient,
                 border:'none',borderRadius:14,
-                color:'#06060f',fontWeight:800,fontSize:14,
+                color:T.ink,fontWeight:800,fontSize:14,
                 cursor:'pointer',fontFamily:T.font,
                 boxShadow:'0 0 24px rgba(14,245,194,0.25)',
               }}>+ New Goal</button>
@@ -1384,10 +1918,11 @@ export default function Dashboard() {
 
       {/* Mission complete overlay */}
       <MissionComplete
-        isVisible={Boolean(missionDone && mcData)}
+        isVisible={Boolean(showNextDayModal && mcData)}
         data={mcData}
-        onDismiss={() => { setMissionDone(false); setMcData(null) }}
-        onStartTomorrow={tomorrowRow ? handleStartTomorrow : undefined}
+        isStartingTomorrow={nextDayBusy}
+        onDoLater={handleDoLater}
+        onStartTomorrow={handleStartNextDay}
       />
 
       {/* Treasure Chest */}
@@ -1395,10 +1930,11 @@ export default function Dashboard() {
         <TreasureChest
           reward={chestReward}
           onClaim={(reward) => {
+            // Gems already included in newGemTotal from server — only animate
             if (reward.type === 'gems') {
-              setGems(g => g + reward.amount)
               setGemPulse(true)
               setTimeout(() => setGemPulse(false), 400)
+              setGemToasts(prev => [...prev, { id: Date.now() + 3, amount: reward.amount }])
             } else if (reward.type === 'streakFreeze') {
               setFreezeCount(f => f + 1)
             } else if (reward.type === 'xpBoost') {
@@ -1407,6 +1943,33 @@ export default function Dashboard() {
             setChestReward(null)
           }}
         />
+      )}
+
+      {/* Badge earned toasts */}
+      {badgeToasts.length > 0 && (
+        <div style={{ position:'fixed', top:80, left:'50%', transform:'translateX(-50%)', zIndex:9500, display:'flex', flexDirection:'column', gap:10, alignItems:'center', pointerEvents:'none' }}>
+          {badgeToasts.map((badge, i) => (
+            <div key={badge.id + i} style={{
+              padding:'14px 22px', borderRadius:18,
+              background:'rgba(6,6,15,0.92)', backdropFilter:'blur(20px)',
+              border:`1.5px solid ${RARITY_COLORS[badge.rarity] || '#0ef5c2'}40`,
+              boxShadow:`0 0 30px ${RARITY_COLORS[badge.rarity] || '#0ef5c2'}20`,
+              display:'flex', alignItems:'center', gap:14,
+              animation:'badgeSlideIn 0.4s cubic-bezier(0.34,1.56,0.64,1) both',
+              animationDelay:`${i * 0.15}s`,
+              pointerEvents:'auto', cursor:'pointer', fontFamily:T.font,
+            }} onClick={() => setBadgeToasts(prev => prev.filter((_, j) => j !== i))}>
+              <span style={{ fontSize:32 }}>{badge.icon}</span>
+              <div>
+                <div style={{ fontSize:11, fontWeight:800, color:RARITY_COLORS[badge.rarity] || '#0ef5c2', textTransform:'uppercase', letterSpacing:'1.5px', marginBottom:2 }}>
+                  Badge Earned!
+                </div>
+                <div style={{ fontSize:16, fontWeight:800, color:'#f5f5f7' }}>{badge.name}</div>
+                <div style={{ fontSize:12, color:'#8e8e93', marginTop:2 }}>{badge.description}</div>
+              </div>
+            </div>
+          ))}
+        </div>
       )}
 
       {/* XP Boost Event overlay */}
@@ -1423,7 +1986,7 @@ export default function Dashboard() {
           }}>⚡</div>
           <div style={{
             fontSize:28,fontWeight:900,
-            background:'linear-gradient(90deg,#FBBF24,#0ef5c2)',
+            background:T.highlightGradient,
             WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',
             backgroundClip:'text',
             animation:'levelPop 0.5s 0.15s cubic-bezier(0.34,1.3,0.64,1) both',
@@ -1535,7 +2098,53 @@ export default function Dashboard() {
           onComplete={() => handleLessonComplete(showLesson)}
         />
       )}
-      {showLesson && !['video','practice','exercise','quiz','reading','flashcard','discussion','challenge','capstone'].includes(showLesson.type) && (
+      {showLesson && showLesson.type === 'project' && (
+        <ProjectViewer
+          task={showLesson}
+          goal={goal?.goal_text}
+          knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
+          goalId={goal?.id}
+          onClose={() => setShowLesson(null)}
+          onComplete={() => handleLessonComplete(showLesson)}
+        />
+      )}
+      {showLesson && showLesson.type === 'ai_interaction' && (
+        <AIInteractionView
+          task={showLesson}
+          goal={goal?.goal_text}
+          knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
+          onClose={() => setShowLesson(null)}
+          onComplete={() => handleLessonComplete(showLesson)}
+        />
+      )}
+      {showLesson && showLesson.type === 'guided_practice' && (
+        <GuidedPracticeView
+          task={showLesson}
+          goal={goal?.goal_text}
+          knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
+          onClose={() => setShowLesson(null)}
+          onComplete={() => handleLessonComplete(showLesson)}
+        />
+      )}
+      {showLesson && showLesson.type === 'reflection' && (
+        <ReflectionView
+          task={showLesson}
+          goal={goal?.goal_text}
+          knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
+          onClose={() => setShowLesson(null)}
+          onComplete={() => handleLessonComplete(showLesson)}
+        />
+      )}
+      {showLesson && showLesson.type === 'boss' && (
+        <BossChallengeView
+          task={showLesson}
+          goal={goal?.goal_text}
+          knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
+          onClose={() => setShowLesson(null)}
+          onComplete={() => handleLessonComplete(showLesson)}
+        />
+      )}
+      {showLesson && !['video','practice','exercise','quiz','reading','flashcard','discussion','challenge','capstone','project','guided_practice','reflection','boss','ai_interaction'].includes(showLesson.type) && (
         <LessonViewer
           concept={showLesson._concept || showLesson.title}
           taskTitle={showLesson.title}
@@ -1548,12 +2157,12 @@ export default function Dashboard() {
         />
       )}
 
-      <div style={{minHeight:'100vh',fontFamily:T.font,paddingBottom:90}}>
+      <div style={{...pageThemeStyle,minHeight:'100vh',fontFamily:T.font,paddingBottom:90}}>
 
         {/* ── Sticky top bar ── */}
         <div style={{
           position:'sticky',top:0,zIndex:60,
-          background:'rgba(6,6,15,0.92)',
+          background:T.chrome,
           backdropFilter:'blur(28px) saturate(200%)',
           WebkitBackdropFilter:'blur(28px) saturate(200%)',
           borderBottom:`1px solid ${T.border}`,
@@ -1579,7 +2188,7 @@ export default function Dashboard() {
                     borderRadius:9999,overflow:'hidden'}}>
                     <div style={{height:'100%',
                       width:`${(totalDaysPlanned||totalRows)>0?(doneRows/(totalDaysPlanned||totalRows))*100:0}%`,
-                      background:'linear-gradient(90deg,#0ef5c2,#00d4ff)',
+                      background:T.primaryGradientSoft,
                       borderRadius:9999,transition:'width 0.5s'}}/>
                   </div>
                   <span style={{fontSize:10,color:T.textMuted,fontWeight:600}}>
@@ -1594,13 +2203,13 @@ export default function Dashboard() {
               <div style={{display:'flex',alignItems:'center',gap:4,
                 padding:'5px 10px',background:T.flameDim,
                 border:`1px solid ${T.flameBorder}`,borderRadius:9999}}>
-                <span style={{fontSize:14,animation:'pulseFlame 2.5s ease-in-out infinite'}}>🔥</span>
+                <StreakFlame streak={streakData.current} size={18} />
                 <span style={{fontSize:13,fontWeight:800,color:T.flame}}>{streakData.current}</span>
               </div>
             )}
 
             {/* Hearts */}
-            <HeartBar hearts={heartsRemaining} prevHearts={prevHearts} />
+            <HeartBar hearts={heartsRemaining} prevHearts={prevHearts} maxHearts={maxHearts} />
 
             {/* Gems */}
             <button onClick={() => setActiveTab('shop')} style={{
@@ -1639,7 +2248,7 @@ export default function Dashboard() {
               border:`1px solid ${T.masteryBorder}`,borderRadius:9999}}>
               <div style={{
                 width:20,height:20,borderRadius:'50%',
-                background:'linear-gradient(135deg,#818CF8,#6366F1)',
+                background:T.masteryGradient,
                 display:'flex',alignItems:'center',justifyContent:'center',
                 fontWeight:900,fontSize:10,color:'#fff',
               }}>{xpDisplay.level}</div>
@@ -1701,7 +2310,7 @@ export default function Dashboard() {
                 <div style={{
                   background: weeklyChallenge.completed
                     ? 'linear-gradient(135deg,rgba(255,215,0,0.12),rgba(251,191,36,0.06))'
-                    : 'linear-gradient(135deg,rgba(14,245,194,0.06),rgba(0,212,255,0.04))',
+                    : 'linear-gradient(135deg,var(--theme-primary-dim),rgba(0,212,255,0.04))',
                   border: `1.5px solid ${weeklyChallenge.completed ? 'rgba(255,215,0,0.30)' : T.tealBorder}`,
                   borderRadius:20,padding:'16px 18px',position:'relative',overflow:'hidden',
                 }}>
@@ -1740,7 +2349,7 @@ export default function Dashboard() {
                           width:`${Math.min(100, ((weeklyChallenge.current_value || 0) / (weeklyChallenge.target_value || 1)) * 100)}%`,
                           background: weeklyChallenge.completed
                             ? 'linear-gradient(90deg,#FFD700,#FFA500)'
-                            : 'linear-gradient(90deg,#0ef5c2,#00d4ff)',
+                            : T.primaryGradientSoft,
                           borderRadius:9999,transition:'width 0.5s',
                           boxShadow: weeklyChallenge.completed
                             ? '0 0 12px rgba(255,215,0,0.50)'
@@ -1823,7 +2432,7 @@ export default function Dashboard() {
                             <div style={{height:4,background:'rgba(255,255,255,0.06)',borderRadius:9999,overflow:'hidden'}}>
                               <div style={{
                                 height:'100%',width:`${Math.round(pct*100)}%`,
-                                background:'linear-gradient(90deg,#0ef5c2,#00d4ff)',borderRadius:9999,
+                                background:T.primaryGradientSoft,borderRadius:9999,
                                 transition:'width 0.4s',
                               }}/>
                             </div>
@@ -1888,11 +2497,11 @@ export default function Dashboard() {
                         <div style={{
                           width: isSunday ? 40 : 36, height: isSunday ? 40 : 36,
                           borderRadius:'50%',
-                          background: claimed ? 'linear-gradient(135deg,#0ef5c2,#00d4ff)'
+                          background: claimed ? T.primaryGradient
                             : isToday ? 'rgba(14,245,194,0.06)'
                             : missed ? 'rgba(255,255,255,0.02)'
                             : 'rgba(255,255,255,0.03)',
-                          border: claimed ? '2px solid #0ef5c2'
+                          border: claimed ? `2px solid ${T.teal}`
                             : isToday ? '2px solid rgba(14,245,194,0.50)'
                             : isSunday && !missed ? '2px solid rgba(255,215,0,0.30)'
                             : `1px solid ${missed ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.08)'}`,
@@ -1902,7 +2511,7 @@ export default function Dashboard() {
                           boxShadow: claimed ? '0 0 10px rgba(14,245,194,0.30)' : 'none',
                         }}>
                           {claimed ? (
-                            <span style={{fontSize:14,color:'#06060f',fontWeight:900}}>✓</span>
+                            <span style={{fontSize:14,color:T.ink,fontWeight:900}}>✓</span>
                           ) : missed ? (
                             <span style={{fontSize:11,color:T.textDead}}>✕</span>
                           ) : isSunday ? (
@@ -2007,6 +2616,29 @@ export default function Dashboard() {
               </div>
             )}
 
+            {/* Mastery decay warning */}
+            {decayingConcepts.length > 0 && (
+              <div style={{maxWidth:600,margin:'0 auto',padding:'10px 20px 0'}}>
+                <div style={{
+                  padding:'14px 16px',borderRadius:16,
+                  background:'rgba(251,191,36,0.06)',
+                  border:'1px solid rgba(251,191,36,0.20)',
+                  display:'flex',alignItems:'center',gap:12,
+                  animation:'fadeUp 0.3s ease both',
+                }}>
+                  <div style={{width:36,height:36,borderRadius:'50%',background:'rgba(251,191,36,0.12)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,flexShrink:0}}>⚠️</div>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:13,fontWeight:700,color:'#FBBF24',marginBottom:2}}>
+                      {decayingConcepts.length} concept{decayingConcepts.length !== 1 ? 's' : ''} need{decayingConcepts.length === 1 ? 's' : ''} review
+                    </div>
+                    <div style={{fontSize:11,color:'#8e8e93'}}>
+                      {decayingConcepts.slice(0,3).map(c => c.conceptId).join(', ')}{decayingConcepts.length > 3 ? ` +${decayingConcepts.length - 3} more` : ''}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Task list */}
             <div style={{maxWidth:600,margin:'0 auto',padding:'14px 20px 0',display:'grid',gap:10}}>
               {todayRow ? visibleTasks.length > 0 ? (
@@ -2044,49 +2676,44 @@ export default function Dashboard() {
               )}
             </div>
 
-            {/* Tomorrow preview / next-day CTA */}
-            {missionDone ? (
-              <div style={{maxWidth:600,margin:'10px auto 0',padding:'0 20px'}}>
-                {tomorrowRow ? (
-                  <button onClick={handleStartTomorrow} style={{
-                    width:'100%', padding:'16px',
-                    background:'linear-gradient(135deg,#0ef5c2,#00d4ff)',
-                    border:'none', borderRadius:16,
-                    color:'#06060f', fontSize:15, fontWeight:800,
-                    cursor:'pointer', fontFamily:T.font,
-                    boxShadow:'0 0 32px rgba(14,245,194,0.28),inset 0 1px 0 rgba(255,255,255,0.40)',
-                    display:'flex', alignItems:'center', justifyContent:'center', gap:10,
-                    animation:'fadeUp 0.35s ease both',
-                  }}
-                  onMouseEnter={e=>{e.currentTarget.style.opacity='0.92'}}
-                  onMouseLeave={e=>{e.currentTarget.style.opacity='1'}}>
-                    Start Day {tomorrowRow.day_number}: {tomorrowRow.covered_topics?.[0] || `Day ${tomorrowRow.day_number}`}
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#06060f" strokeWidth="2.5" strokeLinecap="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
-                  </button>
-                ) : (
-                  <button onClick={handleGenerateNext} disabled={generatingNext} style={{
-                    width:'100%', padding:'16px',
-                    background: generatingNext ? 'rgba(14,245,194,0.06)' : 'linear-gradient(135deg,#0ef5c2,#00d4ff)',
-                    border: generatingNext ? `1px solid ${T.tealBorder}` : 'none',
-                    borderRadius:16,
-                    color: generatingNext ? T.teal : '#06060f',
-                    fontSize:15, fontWeight:800,
-                    cursor: generatingNext ? 'default' : 'pointer', fontFamily:T.font,
-                    boxShadow: generatingNext ? 'none' : '0 0 32px rgba(14,245,194,0.28),inset 0 1px 0 rgba(255,255,255,0.40)',
-                    display:'flex', alignItems:'center', justifyContent:'center', gap:10,
-                    animation:'fadeUp 0.35s ease both',
-                  }}>
-                    {generatingNext ? (
-                      <><div style={{width:14,height:14,borderRadius:'50%',border:`2px solid ${T.teal}`,borderTopColor:'transparent',animation:'spin 0.7s linear infinite'}}/>Generating next day…</>
-                    ) : (
-                      <>Continue to Next Day <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#06060f" strokeWidth="2.5" strokeLinecap="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></>
-                    )}
-                  </button>
-                )}
-              </div>
-            ) : (
+            {/* Tomorrow preview */}
+            {!isTodayComplete && (
               <TomorrowPreview tomorrowRow={tomorrowRow}/>
             )}
+
+            {/* Start a Project — manual trigger */}
+            <div style={{maxWidth:600,margin:'16px auto 0',padding:'0 20px'}}>
+              <button
+                onClick={() => setShowLesson({
+                  id: `d${dayNumber}project`,
+                  type: 'project',
+                  title: 'Portfolio Project',
+                  description: 'Build something real and add it to your portfolio',
+                  isProjectTrigger: true,
+                })}
+                style={{
+                  width:'100%', padding:'16px 18px',
+                  background:'linear-gradient(135deg, rgba(236,72,153,0.08), rgba(168,85,247,0.06))',
+                  border:'1px solid rgba(236,72,153,0.22)',
+                  borderRadius:18, cursor:'pointer', fontFamily:T.font,
+                  display:'flex', alignItems:'center', gap:14,
+                  textAlign:'left', transition:'transform 0.2s, box-shadow 0.2s',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.transform='translateY(-2px)'; e.currentTarget.style.boxShadow='0 8px 24px rgba(236,72,153,0.15)' }}
+                onMouseLeave={e => { e.currentTarget.style.transform=''; e.currentTarget.style.boxShadow='' }}
+              >
+                <span style={{
+                  width:42, height:42, borderRadius:14, flexShrink:0,
+                  background:'rgba(236,72,153,0.12)', border:'1px solid rgba(236,72,153,0.25)',
+                  display:'flex', alignItems:'center', justifyContent:'center', fontSize:20,
+                }}>🚀</span>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:14,fontWeight:800,color:T.text,marginBottom:2}}>Start a Project</div>
+                  <div style={{fontSize:11,color:T.textMuted}}>Build something real, get AI feedback, add it to your portfolio</div>
+                </div>
+                <span style={{color:'#EC4899',fontSize:11,fontWeight:800,whiteSpace:'nowrap'}}>100 XP</span>
+              </button>
+            </div>
 
             {/* Comeback note */}
             {streakData.current === 0 && doneRows > 0 && (
@@ -2104,7 +2731,80 @@ export default function Dashboard() {
                 </div>
               </div>
             )}
-            <div style={{height:24}}/>
+
+            {showInlineNextDayProgress && (
+              <div style={{maxWidth:600,margin:'12px auto 0',padding:'0 20px'}}>
+                <div style={{
+                  width:'100%',
+                  padding:'16px 18px',
+                  background:'rgba(255,255,255,0.04)',
+                  border:`1px solid ${T.tealBorder}`,
+                  borderRadius:18,
+                  boxShadow:'0 16px 32px rgba(0,0,0,0.16)',
+                  animation:'fadeUp 0.30s ease both',
+                }}>
+                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,marginBottom:10}}>
+                    <div>
+                      <div style={{fontSize:14,fontWeight:800,color:T.text,marginBottom:4}}>
+                        {nextDayStatusLabel}
+                      </div>
+                      <div style={{fontSize:11,color:T.textMuted,lineHeight:1.5}}>
+                        {nextDayStatusDetail}
+                      </div>
+                    </div>
+                    <div style={{width:14,height:14,borderRadius:'50%',border:`2px solid ${T.teal}`,borderTopColor:'transparent',animation:'spin 0.7s linear infinite',flexShrink:0}}/>
+                  </div>
+                  <div style={{
+                    position:'relative',
+                    height:8,
+                    borderRadius:9999,
+                    overflow:'hidden',
+                    background:'rgba(255,255,255,0.06)',
+                  }}>
+                    <div style={{
+                      position:'absolute',
+                      inset:0,
+                      width:'42%',
+                      borderRadius:9999,
+                      background:T.primaryGradientSoft,
+                      boxShadow:'0 0 20px rgba(14,245,194,0.28)',
+                      animation:'nextDayProgress 1.15s ease-in-out infinite',
+                    }}/>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {!showInlineNextDayProgress && showInlineNextDayCTA && (
+              <div style={{maxWidth:600,margin:'12px auto 0',padding:'0 20px'}}>
+                <button
+                  onClick={handleStartNextDay}
+                  disabled={nextDayBusy}
+                  style={{
+                    width:'100%',
+                    padding:'16px 18px',
+                    background: nextDayBusy ? T.tealDim : T.primaryGradient,
+                    border: nextDayBusy ? `1px solid ${T.tealBorder}` : 'none',
+                    borderRadius:18,
+                    color: nextDayBusy ? T.teal : T.ink,
+                    fontSize:15,
+                    fontWeight:800,
+                    cursor: nextDayBusy ? 'default' : 'pointer',
+                    fontFamily:T.font,
+                    boxShadow:'0 16px 32px rgba(0,0,0,0.22), 0 0 24px rgba(14,245,194,0.18)',
+                    display:'flex',
+                    alignItems:'center',
+                    justifyContent:'center',
+                    gap:10,
+                    animation:'fadeUp 0.30s ease both',
+                  }}
+                >
+                  <>Start next day →</>
+                </button>
+              </div>
+            )}
+
+            <div style={{height:showInlineNextDayCTA || showInlineNextDayProgress ? 36 : 24}}/>
           </>
         )}
 
@@ -2140,7 +2840,7 @@ export default function Dashboard() {
                 </div>
                 <div style={{
                   width:44,height:44,borderRadius:'50%',
-                  background:'linear-gradient(135deg,#818CF8,#6366F1)',
+                  background:T.masteryGradient,
                   display:'flex',alignItems:'center',justifyContent:'center',
                   fontWeight:900,fontSize:18,color:'#fff',
                   boxShadow:'0 0 24px rgba(129,140,248,0.40)',
@@ -2149,7 +2849,7 @@ export default function Dashboard() {
               <div style={{height:8,background:'rgba(255,255,255,0.06)',borderRadius:9999,overflow:'hidden'}}>
                 <div style={{
                   height:'100%',width:`${Math.round(xpDisplay.pct*100)}%`,
-                  background:'linear-gradient(90deg,#818CF8,#6366F1)',borderRadius:9999,
+                  background:T.masteryGradientSoft,borderRadius:9999,
                   transition:'width 0.5s',boxShadow:'0 0 10px rgba(129,140,248,0.45)',
                 }}/>
               </div>
@@ -2203,8 +2903,8 @@ export default function Dashboard() {
               Your full map — concepts, chapters, and progress.
             </p>
             <button onClick={() => router.push('/path')} style={{
-              padding:'14px 36px',background:'linear-gradient(135deg,#0ef5c2,#00d4ff)',
-              border:'none',borderRadius:14,color:'#06060f',
+              padding:'14px 36px',background:T.primaryGradient,
+              border:'none',borderRadius:14,color:T.ink,
               fontWeight:800,fontSize:15,cursor:'pointer',fontFamily:T.font,
               boxShadow:'0 0 32px rgba(14,245,194,0.30),inset 0 1px 0 rgba(255,255,255,0.40)',
               display:'inline-flex',alignItems:'center',gap:8,
@@ -2227,11 +2927,11 @@ export default function Dashboard() {
                     }}>
                       <div style={{
                         width:32,height:32,borderRadius:'50%',flexShrink:0,
-                        background: isDone?'linear-gradient(135deg,#0ef5c2,#00d4ff)'
+                        background: isDone?T.primaryGradient
                           :isAct?'rgba(14,245,194,0.12)':'rgba(255,255,255,0.05)',
                         display:'flex',alignItems:'center',justifyContent:'center',
                         fontSize:12,fontWeight:800,
-                        color: isDone?'#06060f':isAct?T.teal:T.textMuted,
+                        color: isDone?T.ink:isAct?T.teal:T.textMuted,
                         animation: isAct?'pulseActive 2.5s ease-in-out infinite':'none',
                       }}>{isDone?'✓':row.day_number}</div>
                       <div style={{flex:1,minWidth:0}}>
@@ -2243,7 +2943,7 @@ export default function Dashboard() {
                         <div style={{fontSize:11,color:T.textMuted}}>{done}/{t.length} tasks</div>
                       </div>
                       {isAct && (
-                        <span style={{fontSize:10,fontWeight:700,color:'#06060f',
+                        <span style={{fontSize:10,fontWeight:700,color:T.ink,
                           background:T.teal,padding:'2px 8px',borderRadius:9999}}>TODAY</span>
                       )}
                     </div>
@@ -2275,7 +2975,7 @@ export default function Dashboard() {
                 display:'flex',alignItems:'center',gap:12}}>
                 <div style={{
                   width:40,height:40,borderRadius:'50%',
-                  background:'linear-gradient(135deg,#818CF8,#6366F1)',
+                  background:T.masteryGradient,
                   display:'flex',alignItems:'center',justifyContent:'center',
                   fontWeight:900,fontSize:16,color:'#fff',flexShrink:0,
                 }}>{user?.email?.[0]?.toUpperCase()||'?'}</div>
@@ -2316,6 +3016,87 @@ export default function Dashboard() {
               ))}
             </div>
 
+            <div style={{background:T.surface,border:`1px solid ${T.border}`,
+              borderRadius:18,padding:'16px 18px',marginBottom:12}}>
+              <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:10}}>
+                Energy
+              </div>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                <div>
+                  <div style={{fontSize:13,color:T.textSec,fontWeight:600}}>Max hearts</div>
+                  <div style={{fontSize:11,color:T.textMuted}}>Upgrade this in the gem shop</div>
+                </div>
+                <span style={{fontSize:16,fontWeight:900,color:T.teal}}>{maxHearts}</span>
+              </div>
+            </div>
+
+            <div style={{background:T.surface,border:`1px solid ${T.border}`,
+              borderRadius:18,padding:'16px 18px',marginBottom:12}}>
+              <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:10}}>
+                Theme
+              </div>
+              <div style={{display:'grid',gap:8}}>
+                {Array.from(new Set(['default', ...ownedThemes])).map((themeId) => {
+                  const theme = APP_THEMES[themeId]
+                  const isActive = activeTheme === themeId
+                  return (
+                    <button
+                      key={themeId}
+                      onClick={() => applyTheme(themeId)}
+                      style={{
+                        width:'100%',
+                        padding:'12px 14px',
+                        background:isActive ? T.tealDim : 'rgba(255,255,255,0.02)',
+                        border:`1px solid ${isActive ? T.tealBorder : T.borderAlt}`,
+                        borderRadius:14,
+                        cursor:'pointer',
+                        fontFamily:T.font,
+                        display:'flex',
+                        alignItems:'center',
+                        justifyContent:'space-between',
+                        gap:12,
+                        textAlign:'left',
+                      }}
+                    >
+                      <div>
+                        <div style={{fontSize:13,fontWeight:700,color:isActive ? T.teal : T.text}}>
+                          {theme.name}
+                        </div>
+                        <div style={{fontSize:11,color:T.textMuted}}>
+                          {theme.description}
+                        </div>
+                      </div>
+                      <span style={{
+                        fontSize:11,fontWeight:800,
+                        color:isActive ? T.teal : T.textSec,
+                        letterSpacing:'0.4px',textTransform:'uppercase',
+                      }}>
+                        {isActive ? 'Applied' : 'Use'}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+              {ownedThemes.length === 0 && (
+                <div style={{fontSize:11,color:T.textMuted,marginTop:10}}>
+                  Buy a theme in the gem shop to unlock alternate looks. Default is always available.
+                </div>
+              )}
+            </div>
+
+            {/* Portfolio */}
+            <div style={{background:T.surface,border:`1px solid ${T.border}`,
+              borderRadius:18,overflow:'hidden',marginBottom:12}}>
+              <button onClick={() => router.push('/portfolio')} style={{
+                width:'100%',padding:'16px 18px',background:'none',border:'none',
+                cursor:'pointer',fontFamily:T.font,
+                display:'flex',alignItems:'center',justifyContent:'space-between',
+                color:T.textSec,fontSize:14,fontWeight:600,
+              }}>
+                🚀 My Portfolio <ArrowRight/>
+              </button>
+            </div>
+
             {/* New goal */}
             <div style={{background:T.surface,border:`1px solid ${T.border}`,
               borderRadius:18,overflow:'hidden',marginBottom:12}}>
@@ -2344,13 +3125,30 @@ export default function Dashboard() {
         {/* ══════════════════════════════════════════════════════════════ */}
         {/* SHOP TAB                                                       */}
         {/* ══════════════════════════════════════════════════════════════ */}
+        {activeTab === 'badges' && (
+          <div style={{ paddingTop: 20, paddingBottom: 40 }}>
+            <BadgeShowcase earnedIds={earnedBadgeIds} />
+          </div>
+        )}
+
         {activeTab === 'shop' && (
           <GemShop
             gems={gems}
             goalId={goal?.id}
+            activeTheme={activeTheme}
+            maxHearts={maxHearts}
+            onThemeChange={(themeId) => {
+              setOwnedThemes(getStoredOwnedThemes())
+              setActiveTheme(themeId)
+              setStoredActiveTheme(themeId)
+            }}
             onPurchase={(data) => {
               if (data.newGemTotal != null) setGems(data.newGemTotal)
               if (data.heartsRemaining != null) { setPrevHearts(heartsRemaining); setHeartsRemaining(data.heartsRemaining) }
+              if (data.maxHearts != null) {
+                setMaxHearts(data.maxHearts)
+                setStoredMaxHearts(data.maxHearts)
+              }
               if (data.freezeCount != null) setFreezeCount(data.freezeCount)
               if (data.xpBoostUntil) setXpBoostUntil(new Date(data.xpBoostUntil))
               setGemPulse(true)
@@ -2363,20 +3161,21 @@ export default function Dashboard() {
       {/* ── iOS bottom tab bar ── */}
       <div style={{
         position:'fixed',bottom:0,left:0,right:0,zIndex:70,
-        background:'rgba(6,6,15,0.92)',
+        background:T.chrome,
         backdropFilter:'blur(32px) saturate(200%)',
         WebkitBackdropFilter:'blur(32px) saturate(200%)',
         borderTop:`1px solid ${T.border}`,
         paddingBottom:'env(safe-area-inset-bottom,0px)',
       }}>
         <div style={{maxWidth:600,margin:'0 auto',
-          display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr 1fr'}}>
+          display:'grid',gridTemplateColumns:'repeat(6, 1fr)'}}>
           {[
-            {key:'home',     label:'Home',  Icon:HomeIcon    },
-            {key:'shop',     label:'Shop',  Icon:ShopIcon    },
-            {key:'stats',    label:'Stats', Icon:StatsIcon   },
-            {key:'path',     label:'Path',  Icon:PathIcon    },
-            {key:'settings', label:'More',  Icon:SettingsIcon},
+            {key:'home',     label:'Home',   Icon:HomeIcon    },
+            {key:'badges',   label:'Badges', Icon:BadgesIcon  },
+            {key:'shop',     label:'Shop',   Icon:ShopIcon    },
+            {key:'stats',    label:'Stats',  Icon:StatsIcon   },
+            {key:'path',     label:'Path',   Icon:PathIcon    },
+            {key:'settings', label:'More',   Icon:SettingsIcon},
           ].map(({key,label,Icon}) => {
             const active = activeTab === key
             return (
@@ -2403,6 +3202,6 @@ export default function Dashboard() {
           })}
         </div>
       </div>
-    </>
+    </div>
   )
 }

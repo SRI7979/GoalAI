@@ -251,7 +251,7 @@ function DiagramView({ diagram }) {
 }
 
 // ─── Quiz Component ──────────────────────────────────────────────────────────
-function QuizView({ quiz, onComplete, onWrongAnswer }) {
+function QuizView({ quiz, onComplete, onWrongAnswer, onCorrectAnswer, comboCount = 0 }) {
   const [selected, setSelected] = useState(null)
   const [revealed, setRevealed] = useState(false)
   const [showVignette, setShowVignette] = useState(false)
@@ -271,6 +271,7 @@ function QuizView({ quiz, onComplete, onWrongAnswer }) {
     setRevealed(true)
     const correct = idx === quiz.correctIndex
     if (correct) {
+      if (onCorrectAnswer) onCorrectAnswer()
       if (onComplete) setTimeout(() => onComplete(), 1500)
     } else {
       // Wrong answer: flash vignette + notify parent for heart deduction
@@ -291,6 +292,18 @@ function QuizView({ quiz, onComplete, onWrongAnswer }) {
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00d4ff" strokeWidth="2.5" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
         </div>
         <span style={{ color: '#00d4ff', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1.2px' }}>Check Your Understanding</span>
+        {comboCount >= 2 && (
+          <div style={{
+            marginLeft: 'auto', padding: '4px 12px',
+            background: comboCount >= 5 ? 'rgba(255,215,0,0.15)' : 'rgba(14,245,194,0.10)',
+            border: `1px solid ${comboCount >= 5 ? 'rgba(255,215,0,0.35)' : 'rgba(14,245,194,0.25)'}`,
+            borderRadius: 9999, fontSize: 12, fontWeight: 800,
+            color: comboCount >= 5 ? '#FFD700' : '#0ef5c2',
+            animation: 'comboPopIn 0.3s cubic-bezier(0.34,1.56,0.64,1)',
+          }}>
+            🎯 {comboCount}x Combo!
+          </div>
+        )}
       </div>
 
       <p style={{ color: '#f5f5f7', fontSize: 17, fontWeight: 700, lineHeight: 1.45, marginBottom: 20 }}>{quiz.question}</p>
@@ -354,6 +367,9 @@ export default function LessonViewer({ concept, taskTitle, goal, knowledge, less
     return `pathai.lesson.v1::${lessonKey || fallbackKey}`
   }, [goal, concept, taskTitle, lessonKey])
 
+  // Stabilize knowledge reference to prevent unnecessary re-fetches
+  const knowledgeKey = useMemo(() => JSON.stringify(knowledge), [knowledge]) // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     async function load() {
       setLoading(true); setError(''); setShowQuiz(false); setCurrent(0)
@@ -380,14 +396,19 @@ export default function LessonViewer({ concept, taskTitle, goal, knowledge, less
       setLoading(false)
     }
     load()
-  }, [concept, taskTitle, goal, knowledge, cacheKey])
+  }, [concept, taskTitle, goal, knowledgeKey, cacheKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const totalSlides = slides.length
   const isLastSlide = current === totalSlides - 1
 
+  const [quizPassed, setQuizPassed] = useState(false)
+  const [comboCount, setComboCount] = useState(0)
+  const [comboMax, setComboMax] = useState(0)
+
   const handleNext = () => {
     if (isLastSlide) {
       if (quiz && !showQuiz) setShowQuiz(true)
+      else if (showQuiz && !quizPassed) return // block until quiz is answered correctly
       else if (onComplete) onComplete()
     } else { setCurrent(c => c + 1) }
   }
@@ -397,7 +418,13 @@ export default function LessonViewer({ concept, taskTitle, goal, knowledge, less
   }
 
   const slide   = slides[current]
-  const isMobile = typeof window !== 'undefined' ? window.innerWidth < 980 : false
+  const [isMobile, setIsMobile] = useState(false)
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 980)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
 
   async function handleAskAssistant() {
     const question = assistantInput.trim()
@@ -424,6 +451,9 @@ export default function LessonViewer({ concept, taskTitle, goal, knowledge, less
         @keyframes spin { to { transform: rotate(360deg); } }
         @keyframes slideLeft { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: translateX(0); } }
         @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+        @keyframes comboPopIn { 0% { transform: scale(0.6); opacity: 0; } 70% { transform: scale(1.15); } 100% { transform: scale(1); opacity: 1; } }
+        @keyframes redVignette { 0% { opacity: 0; } 20% { opacity: 1; } 100% { opacity: 0; } }
+        @keyframes comboBurst { 0% { transform: scale(0.8); opacity: 0; } 50% { transform: scale(1.2); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
       `}</style>
 
       <div style={{
@@ -478,7 +508,7 @@ export default function LessonViewer({ concept, taskTitle, goal, knowledge, less
                   <button onClick={onClose} style={{ padding: '10px 20px', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12, color: '#8e8e93', cursor: 'pointer', fontFamily: "'DM Sans', sans-serif", backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}>Go back</button>
                 </div>
               ) : showQuiz ? (
-                <QuizView quiz={quiz} onComplete={onComplete} onWrongAnswer={onHeartLost} />
+                <QuizView quiz={quiz} comboCount={comboCount} onComplete={() => { setQuizPassed(true); if (onComplete) onComplete() }} onWrongAnswer={() => { setComboCount(0); if (onHeartLost) onHeartLost() }} onCorrectAnswer={() => { setComboCount(c => { const next = c + 1; setComboMax(m => Math.max(m, next)); return next }) }} />
               ) : slide ? (
                 <div key={slide.id} style={{ animation: 'slideLeft 0.32s cubic-bezier(0.16,1,0.3,1)' }}>
                   {/* Slide type badge */}
@@ -564,11 +594,12 @@ export default function LessonViewer({ concept, taskTitle, goal, knowledge, less
                 Back
               </button>
               <button onClick={handleNext}
-                style={{ flex: 1, padding: '14px', background: 'linear-gradient(135deg, #0ef5c2, #00d4ff)', border: 'none', borderRadius: 16, color: '#06060f', fontSize: 16, fontWeight: 700, cursor: 'pointer', fontFamily: "'DM Sans', sans-serif", boxShadow: '0 0 32px rgba(14,245,194,0.28), inset 0 1px 0 rgba(255,255,255,0.48)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, transition: 'all 0.22s cubic-bezier(0.16,1,0.3,1)' }}
-                onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 0 44px rgba(14,245,194,0.40), inset 0 1px 0 rgba(255,255,255,0.48)' }}
-                onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 0 32px rgba(14,245,194,0.28), inset 0 1px 0 rgba(255,255,255,0.48)' }}
+                disabled={showQuiz && !quizPassed}
+                style={{ flex: 1, padding: '14px', background: (showQuiz && !quizPassed) ? 'rgba(255,255,255,0.08)' : 'linear-gradient(135deg, #0ef5c2, #00d4ff)', border: 'none', borderRadius: 16, color: (showQuiz && !quizPassed) ? '#636366' : '#06060f', fontSize: 16, fontWeight: 700, cursor: (showQuiz && !quizPassed) ? 'default' : 'pointer', fontFamily: "'DM Sans', sans-serif", boxShadow: (showQuiz && !quizPassed) ? 'none' : '0 0 32px rgba(14,245,194,0.28), inset 0 1px 0 rgba(255,255,255,0.48)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, transition: 'all 0.22s cubic-bezier(0.16,1,0.3,1)' }}
+                onMouseEnter={(e) => { if (!(showQuiz && !quizPassed)) { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 0 44px rgba(14,245,194,0.40), inset 0 1px 0 rgba(255,255,255,0.48)' } }}
+                onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = (showQuiz && !quizPassed) ? 'none' : '0 0 32px rgba(14,245,194,0.28), inset 0 1px 0 rgba(255,255,255,0.48)' }}
               >
-                {showQuiz ? 'Finish Lesson' : isLastSlide ? (quiz ? 'Check My Understanding' : 'Finish Lesson') : 'Next'}
+                {showQuiz ? (quizPassed ? 'Finish Lesson' : 'Answer the Quiz') : isLastSlide ? (quiz ? 'Check My Understanding' : 'Finish Lesson') : 'Next'}
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#06060f" strokeWidth="2.5" strokeLinecap="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
               </button>
             </div>

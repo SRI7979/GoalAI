@@ -16,6 +16,14 @@ export default function FlashcardView({ task, goal, knowledge, onClose, onComple
 
   useEffect(() => {
     async function load() {
+      const cacheKey = `pathai.flashcard.v1::${task.id || task.title}`
+      try {
+        const cached = localStorage.getItem(cacheKey)
+        if (cached) {
+          const data = JSON.parse(cached)
+          if (data.cards) { setCards(data.cards); setLoading(false); return }
+        }
+      } catch {}
       try {
         const res = await fetch('/api/flashcards', {
           method: 'POST',
@@ -23,12 +31,15 @@ export default function FlashcardView({ task, goal, knowledge, onClose, onComple
           body: JSON.stringify({ concept: task._concept || task.title, taskTitle: task.title, goal, knowledge }),
         })
         const data = await res.json()
-        if (data.cards) setCards(data.cards)
+        if (data.cards) {
+          setCards(data.cards)
+          try { localStorage.setItem(cacheKey, JSON.stringify(data)) } catch {}
+        }
       } catch {}
       setLoading(false)
     }
     load()
-  }, [task.title, goal, knowledge, task._concept])
+  }, [task.id, task.title, goal, knowledge, task._concept])
 
   function goNext(markKnown) {
     if (markKnown) setKnown(k => new Set([...k, current]))

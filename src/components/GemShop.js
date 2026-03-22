@@ -1,5 +1,8 @@
 'use client'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { GEM_SHOP_ITEMS, HEARTS_MAX_CAP } from '@/lib/tokens'
+import { getStoredOwnedThemes, setStoredActiveTheme, unlockStoredTheme } from '@/lib/appThemes'
+import { setStoredMaxHearts } from '@/lib/shopStorage'
 
 const font = "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif"
 const mono = "'JetBrains Mono','Fira Code',Menlo,monospace"
@@ -7,11 +10,22 @@ const mono = "'JetBrains Mono','Fira Code',Menlo,monospace"
 const ITEMS = [
   {
     id: 'heartRefill', name: 'Heart Refill', cost: 30,
-    desc: 'Restore all 5 hearts instantly',
+    desc: 'Restore every heart instantly',
     color: '#ef5060',
     icon: (
       <svg width="22" height="22" viewBox="0 0 24 24" fill="#ef5060">
         <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+      </svg>
+    ),
+  },
+  {
+    id: 'heartContainer', name: 'Heart Container', cost: 120,
+    desc: 'Permanently increase your max hearts by 1',
+    color: '#fb7185',
+    icon: (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fb7185" strokeWidth="2" strokeLinecap="round">
+        <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+        <path d="M12 7v6M9 10h6" stroke="#fff" strokeWidth="1.5"/>
       </svg>
     ),
   },
@@ -27,12 +41,33 @@ const ITEMS = [
     ),
   },
   {
+    id: 'freezeBundle', name: 'Freeze Bundle', cost: 135,
+    desc: 'Add 3 streak freezes to your inventory',
+    color: '#93c5fd',
+    icon: (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#93c5fd" strokeWidth="2" strokeLinecap="round">
+        <path d="M8 4h8M12 4v16M5 9l14 6M19 9L5 15"/>
+      </svg>
+    ),
+  },
+  {
     id: 'xpBoost', name: 'Double XP', cost: 75,
     desc: '2x XP on all tasks for 15 minutes',
     color: '#FBBF24',
     icon: (
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#FBBF24" strokeWidth="2.5" strokeLinecap="round">
         <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+      </svg>
+    ),
+  },
+  {
+    id: 'megaXpBoost', name: 'Mega XP Boost', cost: 160,
+    desc: '2x XP on all tasks for 60 minutes',
+    color: '#f59e0b',
+    icon: (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2.5" strokeLinecap="round">
+        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+        <path d="M4 4l16 16" stroke="#fff" strokeWidth="1.4"/>
       </svg>
     ),
   },
@@ -66,6 +101,36 @@ const ITEMS = [
       </svg>
     ),
   },
+  {
+    id: 'themeForest', name: 'Theme: Forest', cost: 165,
+    desc: 'Emerald canopy dashboard and map', cosmetic: true,
+    color: '#4ade80',
+    icon: (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#4ade80" strokeWidth="2" strokeLinecap="round">
+        <path d="M12 3l5 7H7l5-7z"/><path d="M12 10l6 8H6l6-8z"/><path d="M12 18v3"/>
+      </svg>
+    ),
+  },
+  {
+    id: 'themeMidnight', name: 'Theme: Midnight', cost: 175,
+    desc: 'Indigo neon dashboard and map', cosmetic: true,
+    color: '#a78bfa',
+    icon: (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#a78bfa" strokeWidth="2" strokeLinecap="round">
+        <path d="M20 15.5A7.5 7.5 0 0 1 10.5 6 8.5 8.5 0 1 0 20 15.5z"/><circle cx="16" cy="7" r="1.2" fill="#fff" stroke="none"/>
+      </svg>
+    ),
+  },
+  {
+    id: 'themeRose', name: 'Theme: Rose', cost: 165,
+    desc: 'Soft pink electric dashboard and map', cosmetic: true,
+    color: '#f9a8d4',
+    icon: (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#f9a8d4" strokeWidth="2" strokeLinecap="round">
+        <path d="M12 21s-6-3.35-6-9a3 3 0 0 1 6 0 3 3 0 0 1 6 0c0 5.65-6 9-6 9z"/><path d="M9 10h6" stroke="#fff" strokeWidth="1.4"/>
+      </svg>
+    ),
+  },
 ]
 
 function GemIcon({ sz = 18 }) {
@@ -78,18 +143,28 @@ function GemIcon({ sz = 18 }) {
   )
 }
 
-export default function GemShop({ gems, goalId, onPurchase }) {
+export default function GemShop({ gems, goalId, activeTheme, maxHearts, onPurchase, onThemeChange }) {
   const [buying, setBuying]         = useState(null)
   const [confirm, setConfirm]       = useState(null)
   const [success, setSuccess]       = useState(null)
   const [errorMsg, setErrorMsg]     = useState(null)
+  const [ownedThemes, setOwnedThemes] = useState([])
 
-  const ownedThemes = (() => {
-    try { return JSON.parse(localStorage.getItem('pathai.ownedThemes') || '[]') } catch { return [] }
-  })()
+  useEffect(() => {
+    try {
+      setOwnedThemes(getStoredOwnedThemes())
+    } catch {
+      setOwnedThemes([])
+    }
+  }, [])
 
   async function handleBuy(item) {
     if (buying) return
+    if (!goalId) {
+      setErrorMsg('No active goal selected')
+      setConfirm(null)
+      return
+    }
     setBuying(item.id)
     setErrorMsg(null)
     try {
@@ -101,7 +176,7 @@ export default function GemShop({ gems, goalId, onPurchase }) {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ goalId, itemId: item.id, accessToken: token }),
+        body: JSON.stringify({ goalId, itemId: item.id, accessToken: token, clientGems: gems, clientMaxHearts: maxHearts }),
       })
       const data = await res.json()
       if (!res.ok) {
@@ -111,8 +186,12 @@ export default function GemShop({ gems, goalId, onPurchase }) {
         return
       }
       if (item.id.startsWith('theme')) {
-        const themes = [...ownedThemes, item.id]
-        localStorage.setItem('pathai.ownedThemes', JSON.stringify(themes))
+        const themes = unlockStoredTheme(item.id)
+        setOwnedThemes(themes)
+        // Don't auto-apply — let user choose from the owned themes list
+      }
+      if (item.id === 'heartContainer' && data.maxHearts) {
+        setStoredMaxHearts(data.maxHearts)
       }
       setSuccess(item.id)
       setTimeout(() => setSuccess(null), 2000)
@@ -156,10 +235,19 @@ export default function GemShop({ gems, goalId, onPurchase }) {
       {/* Items */}
       <div style={{display:'flex',flexDirection:'column',gap:10}}>
         {ITEMS.map(item => {
-          const canAfford = gems >= item.cost
+          const itemCost = GEM_SHOP_ITEMS[item.id]?.cost ?? item.cost
+          const canAfford = gems >= itemCost
           const owned = item.cosmetic && ownedThemes.includes(item.id)
+          const isActiveTheme = item.cosmetic && activeTheme === item.id
+          const isMaxed = item.id === 'heartContainer' && maxHearts >= HEARTS_MAX_CAP
           const isSuccess = success === item.id
           const isBuying = buying === item.id
+          const canBuy = canAfford && !isMaxed && !owned
+          const itemDesc = item.id === 'heartRefill'
+            ? `Restore all ${maxHearts} hearts instantly`
+            : item.id === 'heartContainer'
+            ? `Permanently increase your max hearts by 1 (${maxHearts}/${HEARTS_MAX_CAP})`
+            : item.desc
 
           return (
             <div key={item.id} style={{
@@ -183,7 +271,7 @@ export default function GemShop({ gems, goalId, onPurchase }) {
               {/* Info */}
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontSize:15,fontWeight:700,color:'#F1F5F9',marginBottom:2}}>{item.name}</div>
-                <div style={{fontSize:12,color:'#475569',lineHeight:1.4}}>{item.desc}</div>
+                <div style={{fontSize:12,color:'#475569',lineHeight:1.4}}>{itemDesc}</div>
               </div>
 
               {/* Action */}
@@ -194,7 +282,15 @@ export default function GemShop({ gems, goalId, onPurchase }) {
                     background:'rgba(14,245,194,0.06)',border:'1px solid rgba(14,245,194,0.18)',
                     fontSize:12,fontWeight:700,color:'#0ef5c2',
                   }}>
-                    ✓ Owned
+                    {isActiveTheme ? '✓ Applied' : '✓ Owned'}
+                  </div>
+                ) : isMaxed ? (
+                  <div style={{
+                    padding:'8px 14px',borderRadius:10,
+                    background:'rgba(251,113,133,0.08)',border:'1px solid rgba(251,113,133,0.20)',
+                    fontSize:12,fontWeight:700,color:'#fb7185',
+                  }}>
+                    Maxed
                   </div>
                 ) : confirm === item.id ? (
                   <div style={{display:'flex',gap:6}}>
@@ -218,21 +314,21 @@ export default function GemShop({ gems, goalId, onPurchase }) {
                   </div>
                 ) : (
                   <button
-                    onClick={() => canAfford ? setConfirm(item.id) : null}
-                    disabled={!canAfford}
+                    onClick={() => canBuy ? setConfirm(item.id) : null}
+                    disabled={!canBuy}
                     style={{
                       padding:'8px 16px',borderRadius:10,
-                      background: canAfford ? `${item.color}14` : 'rgba(255,255,255,0.02)',
-                      border: `1px solid ${canAfford ? `${item.color}30` : 'rgba(255,255,255,0.06)'}`,
-                      color: canAfford ? item.color : '#334155',
-                      fontSize:13,fontWeight:700,cursor:canAfford?'pointer':'default',
+                      background: canBuy ? `${item.color}14` : 'rgba(255,255,255,0.02)',
+                      border: `1px solid ${canBuy ? `${item.color}30` : 'rgba(255,255,255,0.06)'}`,
+                      color: canBuy ? item.color : '#334155',
+                      fontSize:13,fontWeight:700,cursor:canBuy?'pointer':'default',
                       fontFamily:font,display:'flex',alignItems:'center',gap:5,
-                      opacity: canAfford ? 1 : 0.5,
+                      opacity: canBuy ? 1 : 0.5,
                       transition:'all 0.15s',
                     }}
                   >
                     <GemIcon sz={13}/>
-                    {item.cost}
+                    {itemCost}
                   </button>
                 )}
               </div>
@@ -256,6 +352,7 @@ export default function GemShop({ gems, goalId, onPurchase }) {
           { label: 'Complete all daily tasks', amount: '+15' },
           { label: 'Every 7-day streak milestone', amount: '+25' },
           { label: 'Treasure chests (random)', amount: '+5–50' },
+          { label: 'Quests and weekly challenges', amount: 'Bonus' },
         ].map((r, i) => (
           <div key={i} style={{
             display:'flex',justifyContent:'space-between',alignItems:'center',

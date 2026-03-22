@@ -194,8 +194,8 @@ ${codeBlockRules}
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${openaiApiKey}` },
     body: JSON.stringify({
       model: 'gpt-4o-mini',
-      max_tokens: 4000,
-      temperature: 0.35,
+      max_tokens: 3000,
+      temperature: 0.3,
       messages: [{ role: 'user', content: prompt }],
     }),
   })

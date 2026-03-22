@@ -14,6 +14,14 @@ export default function ProjectView({ task, goal, knowledge, onClose, onComplete
   useEffect(() => {
     async function load() {
       setLoading(true)
+      const cacheKey = `pathai.project.v1::${task.id || task.title}`
+      try {
+        const cached = localStorage.getItem(cacheKey)
+        if (cached) {
+          const data = JSON.parse(cached)
+          if (data.steps) { setProject(data); setLoading(false); return }
+        }
+      } catch {}
       try {
         const res = await fetch('/api/project', {
           method: 'POST',
@@ -21,12 +29,15 @@ export default function ProjectView({ task, goal, knowledge, onClose, onComplete
           body: JSON.stringify({ concept: task._concept || task.title, taskTitle: task.title, goal, knowledge, taskType: task.type }),
         })
         const data = await res.json()
-        if (data.steps) setProject(data)
+        if (data.steps) {
+          setProject(data)
+          try { localStorage.setItem(cacheKey, JSON.stringify(data)) } catch {}
+        }
       } catch {}
       setLoading(false)
     }
     load()
-  }, [task.title, goal, knowledge, task.type, task._concept])
+  }, [task.id, task.title, goal, knowledge, task.type, task._concept])
 
   const allChecked = project && project.steps.every(s => checked[s.id])
   const checkedCount = Object.values(checked).filter(Boolean).length

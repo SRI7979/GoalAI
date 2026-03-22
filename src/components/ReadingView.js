@@ -32,6 +32,14 @@ export default function ReadingView({ task, goal, knowledge, onClose, onComplete
 
   useEffect(() => {
     async function load() {
+      const cacheKey = `pathai.reading.v1::${task.id || task.title}`
+      try {
+        const cached = localStorage.getItem(cacheKey)
+        if (cached) {
+          const data = JSON.parse(cached)
+          if (data.title) { setArticle(data); setLoading(false); return }
+        }
+      } catch {}
       try {
         const res = await fetch('/api/reading', {
           method: 'POST',
@@ -39,12 +47,15 @@ export default function ReadingView({ task, goal, knowledge, onClose, onComplete
           body: JSON.stringify({ concept: task._concept || task.title, taskTitle: task.title, goal, knowledge }),
         })
         const data = await res.json()
-        if (data.title) setArticle(data)
+        if (data.title) {
+          setArticle(data)
+          try { localStorage.setItem(cacheKey, JSON.stringify(data)) } catch {}
+        }
       } catch {}
       setLoading(false)
     }
     load()
-  }, [task.title, goal, knowledge, task._concept])
+  }, [task.id, task.title, goal, knowledge, task._concept])
 
   // Track scroll progress
   useEffect(() => {

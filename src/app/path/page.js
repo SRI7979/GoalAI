@@ -1,45 +1,30 @@
 // Path — Full Gamified Learning Map (Duolingo × Brilliant)
 'use client'
 
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
+import { motion, useScroll, useTransform } from 'framer-motion'
 import { supabase } from '@/lib/supabase'
 import { getLevelProgress } from '@/lib/xp'
 import { trackMapViewed } from '@/lib/analytics'
+import { getDashboardThemeVars, getPathWorlds, getStoredActiveTheme, getStoredOwnedThemes } from '@/lib/appThemes'
+import PathNode from '@/components/path/PathNode'
+import PathLine from '@/components/path/PathLine'
 
 // ─── Design Tokens ────────────────────────────────────────────────────────────
 const T = {
-  bg:       '#080810',
+  bg:       'var(--theme-bg)',
+  shell:    'var(--theme-shell)',
+  chrome:   'var(--theme-chrome)',
   font:     "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif",
-  text:     '#F1F5F9',
-  textSec:  '#94A3B8',
-  textMuted:'#475569',
-  border:   'rgba(255,255,255,0.08)',
+  text:     'var(--theme-text)',
+  textSec:  'var(--theme-text-sec)',
+  textMuted:'var(--theme-text-muted)',
+  border:   'var(--theme-border)',
+  ink:      'var(--theme-ink)',
+  masteryGradient:'linear-gradient(135deg,var(--theme-mastery),var(--theme-mastery-strong))',
+  masteryGradientSoft:'linear-gradient(90deg,var(--theme-mastery),var(--theme-mastery-strong))',
 }
-
-// ─── World Themes — vibrant, high contrast ────────────────────────────────────
-const WORLDS = [
-  { name:'Foundation', emoji:'🌱', label:'START HERE',
-    accent:'#22D3A5', dark:'#0d7a5f', glow:'rgba(34,211,165,0.50)',
-    bg:'linear-gradient(160deg,rgba(34,211,165,0.14) 0%,rgba(16,185,129,0.06) 100%)',
-    strip:'rgba(34,211,165,0.10)', node:'#22D3A5', lock:'rgba(34,211,165,0.18)' },
-  { name:'Explorer',  emoji:'🔭', label:'LEVEL UP',
-    accent:'#60A5FA', dark:'#1d4ed8', glow:'rgba(96,165,250,0.50)',
-    bg:'linear-gradient(160deg,rgba(96,165,250,0.14) 0%,rgba(99,102,241,0.06) 100%)',
-    strip:'rgba(96,165,250,0.10)', node:'#60A5FA', lock:'rgba(96,165,250,0.18)' },
-  { name:'Builder',   emoji:'🔨', label:'BUILD IT',
-    accent:'#C084FC', dark:'#7c3aed', glow:'rgba(192,132,252,0.50)',
-    bg:'linear-gradient(160deg,rgba(192,132,252,0.14) 0%,rgba(139,92,246,0.06) 100%)',
-    strip:'rgba(192,132,252,0.10)', node:'#C084FC', lock:'rgba(192,132,252,0.18)' },
-  { name:'Practitioner',emoji:'⚡', label:'DEEP WORK',
-    accent:'#FBBF24', dark:'#b45309', glow:'rgba(251,191,36,0.50)',
-    bg:'linear-gradient(160deg,rgba(251,191,36,0.14) 0%,rgba(245,158,11,0.06) 100%)',
-    strip:'rgba(251,191,36,0.10)', node:'#FBBF24', lock:'rgba(251,191,36,0.18)' },
-  { name:'Master',    emoji:'🔥', label:'MASTERY',
-    accent:'#FB923C', dark:'#c2410c', glow:'rgba(251,146,60,0.50)',
-    bg:'linear-gradient(160deg,rgba(251,146,60,0.14) 0%,rgba(239,68,68,0.06) 100%)',
-    strip:'rgba(251,146,60,0.10)', node:'#FB923C', lock:'rgba(251,146,60,0.18)' },
-]
 
 // ─── Wave x-positions in 400px coordinate space ───────────────────────────────
 // 5-point wave: left edge → left → center → right → right edge → right → center → left → repeat
@@ -53,15 +38,55 @@ const BANNER_H   = 88   // world banner strip height
 const COORD_W    = 400  // SVG coordinate width
 
 // XP per task type
-const TASK_XP = { lesson:20, video:15, practice:25, exercise:30, quiz:35, review:20 }
+const TASK_XP = { lesson:20, video:15, practice:25, exercise:30, quiz:35, review:20, guided_practice:30, challenge:40, ai_interaction:25, reflection:15, boss:200 }
 const rowXP   = (tasks) => tasks.reduce((s, t) => s + (TASK_XP[t.type] || 20), 0)
+
+function patchNodeTask(nodes, rowId, taskId) {
+  let completedNode = false
+  const nextNodes = nodes.map((node) => {
+    if (node.id !== rowId) return node
+    const tasks = node.tasks.map((task) => task.id === taskId ? { ...task, completed: true } : task)
+    const completedTasks = tasks.filter((task) => task.completed).length
+    const isDone = completedTasks === tasks.length && tasks.length > 0
+    if (isDone) completedNode = true
+    return {
+      ...node,
+      tasks,
+      completedTasks,
+      status: isDone ? 'done' : node.status,
+    }
+  })
+  return { nextNodes, completedNode }
+}
+
+function recomputeNodeStatuses(nodes) {
+  let foundActive = false
+  return nodes.map((node) => {
+    if (node.isPlaceholder) return { ...node, status: 'locked' }
+    if (node.status === 'done') return node
+    if (!foundActive) {
+      foundActive = true
+      return { ...node, status: 'active' }
+    }
+    return { ...node, status: 'locked' }
+  })
+}
+
+function findNextUnlockId(nodes, rowId) {
+  const startIndex = nodes.findIndex((node) => node.id === rowId)
+  if (startIndex < 0) return null
+  for (let i = startIndex + 1; i < nodes.length; i += 1) {
+    if (!nodes[i].isPlaceholder && nodes[i].status !== 'done') return nodes[i].id
+  }
+  return null
+}
 
 // ─── Keyframes ────────────────────────────────────────────────────────────────
 const CSS = `
   @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800;900&display=swap');
   *,*::before,*::after { box-sizing: border-box }
   ::-webkit-scrollbar { display: none }
-  body { background: #080810 }
+  body { background: var(--theme-bg) }
 
   @keyframes pulseNode {
     0%,100% { box-shadow: 0 0 0 0 var(--glow); transform: scale(1); }
@@ -122,12 +147,17 @@ const PathIco   = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="no
 const StatsIco  = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
 
 const TASK_STYLE = {
-  lesson:   { color:'#22D3A5', label:'LESSON'   },
-  video:    { color:'#FBBF24', label:'VIDEO'    },
-  practice: { color:'#60A5FA', label:'PRACTICE' },
-  exercise: { color:'#C084FC', label:'EXERCISE' },
-  quiz:     { color:'#F87171', label:'QUIZ'     },
-  review:   { color:'#FB923C', label:'REVIEW'   },
+  lesson:          { color:'#22D3A5', label:'LESSON'   },
+  video:           { color:'#FBBF24', label:'VIDEO'    },
+  practice:        { color:'#60A5FA', label:'PRACTICE' },
+  exercise:        { color:'#C084FC', label:'EXERCISE' },
+  quiz:            { color:'#F87171', label:'QUIZ'     },
+  review:          { color:'#FB923C', label:'REVIEW'   },
+  guided_practice: { color:'#00d4ff', label:'PRACTICE' },
+  challenge:       { color:'#F59E0B', label:'CHALLENGE'},
+  ai_interaction:  { color:'#818CF8', label:'EXPLAIN'  },
+  reflection:      { color:'#A78BFA', label:'REFLECT'  },
+  boss:            { color:'#EC4899', label:'BOSS'     },
 }
 
 // ─── World Banner ─────────────────────────────────────────────────────────────
@@ -188,201 +218,10 @@ function WorldBanner({ world, worldIdx, doneCount, totalCount, height }) {
   )
 }
 
-// ─── Side Decoration (XP badge + concept name) ────────────────────────────────
-function SideInfo({ node, world, onRight }) {
-  const xp      = rowXP(node.tasks)
-  const isReal  = !node.isPlaceholder
-  const isDone  = node.status === 'done'
-  const isActive= node.status === 'active'
-  const textAlign = onRight ? 'left' : 'right'
-  return (
-    <div style={{ textAlign, maxWidth:90, animation: isActive ? 'fadeUp 0.4s ease' : 'none' }}>
-      {/* Concept name */}
-      <div style={{
-        fontSize:10, fontWeight:700, lineHeight:1.35,
-        color: isDone ? T.textMuted : isActive ? world.accent : 'rgba(255,255,255,0.20)',
-        marginBottom: isReal ? 4 : 0,
-        wordBreak:'break-word',
-      }}>
-        {isReal ? node.conceptName : node.isPlaceholder && isActive ? node.conceptName : '· · ·'}
-      </div>
-
-      {/* XP badge */}
-      {isReal && (
-        <div style={{
-          display:'inline-flex', alignItems:'center', gap:3,
-          background: isDone ? 'rgba(251,191,36,0.12)' : 'rgba(255,255,255,0.05)',
-          border: `1px solid ${isDone ? 'rgba(251,191,36,0.30)' : 'rgba(255,255,255,0.08)'}`,
-          borderRadius:9999, padding:'2px 7px',
-          fontSize:9, fontWeight:800, color: isDone ? '#FBBF24' : T.textMuted,
-        }}>
-          <BoltIco sz={8}/>{xp} XP
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─── Map Node Button ──────────────────────────────────────────────────────────
-function MapNode({ node, world, isActive, onTap }) {
-  const isDone      = node.status === 'done'
-  const isLocked    = node.status === 'locked' || node.isPlaceholder
-  const isBoss      = node.isBoss
-  const isProject   = node.isProject
-  const size        = isBoss || isProject ? 76 : 64
-  const radius      = isBoss ? 20 : isProject ? '50%' : '50%'
-  const completePct = node.totalTasks > 0 ? node.completedTasks / node.totalTasks : 0
-
-  // Node color scheme
-  let bgColor, borderColor, iconColor, boxShadow, animation
-  if (isDone) {
-    bgColor     = isBoss ? 'linear-gradient(135deg,#F59E0B,#FBBF24)' : `linear-gradient(135deg,${world.accent}90,${world.dark}90)`
-    borderColor = isBoss ? '#F59E0B' : world.accent
-    iconColor   = isDone && !isBoss ? '#080810' : '#fff'
-    boxShadow   = `0 4px 20px ${world.glow}, inset 0 1px 0 rgba(255,255,255,0.30)`
-    animation   = isBoss ? 'crownBounce 3s ease-in-out infinite' : 'none'
-  } else if (isActive) {
-    bgColor     = isBoss ? 'rgba(245,158,11,0.18)' : isProject ? `rgba(${world.accent},0.18)` : world.strip
-    borderColor = isBoss ? '#F59E0B' : world.accent
-    iconColor   = isBoss ? '#F59E0B' : world.accent
-    boxShadow   = `0 0 0 0 ${world.glow}`
-    animation   = `pulseNode 2.2s ease-in-out infinite`
-  } else {
-    bgColor     = 'rgba(255,255,255,0.03)'
-    borderColor = 'rgba(255,255,255,0.10)'
-    iconColor   = 'rgba(255,255,255,0.20)'
-    boxShadow   = 'none'
-    animation   = 'none'
-  }
-
-  const label = isBoss
-    ? (isDone ? '👑' : isActive ? '💀' : '💀')
-    : isProject
-    ? (isDone ? '🏗' : isActive ? '🏗' : '🏗')
-    : null
-
-  return (
-    <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:5, position:'relative' }}>
-      {/* "You are here" ribbon */}
-      {isActive && !node.isPlaceholder && (
-        <div style={{
-          position:'absolute', top:-(isBoss ? 36 : 32), left:'50%', transform:'translateX(-50%)',
-          fontSize:9, fontWeight:900, letterSpacing:'1.4px', textTransform:'uppercase',
-          color:'#080810', background:world.accent,
-          padding:'3px 10px', borderRadius:9999,
-          whiteSpace:'nowrap', boxShadow:`0 4px 14px ${world.glow}`,
-          animation:'fadeUp 0.35s ease',
-          zIndex:10,
-        }}>▶ You are here</div>
-      )}
-
-      {/* Node */}
-      <button
-        onClick={() => !isLocked && onTap(node)}
-        disabled={isLocked}
-        style={{
-          width:size, height:size,
-          borderRadius: isBoss ? radius : '50%',
-          background:   bgColor,
-          border:       `3px solid ${borderColor}`,
-          boxShadow,
-          display:'flex', alignItems:'center', justifyContent:'center',
-          cursor: isLocked ? 'default' : 'pointer',
-          transition: 'transform 0.18s cubic-bezier(0.34,1.56,0.64,1)',
-          animation,
-          // @ts-ignore
-          '--glow': world.glow,
-          backdropFilter:'blur(10px)',
-          WebkitBackdropFilter:'blur(10px)',
-          flexShrink:0, position:'relative', overflow:'visible',
-        }}
-        onMouseEnter={e => { if (!isLocked) e.currentTarget.style.transform = 'scale(1.10)' }}
-        onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)' }}
-      >
-        {/* Inner content */}
-        {label ? (
-          <span style={{ fontSize:28, lineHeight:1, display:'block' }}>{label}</span>
-        ) : isDone ? (
-          <span style={{ color: iconColor }}><CheckIco/></span>
-        ) : isLocked ? (
-          <span style={{ color: iconColor, opacity:0.7 }}><LockIco/></span>
-        ) : (
-          <span style={{ fontSize:26, lineHeight:1 }}>{world.emoji}</span>
-        )}
-
-        {/* Partial progress ring */}
-        {isActive && !node.isPlaceholder && completePct > 0 && (
-          <svg style={{ position:'absolute', inset:-4, width:'calc(100% + 8px)', height:'calc(100% + 8px)', pointerEvents:'none' }}
-               viewBox="0 0 80 80">
-            <circle cx="40" cy="40" r="36" fill="none"
-              stroke={world.accent} strokeWidth="3" strokeLinecap="round"
-              strokeDasharray={`${2*Math.PI*36}`}
-              strokeDashoffset={`${2*Math.PI*36*(1-completePct)}`}
-              transform="rotate(-90 40 40)" opacity="0.9"
-            />
-          </svg>
-        )}
-
-        {/* Done checkmark accent ring */}
-        {isDone && !isBoss && (
-          <div style={{
-            position:'absolute', inset:-4,
-            borderRadius:'50%', border:`2px solid ${world.accent}60`,
-            pointerEvents:'none',
-          }}/>
-        )}
-      </button>
-
-      {/* Day label */}
-      <div style={{
-        fontSize:10, fontWeight:800, letterSpacing:'0.4px', textAlign:'center',
-        color: isDone ? T.textMuted : isActive ? world.accent : 'rgba(255,255,255,0.20)',
-        lineHeight:1.2,
-      }}>
-        {isBoss ? '⚔ Boss' : isProject ? '🏗 Project' : `Day ${node.dayNumber}`}
-      </div>
-    </div>
-  )
-}
-
-// ─── The winding SVG path between nodes ───────────────────────────────────────
-function PathSVG({ nodeItems, totalHeight }) {
-  if (nodeItems.length < 2) return null
-  // Build smooth bezier path
-  const segs = nodeItems.slice(1).map((cur, i) => {
-    const prev = nodeItems[i]
-    const mx   = (prev.x + cur.x) / 2
-    const my   = (prev.y + cur.y) / 2
-    return { x1: prev.x, y1: prev.y, x2: cur.x, y2: cur.y, mx, my,
-             done: prev.status === 'done', active: prev.status === 'active', world: cur.world }
-  })
-
-  return (
-    <svg
-      style={{ position:'absolute', left:0, top:0, width:'100%', height:totalHeight, pointerEvents:'none', zIndex:0 }}
-      viewBox={`0 0 ${COORD_W} ${totalHeight}`}
-      preserveAspectRatio="none"
-    >
-      <defs>
-        {segs.map((s, i) => s.done && (
-          <linearGradient key={i} id={`lg${i}`} x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2} gradientUnits="userSpaceOnUse">
-            <stop offset="0%" stopColor={s.world.accent} stopOpacity="0.6"/>
-            <stop offset="100%" stopColor={s.world.accent} stopOpacity="0.3"/>
-          </linearGradient>
-        ))}
-      </defs>
-      {segs.map((s, i) => (
-        <path key={i}
-          d={`M ${s.x1} ${s.y1} Q ${s.mx} ${s.my} ${s.x2} ${s.y2}`}
-          fill="none"
-          stroke={s.done ? `url(#lg${i})` : s.active ? `${s.world.accent}35` : 'rgba(255,255,255,0.06)'}
-          strokeWidth={s.done ? 3.5 : 2.5}
-          strokeDasharray={!s.done && !s.active ? '10 7' : 'none'}
-          strokeLinecap="round"
-        />
-      ))}
-    </svg>
-  )
+function getNodeTone(node) {
+  if (node.isBoss) return 'boss'
+  if (node.isProject) return 'project'
+  return 'normal'
 }
 
 // ─── Bottom Sheet (task detail) ───────────────────────────────────────────────
@@ -400,7 +239,7 @@ function BottomSheet({ node, world, onClose, onComplete, completing }) {
       }}/>
       <div style={{
         position:'fixed', bottom:0, left:0, right:0, zIndex:901,
-        background:'#0f0f1e',
+        background:T.shell,
         border:`1px solid ${world.accent}30`,
         borderBottom:'none', borderRadius:'26px 26px 0 0',
         padding:'20px 20px 48px',
@@ -418,13 +257,13 @@ function BottomSheet({ node, world, onClose, onComplete, completing }) {
           <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10, flexWrap:'wrap' }}>
             <span style={{
               fontSize:9, fontWeight:900, letterSpacing:'1.6px', textTransform:'uppercase',
-              color:'#080810', background: node.isBoss ? '#F59E0B' : node.isProject ? '#C084FC' : world.accent,
+              color:T.ink, background: node.isBoss ? '#F59E0B' : node.isProject ? '#C084FC' : world.accent,
               padding:'3px 10px', borderRadius:9999,
             }}>
               {node.isBoss ? '⚔ Boss Challenge' : node.isProject ? '🏗 Build Project' : `Day ${node.dayNumber} Mission`}
             </span>
             {isDone && <span style={{ fontSize:9, fontWeight:900, letterSpacing:'1px',
-              color:'#080810', background:'#22D3A5', padding:'3px 10px', borderRadius:9999 }}>
+              color:T.ink, background:'#22D3A5', padding:'3px 10px', borderRadius:9999 }}>
               ✓ COMPLETE
             </span>}
           </div>
@@ -489,7 +328,7 @@ function BottomSheet({ node, world, onClose, onComplete, completing }) {
                     marginTop:6, width:'100%', padding:'10px 14px',
                     background: isCompleting ? 'rgba(255,255,255,0.04)' : `linear-gradient(135deg,${world.accent},${world.dark}90)`,
                     border: isCompleting ? '1px solid rgba(255,255,255,0.08)' : 'none',
-                    borderRadius:12, color: isCompleting ? T.textMuted : '#080810',
+                    borderRadius:12, color: isCompleting ? T.textMuted : T.ink,
                     fontSize:13, fontWeight:900, cursor: isCompleting ? 'default' : 'pointer',
                     fontFamily:T.font, display:'flex', alignItems:'center', justifyContent:'center', gap:6,
                     boxShadow: isCompleting ? 'none' : `0 0 24px ${world.glow}`,
@@ -539,7 +378,7 @@ function ProjectModal({ onClose, enabled, onToggle }) {
       }}/>
       <div style={{
         position:'fixed', bottom:0, left:0, right:0, zIndex:801,
-        background:'#0f0f1e',
+        background:T.shell,
         borderRadius:'26px 26px 0 0', padding:'24px 22px 44px',
         fontFamily:T.font, animation:'slideUp 0.28s cubic-bezier(0.34,1.2,0.64,1)',
         border:'1px solid rgba(192,132,252,0.25)', borderBottom:'none',
@@ -553,7 +392,7 @@ function ProjectModal({ onClose, enabled, onToggle }) {
           <div style={{ fontSize:14, color:T.textSec, lineHeight:1.55, maxWidth:320, margin:'0 auto' }}>
             Add build challenges every 5 days. Apply what you learn by creating real things.
             <br/><br/>
-            Projects appear as <strong style={{color:'#C084FC'}}>boss battles</strong> on your map — complete them to unlock special XP rewards.
+            Projects appear as <strong style={{color:'var(--theme-mastery)'}}>boss battles</strong> on your map — complete them to unlock special XP rewards.
           </div>
         </div>
 
@@ -582,10 +421,10 @@ function ProjectModal({ onClose, enabled, onToggle }) {
           <button onClick={() => { onToggle(!enabled); onClose() }} style={{
             flex:2, padding:'13px',
             background: enabled
-              ? 'rgba(239,68,68,0.10)' : 'linear-gradient(135deg,#C084FC,#818CF8)',
+              ? 'rgba(239,68,68,0.10)' : T.masteryGradient,
             border: enabled ? '1px solid rgba(239,68,68,0.25)' : 'none',
             borderRadius:14,
-            color: enabled ? '#F87171' : '#080810',
+            color: enabled ? '#F87171' : T.ink,
             fontWeight:900, fontSize:14, cursor:'pointer', fontFamily:T.font,
             boxShadow: enabled ? 'none' : '0 0 28px rgba(192,132,252,0.50)',
           }}>
@@ -602,8 +441,8 @@ function TabBar({ onNav }) {
   return (
     <div style={{
       position:'fixed', bottom:0, left:0, right:0, zIndex:500,
-      background:'rgba(8,8,16,0.94)',
-      borderTop:'1px solid rgba(255,255,255,0.08)',
+      background:T.chrome,
+      borderTop:`1px solid ${T.border}`,
       backdropFilter:'blur(28px)', WebkitBackdropFilter:'blur(28px)',
       display:'flex', justifyContent:'space-around', alignItems:'center',
       padding:'10px 0 max(env(safe-area-inset-bottom),10px)',
@@ -619,7 +458,7 @@ function TabBar({ onNav }) {
           <button key={key} onClick={() => onNav(key)} style={{
             display:'flex', flexDirection:'column', alignItems:'center', gap:3,
             background:'none', border:'none', cursor:'pointer', padding:'4px 20px',
-            color: isActive ? '#22D3A5' : T.textMuted,
+            color: isActive ? 'var(--theme-primary)' : T.textMuted,
             opacity: isActive ? 1 : 0.65, fontFamily:T.font,
           }}>
             <Icon/>
@@ -645,6 +484,28 @@ export default function PathPage() {
   const [xpPop,        setXpPop]        = useState(null)
   const [projects,     setProjects]     = useState(false)
   const [showProjModal,setShowProjModal]= useState(false)
+  const [activeTheme,  setActiveTheme]  = useState(() => getStoredActiveTheme(getStoredOwnedThemes()))
+  const [celebratingNodeId, setCelebratingNodeId] = useState(null)
+  const [justUnlockedNodeId, setJustUnlockedNodeId] = useState(null)
+
+  const nodeRefs = useRef(new Map())
+  const transitionTimersRef = useRef([])
+  const { scrollY } = useScroll()
+  const orbDrift = useTransform(scrollY, [0, 2400], [0, -140])
+  const orbDriftFar = useTransform(scrollY, [0, 2400], [0, -80])
+  const overlayDrift = useTransform(scrollY, [0, 2400], [0, -32])
+
+  const themeVars = useMemo(() => getDashboardThemeVars(activeTheme), [activeTheme])
+  const pageThemeStyle = useMemo(() => ({
+    ...themeVars,
+    background: 'radial-gradient(circle at top, var(--theme-page-glow), transparent 34%), var(--theme-bg)',
+  }), [themeVars])
+  const worlds = useMemo(() => getPathWorlds(activeTheme), [activeTheme])
+
+  const registerNodeRef = useCallback((id, element) => {
+    if (element) nodeRefs.current.set(id, element)
+    else nodeRefs.current.delete(id)
+  }, [activeNode])
 
   // ── Load ───────────────────────────────────────────────────────────────────
   const load = useCallback(async () => {
@@ -653,18 +514,14 @@ export default function PathPage() {
     const me = authData?.user
     if (!me) { router.push('/login'); return }
 
-    const [
-      { data: activeGoal },
-      { data: prog },
-    ] = await Promise.all([
-      supabase.from('goals').select('*').eq('user_id', me.id).eq('status', 'active')
-        .order('created_at', { ascending: false }).limit(1).maybeSingle(),
-      supabase.from('user_progress').select('total_xp,current_streak,total_days')
-        .eq('user_id', me.id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
-    ])
+    const { data: activeGoal } = await supabase.from('goals').select('*').eq('user_id', me.id).eq('status', 'active')
+      .order('created_at', { ascending: false }).limit(1).maybeSingle()
 
     if (!activeGoal) { setLoading(false); return }
     setGoal(activeGoal)
+
+    const { data: prog } = await supabase.from('user_progress').select('total_xp,current_streak,total_days')
+      .eq('user_id', me.id).eq('goal_id', activeGoal.id).maybeSingle()
 
     const { data: rows, error: rowsErr } = await supabase
       .from('daily_tasks').select('*')
@@ -730,7 +587,10 @@ export default function PathPage() {
     setLoading(false)
   }, [router])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    const timer = setTimeout(() => { load() }, 0)
+    return () => clearTimeout(timer)
+  }, [load])
 
   // ── Inject project nodes when toggle is on ─────────────────────────────────
   const displayNodes = useMemo(() => {
@@ -766,11 +626,11 @@ export default function PathPage() {
     const groups = []
     for (let i = 0; i < displayNodes.length; i += 7) {
       const chunk    = displayNodes.slice(i, i + 7)
-      const themeIdx = Math.floor(i / 7) % WORLDS.length
-      groups.push({ world: WORLDS[themeIdx], nodes: chunk })
+      const themeIdx = Math.floor(i / 7) % worlds.length
+      groups.push({ world: worlds[themeIdx], nodes: chunk })
     }
     return groups
-  }, [displayNodes])
+  }, [displayNodes, worlds])
 
   // ── Compute absolute y positions for every node ────────────────────────────
   const { layoutItems, totalMapHeight } = useMemo(() => {
@@ -799,6 +659,41 @@ export default function PathPage() {
 
   // Separate node items for SVG path
   const nodeItems = useMemo(() => layoutItems.filter(i => i.type === 'node'), [layoutItems])
+  const currentNode = useMemo(
+    () => displayNodes.find((node) => node.status === 'active') || null,
+    [displayNodes],
+  )
+  const pathSegments = useMemo(() => nodeItems.slice(1).map((cur, index) => {
+    const prev = nodeItems[index]
+    return {
+      id: `${prev.node.id}-${cur.node.id}`,
+      fromId: prev.node.id,
+      toId: cur.node.id,
+      fromStatus: prev.node.status,
+      toStatus: cur.node.status,
+      x1: prev.x,
+      y1: prev.y,
+      x2: cur.x,
+      y2: cur.y,
+      mx: (prev.x + cur.x) / 2,
+      my: (prev.y + cur.y) / 2,
+      world: cur.world,
+    }
+  }), [nodeItems])
+
+  useEffect(() => {
+    if (!currentNode?.id) return undefined
+    const timer = setTimeout(() => {
+      const element = nodeRefs.current.get(currentNode.id)
+      element?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 260)
+    return () => clearTimeout(timer)
+  }, [currentNode?.id])
+
+  useEffect(() => () => {
+    transitionTimersRef.current.forEach((timerId) => clearTimeout(timerId))
+    transitionTimersRef.current = []
+  }, [activeNode])
 
   // ── Task completion ────────────────────────────────────────────────────────
   const handleComplete = useCallback(async (rowId, taskId, task, event) => {
@@ -809,30 +704,49 @@ export default function PathPage() {
       setXpPop({ x: rect.left + rect.width / 2, y: rect.top - 10, xp: xpAmt })
     }
 
-    // Optimistic update
-    setAllNodes(prev => {
-      let foundActiveAfter = false
-      return prev.map(n => {
-        if (n.id !== rowId) return n
-        const updatedTasks = n.tasks.map(t => t.id === taskId ? { ...t, completed: true } : t)
-        const doneCount    = updatedTasks.filter(t => t.completed).length
-        const allDone      = doneCount === updatedTasks.length && updatedTasks.length > 0
-        return { ...n, tasks: updatedTasks, completedTasks: doneCount, status: allDone ? 'done' : n.status }
-      }).map((n, _) => {
-        // Recompute active status
-        if (n.status === 'done' || n.isPlaceholder) return n
-        if (!foundActiveAfter) { foundActiveAfter = true; return { ...n, status: 'active' } }
-        return { ...n, status: 'locked' }
-      })
+    // Compute patch result synchronously to avoid reading mutable vars set inside updater
+    let completedNode = false
+    let nextUnlockId = null
+    setAllNodes((prev) => {
+      const patched = patchNodeTask(prev, rowId, taskId)
+      completedNode = patched.completedNode
+      nextUnlockId = patched.completedNode ? findNextUnlockId(patched.nextNodes, rowId) : null
+      return patched.completedNode ? patched.nextNodes : recomputeNodeStatuses(patched.nextNodes)
     })
 
-    setActiveNode(prev => {
+    setActiveNode((prev) => {
       if (!prev || prev.id !== rowId) return prev
-      const updatedTasks = prev.tasks.map(t => t.id === taskId ? { ...t, completed: true } : t)
-      const doneCount    = updatedTasks.filter(t => t.completed).length
-      return { ...prev, tasks: updatedTasks, completedTasks: doneCount,
-        status: doneCount === updatedTasks.length ? 'done' : prev.status }
+      const updatedTasks = prev.tasks.map((entry) => entry.id === taskId ? { ...entry, completed: true } : entry)
+      const doneCount = updatedTasks.filter((entry) => entry.completed).length
+      const nodeDone = doneCount === updatedTasks.length && updatedTasks.length > 0
+      return {
+        ...prev,
+        tasks: updatedTasks,
+        completedTasks: doneCount,
+        status: nodeDone ? 'done' : prev.status,
+      }
     })
+
+    // Note: completedNode/nextUnlockId are set synchronously by React 18's updater
+    if (completedNode) {
+      setCelebratingNodeId(rowId)
+      setJustUnlockedNodeId(null)
+
+      const unlockTimer = setTimeout(() => {
+        setAllNodes((prev) => recomputeNodeStatuses(prev))
+        if (nextUnlockId) setJustUnlockedNodeId(nextUnlockId)
+      }, 550)
+
+      const clearCelebrateTimer = setTimeout(() => {
+        setCelebratingNodeId(null)
+      }, 1200)
+
+      const clearUnlockTimer = setTimeout(() => {
+        setJustUnlockedNodeId(null)
+      }, 1800)
+
+      transitionTimersRef.current.push(unlockTimer, clearCelebrateTimer, clearUnlockTimer)
+    }
 
     try {
       const { data: { session } } = await supabase.auth.getSession()
@@ -840,11 +754,17 @@ export default function PathPage() {
       await fetch('/api/complete', {
         method:'POST',
         headers:{ 'Content-Type':'application/json', ...(token ? { Authorization:`Bearer ${token}` } : {}) },
-        body: JSON.stringify({ taskRowId: rowId, taskId }),
+        body: JSON.stringify({
+          taskRowId: rowId,
+          taskId,
+          completedTaskIds: (activeNode?.id === rowId ? activeNode.tasks : [])
+            .filter((entry) => entry.completed)
+            .map((entry) => entry.id),
+        }),
       })
     } catch { /* optimistic stays */ }
     setCompleting(null)
-  }, [])
+  }, [activeNode])
 
   // ── Nav ────────────────────────────────────────────────────────────────────
   const handleNav = useCallback((tab) => {
@@ -854,26 +774,27 @@ export default function PathPage() {
 
   // ── Derived ────────────────────────────────────────────────────────────────
   const lvl            = useMemo(() => getLevelProgress(progress.xp), [progress.xp])
-  const totalNodes     = allNodes.length
-  const completedNodes = allNodes.filter(n => n.status === 'done').length
+  const totalNodes     = displayNodes.length
+  const completedNodes = displayNodes.filter((node) => node.status === 'done').length
+  const completionPct  = totalNodes > 0 ? Math.round((completedNodes / totalNodes) * 100) : 0
   const activeSheetWorld = useMemo(() => {
-    if (!activeNode) return WORLDS[0]
+    if (!activeNode) return worlds[0]
     const gi = worldGroups.findIndex(g => g.nodes.some(n => n.id === activeNode.id))
-    return gi >= 0 ? worldGroups[gi].world : WORLDS[0]
-  }, [activeNode, worldGroups])
+    return gi >= 0 ? worldGroups[gi].world : worlds[0]
+  }, [activeNode, worldGroups, worlds])
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
-    <>
+    <div style={themeVars}>
       <style>{CSS}</style>
 
-      <div style={{ minHeight:'100vh', background:T.bg, fontFamily:T.font, paddingBottom:80 }}>
+      <div style={{ ...pageThemeStyle, minHeight:'100vh', fontFamily:T.font, paddingBottom:80 }}>
 
         {/* ── Sticky top bar ──────────────────────────────────────────── */}
         <div style={{
           position:'sticky', top:0, zIndex:200,
-          background:'rgba(8,8,16,0.92)',
-          borderBottom:'1px solid rgba(255,255,255,0.08)',
+          background:T.chrome,
+          borderBottom:`1px solid ${T.border}`,
           backdropFilter:'blur(28px)', WebkitBackdropFilter:'blur(28px)',
         }}>
           <div style={{ maxWidth:700, margin:'0 auto', padding:'12px 18px' }}>
@@ -881,7 +802,7 @@ export default function PathPage() {
               {/* Level badge */}
               <div style={{
                 width:36, height:36, borderRadius:'50%', flexShrink:0,
-                background:'linear-gradient(135deg,#C084FC,#818CF8)',
+                background:T.masteryGradient,
                 display:'flex', alignItems:'center', justifyContent:'center',
                 fontWeight:900, fontSize:15, color:'#fff',
                 boxShadow:'0 0 18px rgba(192,132,252,0.45)',
@@ -895,7 +816,7 @@ export default function PathPage() {
                   <div style={{ flex:1, height:4, background:'rgba(255,255,255,0.06)', borderRadius:9999, overflow:'hidden' }}>
                     <div style={{
                       height:'100%', width:`${Math.round(lvl.pct * 100)}%`,
-                      background:'linear-gradient(90deg,#C084FC,#818CF8)', borderRadius:9999,
+                      background:T.masteryGradientSoft, borderRadius:9999,
                       transition:'width 0.5s',
                     }}/>
                   </div>
@@ -922,7 +843,7 @@ export default function PathPage() {
                 <div style={{
                   height:'100%',
                   width: totalNodes > 0 ? `${Math.round(completedNodes / totalNodes * 100)}%` : '0%',
-                  background:'linear-gradient(90deg,#22D3A5,#60A5FA,#C084FC)',
+                  background:'linear-gradient(90deg,var(--theme-primary),var(--theme-secondary),var(--theme-mastery))',
                   borderRadius:9999, transition:'width 0.6s cubic-bezier(0.16,1,0.3,1)',
                   backgroundSize:'200% 100%',
                   animation: completedNodes > 0 ? 'shimmer 3s linear infinite' : 'none',
@@ -936,13 +857,35 @@ export default function PathPage() {
                 padding:'4px 10px', borderRadius:9999, fontFamily:T.font,
                 background: projects ? 'rgba(192,132,252,0.15)' : 'rgba(255,255,255,0.05)',
                 border:`1px solid ${projects ? 'rgba(192,132,252,0.40)' : 'rgba(255,255,255,0.10)'}`,
-                color: projects ? '#C084FC' : T.textMuted,
+                color: projects ? 'var(--theme-mastery)' : T.textMuted,
                 fontSize:10, fontWeight:800, cursor:'pointer', flexShrink:0,
                 display:'flex', alignItems:'center', gap:4,
               }}>
                 🏗 {projects ? 'Projects ON' : 'Add Projects'}
               </button>
             </div>
+
+            {currentNode && (
+              <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap', marginTop:12 }}>
+                <span style={{
+                  fontSize:9, fontWeight:900, letterSpacing:'1.4px', textTransform:'uppercase',
+                  color:T.ink, background:'linear-gradient(135deg,var(--theme-primary),#f8fafc)',
+                  padding:'3px 10px', borderRadius:9999,
+                  boxShadow:'0 10px 24px rgba(34,211,165,0.18)',
+                }}>
+                  Current focus
+                </span>
+                <span style={{ fontSize:12, fontWeight:800, color:T.text }}>
+                  {currentNode.isBoss ? 'Boss Battle' : currentNode.isProject ? 'Project Build' : `Day ${currentNode.dayNumber}`}
+                </span>
+                <span style={{ fontSize:12, color:T.textSec, fontWeight:600 }}>
+                  {currentNode.conceptName}
+                </span>
+                <span style={{ fontSize:11, color:T.textMuted, fontWeight:700 }}>
+                  {completionPct}% complete
+                </span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -977,8 +920,8 @@ export default function PathPage() {
             </div>
             <button onClick={() => router.push('/onboarding')} style={{
               padding:'14px 32px',
-              background:'linear-gradient(135deg,#22D3A5,#60A5FA)',
-              border:'none', borderRadius:14, color:'#080810',
+              background:'linear-gradient(135deg,var(--theme-primary),var(--theme-secondary))',
+              border:'none', borderRadius:14, color:T.ink,
               fontSize:15, fontWeight:900, cursor:'pointer', fontFamily:T.font,
               boxShadow:'0 0 32px rgba(34,211,165,0.40)',
             }}>Get Started →</button>
@@ -988,14 +931,75 @@ export default function PathPage() {
         {/* ── Map ────────────────────────────────────────────────────────── */}
         {!loading && !error && allNodes.length > 0 && (
           <div style={{ position:'relative', height:totalMapHeight, overflow:'hidden' }}>
+            <motion.div
+              aria-hidden="true"
+              style={{
+                y: orbDrift,
+                position:'absolute',
+                inset:0,
+                zIndex:0,
+                pointerEvents:'none',
+              }}
+            >
+              <div style={{
+                position:'absolute', top:120, left:'8%',
+                width:240, height:240, borderRadius:'50%',
+                background:'radial-gradient(circle, rgba(34,211,165,0.18) 0%, transparent 70%)',
+                filter:'blur(8px)',
+              }}/>
+              <div style={{
+                position:'absolute', top:640, right:'10%',
+                width:320, height:320, borderRadius:'50%',
+                background:'radial-gradient(circle, rgba(96,165,250,0.16) 0%, transparent 72%)',
+                filter:'blur(14px)',
+              }}/>
+            </motion.div>
+
+            <motion.div
+              aria-hidden="true"
+              style={{
+                y: orbDriftFar,
+                position:'absolute',
+                inset:0,
+                zIndex:0,
+                pointerEvents:'none',
+              }}
+            >
+              <div style={{
+                position:'absolute', top:360, left:'58%',
+                width:280, height:280, borderRadius:'50%',
+                background:'radial-gradient(circle, rgba(192,132,252,0.16) 0%, transparent 68%)',
+                filter:'blur(18px)',
+              }}/>
+              <div style={{
+                position:'absolute', top:980, left:'16%',
+                width:220, height:220, borderRadius:'50%',
+                background:'radial-gradient(circle, rgba(251,191,36,0.14) 0%, transparent 70%)',
+                filter:'blur(14px)',
+              }}/>
+            </motion.div>
+
+            <motion.div
+              aria-hidden="true"
+              style={{
+                y: overlayDrift,
+                position:'absolute',
+                inset:0,
+                zIndex:1,
+                pointerEvents:'none',
+                opacity:0.22,
+                backgroundImage:'radial-gradient(rgba(255,255,255,0.16) 0.7px, transparent 0.7px)',
+                backgroundSize:'18px 18px',
+                mixBlendMode:'soft-light',
+              }}
+            />
 
             {/* World backgrounds */}
-            {layoutItems.filter(i => i.type === 'banner').map((item, idx) => (
+            {layoutItems.filter((item) => item.type === 'banner').map((item, idx) => (
               <div key={idx} style={{
                 position:'absolute', left:0, right:0, top:item.y,
                 height: (() => {
-                  // Background stripe covers from banner top to start of next banner
-                  const nextBanner = layoutItems.filter(i => i.type === 'banner')[idx + 1]
+                  const nextBanner = layoutItems.filter((entry) => entry.type === 'banner')[idx + 1]
                   return nextBanner ? nextBanner.y - item.y : totalMapHeight - item.y
                 })(),
                 background: item.world.bg,
@@ -1004,8 +1008,8 @@ export default function PathPage() {
             ))}
 
             {/* World banners */}
-            {layoutItems.filter(i => i.type === 'banner').map((item, idx) => {
-              const doneCount = item.nodes.filter(n => n.status === 'done').length
+            {layoutItems.filter((item) => item.type === 'banner').map((item, idx) => {
+              const doneCount = item.nodes.filter((node) => node.status === 'done').length
               return (
                 <WorldBanner
                   key={idx}
@@ -1018,65 +1022,66 @@ export default function PathPage() {
               )
             })}
 
-            {/* SVG connector path */}
-            <PathSVG
-              nodeItems={nodeItems.map(i => ({ ...i, status:i.node.status, world:i.world }))}
-              totalHeight={totalMapHeight}
-            />
+            <svg
+              style={{ position:'absolute', left:0, top:0, width:'100%', height:totalMapHeight, pointerEvents:'none', zIndex:2 }}
+              viewBox={`0 0 ${COORD_W} ${totalMapHeight}`}
+              preserveAspectRatio="none"
+            >
+              {pathSegments.map((segment) => (
+                <PathLine
+                  key={segment.id}
+                  segment={segment}
+                  celebrating={celebratingNodeId === segment.fromId}
+                />
+              ))}
+            </svg>
 
-            {/* Nodes */}
-            {nodeItems.map((item, idx) => {
-              const n    = item.node
-              const xPct = (item.x / COORD_W) * 100
-              return (
-                <div key={n.id} style={{
-                  position:'absolute',
-                  left:`${xPct}%`,
-                  top:item.y,
-                  transform:'translate(-50%,-50%)',
-                  zIndex:10,
-                  animation:`fadeUp 0.35s ease ${Math.min(idx * 0.03, 0.5)}s both`,
-                }}>
-                  <MapNode
-                    node={n}
-                    world={item.world}
-                    isActive={n.status === 'active'}
-                    onTap={setActiveNode}
-                  />
-                </div>
-              )
-            })}
-
-            {/* Side info cards (concept names + XP) */}
             {nodeItems.map((item) => {
-              const n        = item.node
-              const xPct     = (item.x / COORD_W) * 100
-              const isOnLeft = item.x < COORD_W / 2
-              // Place label on the opposite side of the node
-              const labelStyle = isOnLeft
-                ? { left:`${xPct + 10}%`, transform:'translateY(-50%)' }
-                : { right:`${100 - xPct + 10}%`, transform:'translateY(-50%)' }
+              const node = item.node
+              const xPct = (item.x / COORD_W) * 100
+              const nodeState = node.isBoss || node.isProject
+                ? 'boss'
+                : node.status === 'done'
+                  ? 'completed'
+                  : node.status === 'active'
+                    ? 'current'
+                    : 'locked'
+
               return (
-                <div key={`side-${n.id}`} style={{
-                  position:'absolute', top:item.y,
-                  ...labelStyle,
-                  zIndex:5, pointerEvents:'none',
-                }}>
-                  <SideInfo node={n} world={item.world} onRight={isOnLeft}/>
-                </div>
+                <PathNode
+                  key={node.id}
+                  state={nodeState}
+                  status={node.status}
+                  tone={getNodeTone(node)}
+                  label={node.conceptName}
+                  xp={rowXP(node.tasks)}
+                  position={{ x: xPct, y: item.y }}
+                  dayLabel={node.isBoss ? 'Boss Battle' : node.isProject ? 'Project Build' : `Day ${node.dayNumber}`}
+                  progress={node.totalTasks > 0 ? node.completedTasks / node.totalTasks : 0}
+                  world={item.world}
+                  placeholder={node.isPlaceholder}
+                  current={node.status === 'active'}
+                  completed={node.status === 'done'}
+                  celebrating={celebratingNodeId === node.id}
+                  justUnlocked={justUnlockedNodeId === node.id}
+                  side={item.x < COORD_W / 2 ? 'right' : 'left'}
+                  onTap={() => setActiveNode(node)}
+                  nodeRef={(element) => registerNodeRef(node.id, element)}
+                />
               )
             })}
 
-            {/* End-of-map teaser */}
             <div style={{
               position:'absolute', bottom:20, left:'50%', transform:'translateX(-50%)',
               padding:'12px 22px',
-              background:'rgba(255,255,255,0.02)',
-              border:'1px dashed rgba(255,255,255,0.10)',
+              background:'linear-gradient(135deg, rgba(15,23,42,0.78), rgba(15,23,42,0.52))',
+              border:'1px solid rgba(255,255,255,0.10)',
               borderRadius:16, textAlign:'center', zIndex:5, whiteSpace:'nowrap',
+              boxShadow:'0 18px 34px rgba(2,6,23,0.28)',
+              backdropFilter:'blur(16px)', WebkitBackdropFilter:'blur(16px)',
             }}>
               <span style={{ fontSize:13, fontWeight:700, color:T.textMuted }}>
-                ✦ Complete missions to unlock more
+                ✦ Complete missions to light the path ahead
               </span>
             </div>
           </div>
@@ -1106,6 +1111,6 @@ export default function PathPage() {
 
       {/* ── Tab bar ────────────────────────────────────────────────────────── */}
       <TabBar onNav={handleNav}/>
-    </>
+    </div>
   )
 }

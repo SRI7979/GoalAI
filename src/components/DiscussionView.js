@@ -13,6 +13,14 @@ export default function DiscussionView({ task, goal, knowledge, onClose, onCompl
 
   useEffect(() => {
     async function load() {
+      const cacheKey = `pathai.discussion.v1::${task.id || task.title}`
+      try {
+        const cached = localStorage.getItem(cacheKey)
+        if (cached) {
+          const data = JSON.parse(cached)
+          if (data.prompts) { setPrompts(data.prompts); setLoading(false); return }
+        }
+      } catch {}
       try {
         const res = await fetch('/api/discussion', {
           method: 'POST',
@@ -20,12 +28,15 @@ export default function DiscussionView({ task, goal, knowledge, onClose, onCompl
           body: JSON.stringify({ concept: task._concept || task.title, taskTitle: task.title, goal, knowledge }),
         })
         const data = await res.json()
-        if (data.prompts) setPrompts(data.prompts)
+        if (data.prompts) {
+          setPrompts(data.prompts)
+          try { localStorage.setItem(cacheKey, JSON.stringify(data)) } catch {}
+        }
       } catch {}
       setLoading(false)
     }
     load()
-  }, [task.title, goal, knowledge, task._concept])
+  }, [task.id, task.title, goal, knowledge, task._concept])
 
   const answeredCount = Object.values(answers).filter(a => a?.trim().length > 10).length
 

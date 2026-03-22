@@ -23,6 +23,14 @@ export default function ChallengeView({ task, goal, knowledge, onClose, onComple
 
   useEffect(() => {
     async function load() {
+      const cacheKey = `pathai.challenge.v1::${task.id || task.title}`
+      try {
+        const cached = localStorage.getItem(cacheKey)
+        if (cached) {
+          const data = JSON.parse(cached)
+          if (data.title) { setChallenge(data); setTimeLeft(data.timeLimit || 600); setLoading(false); return }
+        }
+      } catch {}
       try {
         const res = await fetch('/api/challenge', {
           method: 'POST',
@@ -30,12 +38,15 @@ export default function ChallengeView({ task, goal, knowledge, onClose, onComple
           body: JSON.stringify({ concept: task._concept || task.title, taskTitle: task.title, goal, knowledge }),
         })
         const data = await res.json()
-        if (data.title) { setChallenge(data); setTimeLeft(data.timeLimit || 600) }
+        if (data.title) {
+          setChallenge(data); setTimeLeft(data.timeLimit || 600)
+          try { localStorage.setItem(cacheKey, JSON.stringify(data)) } catch {}
+        }
       } catch {}
       setLoading(false)
     }
     load()
-  }, [task.title, goal, knowledge, task._concept])
+  }, [task.id, task.title, goal, knowledge, task._concept])
 
   useEffect(() => {
     if (!started || timeUp) return

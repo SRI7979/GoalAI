@@ -2,7 +2,7 @@ import { getSupabaseServerClient } from '@/lib/supabaseServer'
 import {
   buildDailyTasks,
   buildExploreDayTask,
-  generateConceptMap,
+  generateCourseOutline,
   generateExploreConcepts,
   initializeUserProgress,
   saveDailyTasks,
@@ -85,10 +85,13 @@ export async function POST(request) {
       dailyPlan.push(day)
     } else {
       // ── Goal Mode ─────────────────────────────────────────────────────────────
-      const concepts = await generateConceptMap({
+      // Generate a full module-structured course outline, then build Day 1 tasks
+      const avgMins = Math.round((Number(weekdayMins) * 5 + Number(weekendMins) * 2) / 7)
+      const courseOutline = await generateCourseOutline({
         goal,
         knowledge,
         days,
+        minutesPerDay: avgMins,
         openaiApiKey: process.env.OPENAI_API_KEY,
       })
 
@@ -96,13 +99,21 @@ export async function POST(request) {
       // as user completes each day (via generateNextTasksIfNeeded in /api/complete)
       dailyPlan = await buildDailyTasks(
         goal,
-        concepts,
+        courseOutline.concepts,
         Number(weekdayMins),
         Number(weekendMins),
         1,
         1,
         { knowledge, openaiApiKey: process.env.OPENAI_API_KEY, mode: 'goal' },
       )
+
+      // Store course outline on the goal for future task generation context
+      try {
+        await supabase
+          .from('goals')
+          .update({ course_outline: courseOutline })
+          .eq('id', goalId)
+      } catch { /* non-critical — outline is advisory */ }
     }
 
     const insertedTaskRows = await saveDailyTasks({ supabase, goalId, userId, dailyPlan })

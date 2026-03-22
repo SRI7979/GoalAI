@@ -20,6 +20,14 @@ export default function CapstoneView({ task, goal, knowledge, onClose, onComplet
         const saved = localStorage.getItem(cacheKey)
         if (saved) setChecked(JSON.parse(saved))
       } catch {}
+      const contentKey = `pathai.capstone.content.v1::${task.id || task.title}`
+      try {
+        const cached = localStorage.getItem(contentKey)
+        if (cached) {
+          const data = JSON.parse(cached)
+          if (data.title) { setCapstone(data); setLoading(false); return }
+        }
+      } catch {}
       try {
         const res = await fetch('/api/capstone', {
           method: 'POST',
@@ -27,12 +35,15 @@ export default function CapstoneView({ task, goal, knowledge, onClose, onComplet
           body: JSON.stringify({ concept: task._concept || task.title, taskTitle: task.title, goal, knowledge }),
         })
         const data = await res.json()
-        if (data.title) setCapstone(data)
+        if (data.title) {
+          setCapstone(data)
+          try { localStorage.setItem(contentKey, JSON.stringify(data)) } catch {}
+        }
       } catch {}
       setLoading(false)
     }
     load()
-  }, [task.title, goal, knowledge, task._concept, cacheKey])
+  }, [task.id, task.title, goal, knowledge, task._concept, cacheKey])
 
   function toggleTask(mIdx, tIdx) {
     const key = `${mIdx}-${tIdx}`
