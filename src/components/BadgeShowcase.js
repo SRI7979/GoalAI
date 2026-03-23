@@ -2,13 +2,14 @@
 import { useState, useRef, useCallback, useMemo, memo } from 'react'
 import { motion, useMotionValue, useSpring, useTransform } from 'framer-motion'
 import { Lock } from 'lucide-react'
+import IconGlyph from '@/components/IconGlyph'
 import { BADGES, RARITY_COLORS } from '@/lib/badges'
 
 const font = "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif"
 
 const RARITY_LABELS = { common: 'Common', rare: 'Rare', epic: 'Epic', legendary: 'Legendary' }
 const RARITY_ORDER = { legendary: 0, epic: 1, rare: 2, common: 3 }
-const CATEGORY_ICONS = { streak: '🔥', learning: '📖', progress: '🗺️', special: '✨' }
+const CATEGORY_ICONS = { streak: 'flame', learning: 'book', progress: 'map', special: 'sparkles' }
 const CATEGORY_LABELS = { streak: 'Streak', learning: 'Learning', progress: 'Progress', special: 'Special' }
 
 // ─── Metallic material definitions per rarity ────────────────────────────────
@@ -269,15 +270,15 @@ const MetallicBadge = memo(function MetallicBadge({ badge, earned, delay = 0, se
                   overflow: 'hidden',
                 }}>
                   {earned ? (
-                    <span style={{
-                      fontSize: 34, lineHeight: 1,
+                    <div style={{
                       textShadow: `0 -1px 2px rgba(0,0,0,0.6), 0 1px 2px ${material.specular}, 0 0 12px ${material.glow}`,
                       filter: 'contrast(1.15) brightness(0.95)',
                       position: 'relative', zIndex: 2,
                       userSelect: 'none',
+                      color: '#f8fbff',
                     }}>
-                      {badge.icon}
-                    </span>
+                      <IconGlyph name={badge.icon} size={34} strokeWidth={2.3}/>
+                    </div>
                   ) : (
                     <Lock
                       size={26}
@@ -356,11 +357,12 @@ const MetallicBadge = memo(function MetallicBadge({ badge, earned, delay = 0, se
                     position: 'relative', zIndex: 1,
                   }}/>
                   <div style={{
-                    fontSize: 16, lineHeight: 1,
+                    lineHeight: 1,
                     filter: earned ? 'none' : 'grayscale(1) brightness(0.15)',
                     position: 'relative', zIndex: 1,
+                    color: earned ? rc : 'rgba(255,255,255,0.18)',
                   }}>
-                    {CATEGORY_ICONS[badge.category]}
+                    <IconGlyph name={CATEGORY_ICONS[badge.category]} size={16} strokeWidth={2.2}/>
                   </div>
                 </div>
 
@@ -398,7 +400,7 @@ const MetallicBadge = memo(function MetallicBadge({ badge, earned, delay = 0, se
             color: earned ? '#9EA5B2' : 'rgba(255,255,255,0.30)',
             marginBottom: 10,
           }}>
-            <span>{CATEGORY_ICONS[badge.category]}</span>
+            <IconGlyph name={CATEGORY_ICONS[badge.category]} size={12} strokeWidth={2.4}/>
             <span>{CATEGORY_LABELS[badge.category]}</span>
           </div>
           <div style={{
@@ -493,7 +495,7 @@ export default function BadgeShowcase({ earnedIds, maxWidth = 680, outerPadding 
             grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
           }
           .badge-showcase-grid {
-            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+            grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
           }
         }
       `}</style>
@@ -663,7 +665,16 @@ export default function BadgeShowcase({ earnedIds, maxWidth = 680, outerPadding 
                       flexShrink: 0,
                       transition: 'all 0.18s ease',
                     }}>
-                      {cat === 'all' ? 'Vault' : `${CATEGORY_ICONS[cat]} ${CATEGORY_LABELS[cat]}`}
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+                        {cat === 'all'
+                          ? 'Vault'
+                          : (
+                            <>
+                              <IconGlyph name={CATEGORY_ICONS[cat]} size={12} strokeWidth={2.4}/>
+                              {CATEGORY_LABELS[cat]}
+                            </>
+                          )}
+                      </span>
                       <span style={{ marginLeft: 6, fontSize: 10, color: active ? '#0ef5c2' : '#667085' }}>
                         {catCount}/{catTotal}
                       </span>

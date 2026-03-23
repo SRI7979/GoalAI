@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
 import { getSkillConfig, VERIFICATION_UI, getReferenceMaterialLabel } from '@/lib/skillTypes'
+import IconGlyph from '@/components/IconGlyph'
 import { buildProjectProofSummary, getAuthenticityLevel, getProjectCriteriaCards } from '@/lib/projectProof'
 import {
   STEP_VERIFICATION_STATES,
@@ -38,17 +39,17 @@ const CHECKPOINT_BONUS = 10
 const AUTH_BONUS_THRESHOLD = 85
 
 const AI_MODES = [
-  { id: 'explain', icon: '📖', label: 'Explain', color: T.blue },
-  { id: 'hint', icon: '💡', label: 'Hint', color: T.amber },
-  { id: 'debug', icon: '🐛', label: 'Debug', color: T.red },
-  { id: 'challenge', icon: '⚡', label: 'Challenge', color: T.purple },
+  { id: 'explain', icon: 'book', label: 'Explain', color: T.blue },
+  { id: 'hint', icon: 'lightbulb', label: 'Hint', color: T.amber },
+  { id: 'debug', icon: 'wrench', label: 'Debug', color: T.red },
+  { id: 'challenge', icon: 'bolt', label: 'Challenge', color: T.purple },
 ]
 
 const AUTHENTICITY_LABELS = {
-  verified: { label: 'Verified', color: T.green, icon: '✓' },
-  likely_genuine: { label: 'Likely Genuine', color: T.blue, icon: '◉' },
-  suspicious: { label: 'Suspicious', color: T.amber, icon: '⚠' },
-  low_effort: { label: 'Low Effort', color: T.red, icon: '✗' },
+  verified: { label: 'Verified', color: T.green, icon: 'shield_check' },
+  likely_genuine: { label: 'Likely Genuine', color: T.blue, icon: 'badge' },
+  suspicious: { label: 'Suspicious', color: T.amber, icon: 'alert' },
+  low_effort: { label: 'Low Effort', color: T.red, icon: 'shield' },
 }
 
 const STEP_STATUS_META = {
@@ -94,15 +95,18 @@ function AuthenticityBadge({ score, compact }) {
   if (compact) {
     return (
       <span style={{ padding: '3px 8px', borderRadius: 9999, fontSize: 9, fontWeight: 800, background: `${info.color}12`, border: `1px solid ${info.color}30`, color: info.color }}>
-        {info.icon} {score}%
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <IconGlyph name={info.icon} size={11} strokeWidth={2.4} color={info.color}/>
+          {score}%
+        </span>
       </span>
     )
   }
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', borderRadius: 12, background: `${info.color}08`, border: `1px solid ${info.color}20` }}>
-      <div style={{ width: 32, height: 32, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: `${info.color}15`, fontSize: 14, fontWeight: 900, color: info.color }}>
-        {info.icon}
+      <div style={{ width: 32, height: 32, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: `${info.color}15`, fontWeight: 900, color: info.color }}>
+        <IconGlyph name={info.icon} size={16} strokeWidth={2.3} color={info.color}/>
       </div>
       <div>
         <div style={{ fontSize: 12, fontWeight: 800, color: info.color }}>{info.label}</div>
@@ -258,8 +262,8 @@ function useDifficultyAdapter() {
     const time = stepTimes[stepId] || 0
     const asks = aiAsksPerStep[stepId] || 0
     const usedHint = hintsUsed.has(stepId)
-    if (time > 600 || asks >= 3 || usedHint) return { text: "Take your time — you've got this! Try the AI assistant for a nudge.", color: T.amber, icon: '🤗' }
-    if (time < 60 && asks === 0 && !usedHint) return { text: "You're flying through this! Ready for a bonus challenge?", color: T.purple, icon: '⚡' }
+    if (time > 600 || asks >= 3 || usedHint) return { text: "Take your time — you've got this. Try the AI assistant for a nudge.", color: T.amber, icon: 'shield' }
+    if (time < 60 && asks === 0 && !usedHint) return { text: "You're moving quickly. Ready for a bonus challenge?", color: T.purple, icon: 'bolt' }
     return null
   }, [stepTimes, aiAsksPerStep, hintsUsed])
 
@@ -871,7 +875,9 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
         <style>{STYLES}</style>
         <div style={{ position: 'relative', width: 56, height: 56 }}>
           <div style={{ width: 56, height: 56, borderRadius: '50%', border: `3px solid ${T.tealDim}`, borderTopColor: T.teal, animation: 'spin 0.7s linear infinite' }}/>
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>🚀</div>
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.teal }}>
+            <IconGlyph name="rocket" size={20} strokeWidth={2.3}/>
+          </div>
         </div>
         <div style={{ color: T.text, fontSize: 15, fontWeight: 700 }}>Building your project...</div>
         <div style={{ color: T.textMuted, fontSize: 12, animation: 'pulse 2s ease infinite' }}>AI is crafting a personalized challenge</div>
@@ -885,7 +891,13 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
   if (error) {
     return (
       <div className="overlay-slide-up" style={{ ...OVERLAY, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, padding: 40 }}>
-        <div style={{ fontSize: 40 }}>😵</div>
+        <div style={{
+          width: 64, height: 64, borderRadius: 20,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: 'rgba(255,69,58,0.10)', border: '1px solid rgba(255,69,58,0.22)', color: T.red,
+        }}>
+          <IconGlyph name="alert" size={28} strokeWidth={2.3}/>
+        </div>
         <div style={{ color: T.text, fontSize: 16, fontWeight: 700 }}>Something went wrong</div>
         <div style={{ color: T.textMuted, fontSize: 13 }}>{error}</div>
         <button onClick={onClose} style={{ padding: '12px 24px', borderRadius: 14, border: 'none', background: T.teal, color: '#000', fontWeight: 700, fontSize: 14, cursor: 'pointer', fontFamily: font }}>Go Back</button>
@@ -900,7 +912,14 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
     return (
       <div className="overlay-slide-up" style={{ ...OVERLAY, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 20, padding: 40 }}>
         <style>{STYLES}</style>
-        <div style={{ fontSize: 48, marginBottom: 8 }}>🚀</div>
+        <div style={{
+          width: 72, height: 72, borderRadius: 22,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: 'rgba(14,245,194,0.08)', border: `1px solid ${T.tealBorder}`, color: T.teal,
+          marginBottom: 8,
+        }}>
+          <IconGlyph name="rocket" size={32} strokeWidth={2.2}/>
+        </div>
         <div style={{ fontSize: 22, fontWeight: 900, color: T.text, textAlign: 'center', letterSpacing: '-0.5px' }}>Choose Your Mode</div>
         <div style={{ fontSize: 13, color: T.textMuted, textAlign: 'center', maxWidth: 400, lineHeight: 1.6 }}>
           How much guidance do you want?
@@ -912,7 +931,9 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
             width: 170, padding: '24px 16px', borderRadius: 20, border: `1px solid ${T.tealBorder}`,
             background: T.tealDim, cursor: 'pointer', fontFamily: font, textAlign: 'center',
           }}>
-            <div style={{ fontSize: 32, marginBottom: 8 }}>📖</div>
+            <div style={{ marginBottom: 8, color: T.teal, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <IconGlyph name="book" size={28} strokeWidth={2.3}/>
+            </div>
             <div style={{ fontSize: 14, fontWeight: 800, color: T.text, marginBottom: 4 }}>Guided</div>
             <div style={{ fontSize: 11, color: T.textMuted, lineHeight: 1.5 }}>Step-by-step instructions</div>
             <div style={{ marginTop: 10, padding: '4px 10px', borderRadius: 9999, background: T.tealDim, border: `1px solid ${T.tealBorder}`, fontSize: 10, fontWeight: 800, color: T.teal, display: 'inline-block' }}>
@@ -925,7 +946,9 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
             width: 170, padding: '24px 16px', borderRadius: 20, border: '1px solid rgba(168,85,247,0.22)',
             background: 'rgba(168,85,247,0.06)', cursor: 'pointer', fontFamily: font, textAlign: 'center',
           }}>
-            <div style={{ fontSize: 32, marginBottom: 8 }}>⚡</div>
+            <div style={{ marginBottom: 8, color: T.purple, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <IconGlyph name="bolt" size={28} strokeWidth={2.3}/>
+            </div>
             <div style={{ fontSize: 14, fontWeight: 800, color: T.text, marginBottom: 4 }}>Build</div>
             <div style={{ fontSize: 11, color: T.textMuted, lineHeight: 1.5 }}>Minimal guidance, max credit</div>
             <div style={{ marginTop: 10, padding: '4px 10px', borderRadius: 9999, background: 'rgba(168,85,247,0.06)', border: '1px solid rgba(168,85,247,0.22)', fontSize: 10, fontWeight: 800, color: T.purple, display: 'inline-block' }}>
@@ -952,7 +975,9 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
           <div key={i} style={{ position: 'absolute', left: `${10 + Math.random() * 80}%`, top: `${30 + Math.random() * 40}%`, width: 8, height: 8, borderRadius: i % 3 === 0 ? '50%' : 2, background: [T.teal, T.gold, T.purple, T.pink, T.blue][i % 5], animation: `confettiFloat ${1.5 + Math.random() * 1.5}s ease ${Math.random() * 0.5}s forwards` }}/>
         ))}
         <div style={{ animation: 'celebrationPop 0.6s cubic-bezier(0.34,1.56,0.64,1) forwards' }}>
-          <div style={{ fontSize: 72, textAlign: 'center', marginBottom: 16 }}>🏆</div>
+          <div style={{ display:'flex', justifyContent:'center', marginBottom: 16, color: T.gold }}>
+            <IconGlyph name="trophy" size={56} strokeWidth={2.1}/>
+          </div>
           <div style={{ fontSize: 28, fontWeight: 900, color: T.text, textAlign: 'center', marginBottom: 8 }}>Project Verified!</div>
           <div style={{ fontSize: 14, color: T.textMuted, textAlign: 'center', marginBottom: 24 }}>{project.title}</div>
         </div>
@@ -976,9 +1001,9 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
 
         {bonusXp > 0 && (
           <div style={{ marginTop: 14, display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center', animation: 'fadeUp 0.5s ease 0.5s both' }}>
-            {adapter.noHintsUsed && <span style={{ padding: '6px 12px', borderRadius: 10, background: 'rgba(255,215,0,0.06)', border: '1px solid rgba(255,215,0,0.15)', fontSize: 11, color: T.gold, fontWeight: 700 }}>🧠 No Hints +{NO_HINT_BONUS}</span>}
-            {Object.keys(adapter.aiAsksPerStep).length === 0 && <span style={{ padding: '6px 12px', borderRadius: 10, background: 'rgba(255,215,0,0.06)', border: '1px solid rgba(255,215,0,0.15)', fontSize: 11, color: T.gold, fontWeight: 700 }}>💪 Solo +{PERFECT_BONUS}</span>}
-            {projectMode === 'build' && <span style={{ padding: '6px 12px', borderRadius: 10, background: 'rgba(168,85,247,0.06)', border: '1px solid rgba(168,85,247,0.15)', fontSize: 11, color: T.purple, fontWeight: 700 }}>⚡ Build Mode +{BUILD_MODE_BONUS}</span>}
+            {adapter.noHintsUsed && <span style={{ padding: '6px 12px', borderRadius: 10, background: 'rgba(255,215,0,0.06)', border: '1px solid rgba(255,215,0,0.15)', fontSize: 11, color: T.gold, fontWeight: 700, display:'inline-flex', alignItems:'center', gap:6 }}><IconGlyph name="brain" size={12} strokeWidth={2.3} color={T.gold}/>No Hints +{NO_HINT_BONUS}</span>}
+            {Object.keys(adapter.aiAsksPerStep).length === 0 && <span style={{ padding: '6px 12px', borderRadius: 10, background: 'rgba(255,215,0,0.06)', border: '1px solid rgba(255,215,0,0.15)', fontSize: 11, color: T.gold, fontWeight: 700, display:'inline-flex', alignItems:'center', gap:6 }}><IconGlyph name="shield_check" size={12} strokeWidth={2.3} color={T.gold}/>Solo +{PERFECT_BONUS}</span>}
+            {projectMode === 'build' && <span style={{ padding: '6px 12px', borderRadius: 10, background: 'rgba(168,85,247,0.06)', border: '1px solid rgba(168,85,247,0.15)', fontSize: 11, color: T.purple, fontWeight: 700, display:'inline-flex', alignItems:'center', gap:6 }}><IconGlyph name="bolt" size={12} strokeWidth={2.3} color={T.purple}/>Build Mode +{BUILD_MODE_BONUS}</span>}
           </div>
         )}
       </div>
@@ -1010,11 +1035,14 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
             <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
               {/* Skill type badge (non-coding) */}
               {skillType !== 'coding' && (
-                <span style={{ padding: '4px 10px', borderRadius: 9999, fontSize: 10, fontWeight: 800, background: `${skillConfig.color}12`, border: `1px solid ${skillConfig.color}30`, color: skillConfig.color }}>{skillConfig.icon} {skillConfig.label}</span>
+                <span style={{ padding: '4px 10px', borderRadius: 9999, fontSize: 10, fontWeight: 800, background: `${skillConfig.color}12`, border: `1px solid ${skillConfig.color}30`, color: skillConfig.color, display:'inline-flex', alignItems:'center', gap:6 }}>
+                  <IconGlyph name={skillConfig.icon} size={12} strokeWidth={2.3} color={skillConfig.color}/>
+                  {skillConfig.label}
+                </span>
               )}
               {/* Mode badge */}
               {projectMode === 'build' && (
-                <span style={{ padding: '4px 10px', borderRadius: 9999, fontSize: 10, fontWeight: 800, background: 'rgba(168,85,247,0.08)', border: '1px solid rgba(168,85,247,0.22)', color: T.purple }}>⚡ BUILD</span>
+                <span style={{ padding: '4px 10px', borderRadius: 9999, fontSize: 10, fontWeight: 800, background: 'rgba(168,85,247,0.08)', border: '1px solid rgba(168,85,247,0.22)', color: T.purple, display:'inline-flex', alignItems:'center', gap:6 }}><IconGlyph name="bolt" size={12} strokeWidth={2.3} color={T.purple}/>BUILD</span>
               )}
               <span style={{ padding: '4px 10px', borderRadius: 9999, fontSize: 10, fontWeight: 800, background: `${getStepStateMeta(verificationStatus === 'verified' ? STEP_VERIFICATION_STATES.PASSED : verificationStatus === 'in_progress' ? STEP_VERIFICATION_STATES.RUNNING : STEP_VERIFICATION_STATES.NOT_STARTED).bg}`, border: `1px solid ${getStepStateMeta(verificationStatus === 'verified' ? STEP_VERIFICATION_STATES.PASSED : verificationStatus === 'in_progress' ? STEP_VERIFICATION_STATES.RUNNING : STEP_VERIFICATION_STATES.NOT_STARTED).border}`, color: getStepStateMeta(verificationStatus === 'verified' ? STEP_VERIFICATION_STATES.PASSED : verificationStatus === 'in_progress' ? STEP_VERIFICATION_STATES.RUNNING : STEP_VERIFICATION_STATES.NOT_STARTED).color }}>
                 {verificationStatus === 'verified' ? '✓ VERIFIED' : verificationStatus === 'in_progress' ? 'RUNNING' : 'NOT STARTED'}
@@ -1038,8 +1066,9 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
             <span style={{ fontSize: 11, fontWeight: 700, color: isFullyComplete ? T.gold : T.textMuted, whiteSpace: 'nowrap' }}>{completedSteps.size}/{steps.length}</span>
             {/* Momentum indicator */}
             {!readOnly && momentum > 50 && (
-              <span style={{ fontSize: 9, fontWeight: 800, color: momentum > 75 ? T.teal : T.amber, padding: '2px 6px', borderRadius: 9999, background: momentum > 75 ? T.tealDim : 'rgba(245,158,11,0.08)' }}>
-                {momentum > 75 ? '🔥' : '⚡'}
+              <span style={{ fontSize: 9, fontWeight: 800, color: momentum > 75 ? T.teal : T.amber, padding: '2px 6px', borderRadius: 9999, background: momentum > 75 ? T.tealDim : 'rgba(245,158,11,0.08)', display:'inline-flex', alignItems:'center', gap:4 }}>
+                <IconGlyph name={momentum > 75 ? 'flame' : 'bolt'} size={10} strokeWidth={2.4} color={momentum > 75 ? T.teal : T.amber}/>
+                Live
               </span>
             )}
           </div>
@@ -1058,11 +1087,12 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
         {/* Time + Share + Authenticity */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 24 }}>
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, padding: '11px 16px', borderRadius: 14, background: T.card, border: `1px solid ${T.border}`, fontSize: 13, color: T.textMuted }}>
-            <span>⏱️</span><span style={{ fontWeight: 700 }}>{project.estimated_minutes} min</span>
+            <IconGlyph name="timer" size={14} strokeWidth={2.3} color={T.textMuted}/>
+            <span style={{ fontWeight: 700 }}>{project.estimated_minutes} min</span>
           </div>
           {authenticityScore !== null && <AuthenticityBadge score={authenticityScore} compact />}
           {verificationStatus === 'verified' && (
-            <button onClick={shareProject} style={{ padding: '11px 16px', borderRadius: 14, border: `1px solid ${T.tealBorder}`, background: T.tealDim, color: T.teal, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: font, whiteSpace: 'nowrap' }}>🔗 Share</button>
+            <button onClick={shareProject} style={{ padding: '11px 16px', borderRadius: 14, border: `1px solid ${T.tealBorder}`, background: T.tealDim, color: T.teal, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: font, whiteSpace: 'nowrap', display:'inline-flex', alignItems:'center', gap:8 }}><IconGlyph name="share" size={14} strokeWidth={2.3} color={T.teal}/>Share</button>
           )}
         </div>
 
@@ -1166,7 +1196,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
                       border: isActive ? `2px solid ${T.tealBorder}` : 'none',
                       animation: isDone ? 'checkPop 0.3s cubic-bezier(0.34,1.56,0.64,1)' : 'none',
                     }}>
-                      {isDone ? '✓' : isLocked ? '🔒' : i + 1}
+                      {isDone ? '✓' : isLocked ? <IconGlyph name="lock" size={14} strokeWidth={2.3} color={T.textMuted}/> : i + 1}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 13, fontWeight: 700, color: isDone ? 'rgba(255,255,255,0.6)' : T.text, textDecoration: isDone ? 'line-through' : 'none' }}>{step.title}</div>
@@ -1190,13 +1220,15 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
                     <div style={{ padding: '0 16px 16px', animation: 'slideIn 0.2s ease' }}>
                       {isThisLastStep && !readOnly && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 10, marginBottom: 12, marginLeft: 44, background: 'rgba(255,215,0,0.06)', border: '1px solid rgba(255,215,0,0.15)', fontSize: 11, color: T.gold, fontWeight: 700 }}>
-                          🏁 Final verified step. One more proof and this project is yours.
+                          <IconGlyph name="goal" size={14} strokeWidth={2.4} color={T.gold}/>
+                          Final verified step. One more proof and this project is yours.
                         </div>
                       )}
 
                       {adaptiveMsg && !isThisLastStep && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 10, marginBottom: 12, marginLeft: 44, background: `${adaptiveMsg.color}10`, border: `1px solid ${adaptiveMsg.color}30`, fontSize: 11, color: adaptiveMsg.color, fontWeight: 600 }}>
-                          <span>{adaptiveMsg.icon}</span><span>{adaptiveMsg.text}</span>
+                          <IconGlyph name={adaptiveMsg.icon} size={14} strokeWidth={2.4} color={adaptiveMsg.color}/>
+                          <span>{adaptiveMsg.text}</span>
                         </div>
                       )}
 
@@ -1247,7 +1279,10 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
                             }}
                             style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(245,158,11,0.22)', background: 'rgba(245,158,11,0.06)', color: T.amber, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: font }}
                           >
-                            {showHint ? '🙈 Hide' : '💡 Hint'}
+                            <span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
+                              <IconGlyph name={showHint ? 'shield' : 'lightbulb'} size={12} strokeWidth={2.3} color={T.amber}/>
+                              {showHint ? 'Hide' : 'Hint'}
+                            </span>
                           </button>
                         )}
                         {!readOnly && (
@@ -1259,7 +1294,10 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
                             }}
                             style={{ padding: '6px 12px', borderRadius: 10, border: '1px solid rgba(59,130,246,0.22)', background: isAiOpen ? 'rgba(59,130,246,0.12)' : 'rgba(59,130,246,0.06)', color: T.blue, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: font }}
                           >
-                            🤖 Ask AI
+                            <span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
+                              <IconGlyph name="bot" size={12} strokeWidth={2.3} color={T.blue}/>
+                              Ask AI
+                            </span>
                           </button>
                         )}
                         {isLocked && (
@@ -1312,14 +1350,14 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
                                   disabled={validationLoading[step.id] || !canValidateArtifact || isLocked}
                                   style={{ padding: '9px 14px', borderRadius: 10, border: 'none', background: T.teal, color: '#000', fontSize: 12, fontWeight: 800, cursor: 'pointer', fontFamily: font, opacity: validationLoading[step.id] || !canValidateArtifact || isLocked ? 0.5 : 1 }}
                                 >
-                                  {validationLoading[step.id] ? 'Checking...' : '✓ Validate Output'}
+                                  {validationLoading[step.id] ? 'Checking...' : 'Validate Output'}
                                 </button>
                                 <button
                                   onClick={(e) => { e.stopPropagation(); reviewCodeStep(step.id) }}
                                   disabled={reviewLoading[step.id] || !verification.validation_result?.passed || isLocked}
                                   style={{ padding: '9px 14px', borderRadius: 10, border: '1px solid rgba(255,215,0,0.22)', background: 'rgba(255,215,0,0.08)', color: T.gold, fontSize: 12, fontWeight: 800, cursor: 'pointer', fontFamily: font, opacity: reviewLoading[step.id] || !verification.validation_result?.passed || isLocked ? 0.5 : 1 }}
                                 >
-                                  {reviewLoading[step.id] ? 'Reviewing...' : '✨ AI Review'}
+                                  {reviewLoading[step.id] ? 'Reviewing...' : 'AI Review'}
                                 </button>
                               </div>
                             )}
@@ -1352,7 +1390,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
                               </div>
                               {verification.validation_result.checks?.map((check, checkIndex) => (
                                 <div key={check.id || checkIndex} style={{ display: 'flex', gap: 6, alignItems: 'flex-start', fontSize: 11, color: '#b0b0b8', marginBottom: 4 }}>
-                                  <span style={{ color: check.passed ? T.green : T.red, flexShrink: 0 }}>{check.passed ? '✓' : '✗'}</span>
+                                  <span style={{ color: check.passed ? T.green : T.red, flexShrink: 0 }}>{check.passed ? 'Pass' : 'Fail'}</span>
                                   <span>{check.message}</span>
                                 </div>
                               ))}
@@ -1371,7 +1409,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
                               <div style={{ fontSize: 12, lineHeight: 1.6, color: '#b0b0b8' }}>{verification.ai_review.feedback}</div>
                               {verification.ai_review.strengths?.length > 0 && (
                                 <div style={{ marginTop: 8 }}>
-                                  {verification.ai_review.strengths.map((item, itemIndex) => <div key={itemIndex} style={{ fontSize: 11, color: T.green, marginBottom: 2 }}>✓ {item}</div>)}
+                                  {verification.ai_review.strengths.map((item, itemIndex) => <div key={itemIndex} style={{ fontSize: 11, color: T.green, marginBottom: 2 }}>Pass • {item}</div>)}
                                 </div>
                               )}
                               {verification.ai_review.risks?.length > 0 && (
@@ -1387,7 +1425,10 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
                       {(requiresResponse || requiresPractice) && (
                         <div style={{ marginLeft: 44, marginBottom: 12 }}>
                           <div style={{ padding: '12px 14px', borderRadius: 14, background: `${skillConfig.color}08`, border: `1px solid ${skillConfig.color}20` }}>
-                            <div style={{ fontSize: 11, fontWeight: 800, color: skillConfig.color, marginBottom: 8 }}>{verifyUI.icon} Verified Submission</div>
+                            <div style={{ fontSize: 11, fontWeight: 800, color: skillConfig.color, marginBottom: 8, display:'flex', alignItems:'center', gap:6 }}>
+                              <IconGlyph name={verifyUI.icon} size={12} strokeWidth={2.3} color={skillConfig.color}/>
+                              Verified Submission
+                            </div>
                             {step.response_prompt && (
                               <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(255,255,255,0.04)', border: `1px solid ${T.border}`, fontSize: 12, lineHeight: 1.6, color: '#b0b0b8', marginBottom: 10 }}>
                                 {step.response_prompt}
@@ -1453,7 +1494,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
                               <div style={{ fontSize: 12, lineHeight: 1.6, color: '#b0b0b8', marginBottom: 6 }}>{verification.validation_result.feedback}</div>
                               {verification.validation_result.checks?.map((item, itemIndex) => (
                                 <div key={item.label || itemIndex} style={{ display: 'flex', gap: 6, fontSize: 11, color: '#b0b0b8', marginBottom: 4 }}>
-                                  <span style={{ color: item.passed ? T.green : T.red }}>{item.passed ? '✓' : '✗'}</span>
+                                  <span style={{ color: item.passed ? T.green : T.red }}>{item.passed ? 'Pass' : 'Fail'}</span>
                                   <span>{item.message}</span>
                                 </div>
                               ))}
@@ -1482,7 +1523,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
                               disabled={defenseLoading[step.id] || !String(defenseInputs[step.id] || '').trim() || !verification.validation_result?.passed || (requiresCode && !verification.ai_review?.passed) || isLocked}
                               style={{ padding: '9px 14px', borderRadius: 10, border: 'none', background: T.blue, color: '#fff', fontSize: 12, fontWeight: 800, cursor: 'pointer', fontFamily: font, opacity: defenseLoading[step.id] || !String(defenseInputs[step.id] || '').trim() || !verification.validation_result?.passed || (requiresCode && !verification.ai_review?.passed) || isLocked ? 0.5 : 1 }}
                             >
-                              {defenseLoading[step.id] ? 'Evaluating defense...' : '🛡 Verify Understanding'}
+                              {defenseLoading[step.id] ? 'Evaluating defense...' : 'Verify Understanding'}
                             </button>
                           </div>
                         )}
@@ -1495,7 +1536,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
                             <div style={{ fontSize: 12, lineHeight: 1.6, color: '#b0b0b8' }}>{verification.defense_result.feedback}</div>
                             {verification.defense_result.strengths?.length > 0 && (
                               <div style={{ marginTop: 6 }}>
-                                {verification.defense_result.strengths.map((item, itemIndex) => <div key={itemIndex} style={{ fontSize: 11, color: T.green, marginBottom: 2 }}>✓ {item}</div>)}
+                                {verification.defense_result.strengths.map((item, itemIndex) => <div key={itemIndex} style={{ fontSize: 11, color: T.green, marginBottom: 2 }}>Pass • {item}</div>)}
                               </div>
                             )}
                             {verification.defense_result.gaps?.length > 0 && (
@@ -1519,7 +1560,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
                           <div style={{ maxHeight: 260, overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
                             {stepMessages.map((msg, messageIndex) => (
                               <div key={messageIndex} style={{ padding: '10px 14px', borderRadius: 12, background: msg.role === 'user' ? 'rgba(255,255,255,0.06)' : 'rgba(59,130,246,0.06)', border: msg.role === 'user' ? `1px solid ${T.border}` : '1px solid rgba(59,130,246,0.12)', fontSize: 12, lineHeight: 1.7, color: '#c0c0c8', maxWidth: '95%', alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
-                                {msg.role === 'assistant' && <div style={{ fontSize: 10, fontWeight: 800, color: T.blue, marginBottom: 4 }}>🤖 PathAI</div>}
+                                {msg.role === 'assistant' && <div style={{ fontSize: 10, fontWeight: 800, color: T.blue, marginBottom: 4, display:'flex', alignItems:'center', gap:6 }}><IconGlyph name="bot" size={12} strokeWidth={2.3} color={T.blue}/>PathAI</div>}
                                 <div>{renderMarkdown(msg.content)}</div>
                               </div>
                             ))}
@@ -1536,11 +1577,11 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
                         <div style={{ marginLeft: 44, marginTop: 8 }}>
                           {!cp?.show ? (
                             <button onClick={(e) => { e.stopPropagation(); generateCheckpoint(step.id) }} disabled={checkpointLoading[step.id]} style={{ padding: '8px 16px', borderRadius: 10, border: '1px solid rgba(52,211,153,0.22)', background: 'rgba(52,211,153,0.06)', color: T.green, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: font }}>
-                              {checkpointLoading[step.id] ? 'Generating...' : '🧠 Understanding Check'}
+                              {checkpointLoading[step.id] ? 'Generating...' : 'Understanding Check'}
                             </button>
                           ) : (
                             <div style={{ padding: '14px', borderRadius: 14, background: 'rgba(52,211,153,0.04)', border: '1px solid rgba(52,211,153,0.15)', animation: 'slideIn 0.2s ease' }}>
-                              <div style={{ fontSize: 12, fontWeight: 800, color: T.green, marginBottom: 10 }}>🧠 Quick Understanding Check</div>
+                              <div style={{ fontSize: 12, fontWeight: 800, color: T.green, marginBottom: 10, display:'flex', alignItems:'center', gap:6 }}><IconGlyph name="brain" size={14} strokeWidth={2.3} color={T.green}/>Quick Understanding Check</div>
                               {cp.questions?.map((question) => {
                                 const result = cp.results?.[question.id]
                                 return (
@@ -1565,7 +1606,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
                                       </div>
                                     ) : (
                                       <div style={{ padding: '8px 12px', borderRadius: 10, background: result.passed ? 'rgba(52,211,153,0.08)' : 'rgba(245,158,11,0.08)', border: `1px solid ${result.passed ? 'rgba(52,211,153,0.2)' : 'rgba(245,158,11,0.2)'}`, fontSize: 11, lineHeight: 1.6, color: '#b0b0b8' }}>
-                                        <span style={{ fontWeight: 800, color: result.passed ? T.green : T.amber }}>{result.passed ? '✅ Correct!' : '💡 Not quite'}</span> {result.feedback}
+                                        <span style={{ fontWeight: 800, color: result.passed ? T.green : T.amber }}>{result.passed ? 'Correct' : 'Not quite'}</span> {result.feedback}
                                       </div>
                                     )}
                                   </div>
@@ -1596,7 +1637,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
             {showCode && (
               <div style={{ marginTop: 8, borderRadius: 14, overflow: 'hidden', border: `1px solid ${T.border}`, animation: 'slideIn 0.2s ease' }}>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '8px 12px', background: 'rgba(255,255,255,0.03)', borderBottom: `1px solid ${T.border}` }}>
-                  <button onClick={copyCode} style={{ padding: '4px 12px', borderRadius: 8, border: 'none', background: copied ? 'rgba(52,211,153,0.15)' : 'rgba(255,255,255,0.06)', color: copied ? T.green : T.textMuted, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: font }}>{copied ? '✓ Copied' : '📋 Copy'}</button>
+                  <button onClick={copyCode} style={{ padding: '4px 12px', borderRadius: 8, border: 'none', background: copied ? 'rgba(52,211,153,0.15)' : 'rgba(255,255,255,0.06)', color: copied ? T.green : T.textMuted, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: font, display:'inline-flex', alignItems:'center', gap:6 }}>{copied ? 'Copied' : <><IconGlyph name="clipboard_check" size={12} strokeWidth={2.3} color={T.textMuted}/>Copy</>}</button>
                 </div>
                 <pre style={{ padding: 16, margin: 0, overflowX: 'auto', background: 'rgba(0,0,0,0.3)', fontSize: 12, lineHeight: 1.6, color: '#c8d6e5', fontFamily: mono, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{project.starter_code}</pre>
               </div>
@@ -1607,7 +1648,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
         {/* ─── DELIVERABLES ──────────────────────────────────────── */}
         {deliverables.length > 0 && (
           <div style={{ marginBottom: 24 }}>
-            <div style={{ fontSize: 14, fontWeight: 800, color: T.text, marginBottom: 12 }}>📦 Deliverables</div>
+            <div style={{ fontSize: 14, fontWeight: 800, color: T.text, marginBottom: 12, display:'flex', alignItems:'center', gap:8 }}><IconGlyph name="artifact" size={14} strokeWidth={2.3} color={T.text}/>Deliverables</div>
             <div style={{ padding: '14px 16px', borderRadius: 14, background: T.card, border: `1px solid ${T.border}`, display: 'flex', flexDirection: 'column', gap: 10 }}>
               {deliverables.map((d, i) => {
                 const done = completedDeliverables.has(i) || verificationStatus === 'verified'
@@ -1627,7 +1668,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
         {/* ─── COMPLETION ────────────────────────────────────────── */}
         {verificationStatus === 'verified' && !readOnly && (
           <div style={{ padding: '28px 24px', borderRadius: 20, textAlign: 'center', background: 'linear-gradient(165deg, rgba(14,245,194,0.08), rgba(255,215,0,0.04))', border: `1px solid ${T.tealBorder}`, marginBottom: 24, animation: 'fadeUp 0.3s ease' }}>
-            <div style={{ fontSize: 40, marginBottom: 8 }}>🎉</div>
+            <div style={{ display:'flex', justifyContent:'center', marginBottom: 8, color: T.teal }}><IconGlyph name="badge" size={32} strokeWidth={2.2} color={T.teal}/></div>
             <div style={{ fontSize: 20, fontWeight: 900, color: T.text, marginBottom: 4 }}>Project Verified!</div>
             <div style={{ fontSize: 13, color: T.textMuted, marginBottom: 6 }}>
               <span style={{ color: T.gold, fontWeight: 800 }}>+{totalXp} XP</span> and <span style={{ color: T.purple, fontWeight: 800 }}>+{project.gem_reward} Gems</span>
@@ -1638,15 +1679,15 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
 
             {bonusXp > 0 && (
               <div style={{ display: 'inline-flex', gap: 8, marginBottom: 16, padding: '6px 14px', borderRadius: 10, background: 'rgba(255,215,0,0.06)', border: '1px solid rgba(255,215,0,0.15)', flexWrap: 'wrap', justifyContent: 'center' }}>
-                {adapter.noHintsUsed && <span style={{ fontSize: 11, color: T.gold, fontWeight: 700 }}>🧠 +{NO_HINT_BONUS}</span>}
-                {Object.keys(adapter.aiAsksPerStep).length === 0 && <span style={{ fontSize: 11, color: T.gold, fontWeight: 700 }}>💪 +{PERFECT_BONUS}</span>}
-                {projectMode === 'build' && <span style={{ fontSize: 11, color: T.purple, fontWeight: 700 }}>⚡ +{BUILD_MODE_BONUS}</span>}
+                {adapter.noHintsUsed && <span style={{ fontSize: 11, color: T.gold, fontWeight: 700, display:'inline-flex', alignItems:'center', gap:4 }}><IconGlyph name="brain" size={11} strokeWidth={2.3} color={T.gold}/>+{NO_HINT_BONUS}</span>}
+                {Object.keys(adapter.aiAsksPerStep).length === 0 && <span style={{ fontSize: 11, color: T.gold, fontWeight: 700, display:'inline-flex', alignItems:'center', gap:4 }}><IconGlyph name="shield_check" size={11} strokeWidth={2.3} color={T.gold}/>+{PERFECT_BONUS}</span>}
+                {projectMode === 'build' && <span style={{ fontSize: 11, color: T.purple, fontWeight: 700, display:'inline-flex', alignItems:'center', gap:4 }}><IconGlyph name="bolt" size={11} strokeWidth={2.3} color={T.purple}/>+{BUILD_MODE_BONUS}</span>}
               </div>
             )}
 
             <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
-              {!review && <button onClick={requestReview} disabled={reviewing} style={{ padding: '14px 24px', borderRadius: 14, border: 'none', background: reviewing ? 'rgba(255,215,0,0.15)' : 'linear-gradient(135deg, #FFD700, #FFA500)', color: reviewing ? T.gold : '#000', fontSize: 14, fontWeight: 800, cursor: reviewing ? 'default' : 'pointer', fontFamily: font, boxShadow: reviewing ? 'none' : '0 8px 24px rgba(255,215,0,0.2)' }}>{reviewing ? 'Reviewing...' : '✨ Get AI Review'}</button>}
-              <button onClick={shareProject} style={{ padding: '14px 24px', borderRadius: 14, border: `1px solid ${T.tealBorder}`, background: T.tealDim, color: T.teal, fontSize: 14, fontWeight: 800, cursor: 'pointer', fontFamily: font }}>🔗 Share</button>
+              {!review && <button onClick={requestReview} disabled={reviewing} style={{ padding: '14px 24px', borderRadius: 14, border: 'none', background: reviewing ? 'rgba(255,215,0,0.15)' : 'linear-gradient(135deg, #FFD700, #FFA500)', color: reviewing ? T.gold : '#000', fontSize: 14, fontWeight: 800, cursor: reviewing ? 'default' : 'pointer', fontFamily: font, boxShadow: reviewing ? 'none' : '0 8px 24px rgba(255,215,0,0.2)', display:'inline-flex', alignItems:'center', gap:8 }}>{reviewing ? 'Reviewing...' : <><IconGlyph name="badge" size={14} strokeWidth={2.3} color="#000"/>Get AI Review</>}</button>}
+              <button onClick={shareProject} style={{ padding: '14px 24px', borderRadius: 14, border: `1px solid ${T.tealBorder}`, background: T.tealDim, color: T.teal, fontSize: 14, fontWeight: 800, cursor: 'pointer', fontFamily: font, display:'inline-flex', alignItems:'center', gap:8 }}><IconGlyph name="share" size={14} strokeWidth={2.3} color={T.teal}/>Share</button>
               <button onClick={handleComplete} disabled={completing} style={{ padding: '14px 24px', borderRadius: 14, border: 'none', background: T.teal, color: '#000', fontSize: 14, fontWeight: 800, cursor: completing ? 'default' : 'pointer', fontFamily: font, boxShadow: '0 8px 24px rgba(14,245,194,0.2)', opacity: completing ? 0.6 : 1 }}>{completing ? 'Claiming...' : 'Claim verified rewards →'}</button>
             </div>
           </div>
@@ -1659,7 +1700,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
               <div style={{ height: 3, background: 'linear-gradient(90deg, #FFD700, #FFA500, #FFD700)' }}/>
               <div style={{ padding: 20 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-                  <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>✨ AI Review</div>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: T.text, display:'flex', alignItems:'center', gap:8 }}><IconGlyph name="badge" size={14} strokeWidth={2.3} color={T.text}/>AI Review</div>
                   {review.grade && <div style={{ padding: '4px 12px', borderRadius: 9999, background: 'rgba(255,215,0,0.08)', border: '1px solid rgba(255,215,0,0.22)', fontSize: 16, fontWeight: 900, color: T.gold }}>{review.grade}</div>}
                 </div>
 
@@ -1692,13 +1733,13 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
                 <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
                   {review.strengths?.length > 0 && (
                     <div style={{ flex: '1 1 200px' }}>
-                      <div style={{ fontSize: 12, fontWeight: 800, color: T.green, marginBottom: 8 }}>✅ Strengths</div>
+                      <div style={{ fontSize: 12, fontWeight: 800, color: T.green, marginBottom: 8, display:'flex', alignItems:'center', gap:6 }}><IconGlyph name="check_circle" size={13} strokeWidth={2.3} color={T.green}/>Strengths</div>
                       {review.strengths.map((s, i) => <div key={i} style={{ display: 'flex', gap: 8, fontSize: 12, lineHeight: 1.6, color: '#b0b0b8', marginBottom: 6 }}><span style={{ color: T.green }}>•</span><span>{s}</span></div>)}
                     </div>
                   )}
                   {review.improvements?.length > 0 && (
                     <div style={{ flex: '1 1 200px' }}>
-                      <div style={{ fontSize: 12, fontWeight: 800, color: T.amber, marginBottom: 8 }}>💡 Improvements</div>
+                      <div style={{ fontSize: 12, fontWeight: 800, color: T.amber, marginBottom: 8, display:'flex', alignItems:'center', gap:6 }}><IconGlyph name="lightbulb" size={13} strokeWidth={2.3} color={T.amber}/>Improvements</div>
                       {review.improvements.map((s, i) => <div key={i} style={{ display: 'flex', gap: 8, fontSize: 12, lineHeight: 1.6, color: '#b0b0b8', marginBottom: 6 }}><span style={{ color: T.amber }}>→</span><span>{s}</span></div>)}
                     </div>
                   )}
@@ -1707,7 +1748,10 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
                 {/* Senior Dev Tips */}
                 {review.senior_tips?.length > 0 && (
                   <div style={{ marginBottom: 14, padding: '12px 14px', borderRadius: 12, background: 'rgba(168,85,247,0.04)', border: '1px solid rgba(168,85,247,0.15)' }}>
-                    <div style={{ fontSize: 12, fontWeight: 800, color: T.purple, marginBottom: 8 }}>{review._expertLabel || '👨‍💻 Expert Tips'}</div>
+                    <div style={{ fontSize: 12, fontWeight: 800, color: T.purple, marginBottom: 8, display:'flex', alignItems:'center', gap:6 }}>
+                      <IconGlyph name="badge" size={13} strokeWidth={2.3} color={T.purple}/>
+                      {review._expertLabel || 'Expert Tips'}
+                    </div>
                     {review.senior_tips.map((tip, i) => <div key={i} style={{ display: 'flex', gap: 8, fontSize: 12, lineHeight: 1.6, color: '#b0b0b8', marginBottom: 6 }}><span style={{ color: T.purple }}>→</span><span>{tip}</span></div>)}
                   </div>
                 )}
@@ -1715,7 +1759,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
                 {/* Concept Mastery */}
                 {review.concept_ratings?.length > 0 && (
                   <div style={{ marginBottom: 14 }}>
-                    <div style={{ fontSize: 12, fontWeight: 800, color: T.text, marginBottom: 10 }}>📊 Concept Mastery</div>
+                    <div style={{ fontSize: 12, fontWeight: 800, color: T.text, marginBottom: 10, display:'flex', alignItems:'center', gap:6 }}><IconGlyph name="chart" size={13} strokeWidth={2.3} color={T.text}/>Concept Mastery</div>
                     {review.concept_ratings.map((cr, i) => (
                       <div key={i} style={{ marginBottom: 10 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
@@ -1734,7 +1778,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
                 {/* Next Challenge */}
                 {review.next_challenge && (
                   <div style={{ padding: '12px 16px', borderRadius: 12, background: 'rgba(168,85,247,0.04)', border: '1px solid rgba(168,85,247,0.15)', marginBottom: 14 }}>
-                    <div style={{ fontSize: 12, fontWeight: 800, color: T.purple, marginBottom: 4 }}>⚡ Next Level Challenge</div>
+                    <div style={{ fontSize: 12, fontWeight: 800, color: T.purple, marginBottom: 4, display:'flex', alignItems:'center', gap:6 }}><IconGlyph name="bolt" size={13} strokeWidth={2.3} color={T.purple}/>Next Level Challenge</div>
                     <div style={{ fontSize: 12, lineHeight: 1.6, color: '#b0b0b8' }}>{review.next_challenge}</div>
                   </div>
                 )}
@@ -1742,7 +1786,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
                 {/* Next steps */}
                 {review.next_steps && (
                   <div style={{ padding: '12px 16px', borderRadius: 12, background: T.tealDim, border: `1px solid ${T.tealBorder}` }}>
-                    <div style={{ fontSize: 12, fontWeight: 800, color: T.teal, marginBottom: 4 }}>🚀 Next Steps</div>
+                    <div style={{ fontSize: 12, fontWeight: 800, color: T.teal, marginBottom: 4, display:'flex', alignItems:'center', gap:6 }}><IconGlyph name="rocket" size={13} strokeWidth={2.3} color={T.teal}/>Next Steps</div>
                     <div style={{ fontSize: 12, lineHeight: 1.6, color: '#b0b0b8' }}>{review.next_steps}</div>
                   </div>
                 )}

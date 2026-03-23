@@ -6,11 +6,11 @@ export const THEME_STORAGE_KEYS = {
 export const PURCHASABLE_THEME_IDS = ['themeOcean', 'themeSunset', 'themeForest', 'themeMidnight', 'themeRose']
 
 const WORLD_META = [
-  { name: 'Foundation', emoji: '🌱', label: 'START HERE' },
-  { name: 'Explorer', emoji: '🔭', label: 'LEVEL UP' },
-  { name: 'Builder', emoji: '🔨', label: 'BUILD IT' },
-  { name: 'Practitioner', emoji: '⚡', label: 'DEEP WORK' },
-  { name: 'Master', emoji: '🔥', label: 'MASTERY' },
+  { name: 'Foundation', icon: 'sprout', label: 'START HERE' },
+  { name: 'Explorer', icon: 'compass', label: 'LEVEL UP' },
+  { name: 'Builder', icon: 'hammer', label: 'BUILD IT' },
+  { name: 'Practitioner', icon: 'bolt', label: 'DEEP WORK' },
+  { name: 'Master', icon: 'flame', label: 'MASTERY' },
 ]
 
 const PATH_WORLD_COLORS = {

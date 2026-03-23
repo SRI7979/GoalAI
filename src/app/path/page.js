@@ -8,6 +8,8 @@ import { supabase } from '@/lib/supabase'
 import { getLevelProgress } from '@/lib/xp'
 import { trackMapViewed } from '@/lib/analytics'
 import { getDashboardThemeVars, getPathWorlds, getStoredActiveTheme, getStoredOwnedThemes } from '@/lib/appThemes'
+import IconGlyph from '@/components/IconGlyph'
+import Skeleton from '@/components/Skeleton'
 import PathNode from '@/components/path/PathNode'
 import PathLine from '@/components/path/PathLine'
 
@@ -222,8 +224,10 @@ function WorldBanner({ world, worldIdx, doneCount, totalCount, starCount, height
         background:`radial-gradient(circle,${world.accent}28,transparent 70%)`,
         border:`2px solid ${world.accent}35`,
         display:'flex', alignItems:'center', justifyContent:'center',
-        fontSize:24,
-      }}>{world.emoji}</div>
+        color:world.accent,
+      }}>
+        <IconGlyph name={world.icon || 'sparkles'} size={24} strokeWidth={2.2}/>
+      </div>
 
       <div style={{ flex:1, marginLeft:12 }}>
         <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:5 }}>
@@ -235,7 +239,7 @@ function WorldBanner({ world, worldIdx, doneCount, totalCount, starCount, height
           <span style={{ fontSize:13, fontWeight:800, color: allDone ? world.accent : T.text }}>
             World {worldIdx + 1} · {world.name}
           </span>
-          {allDone && <span style={{ fontSize:14 }}>🏆</span>}
+          {allDone && <IconGlyph name="trophy" size={14} strokeWidth={2.3} color={world.accent}/>}
         </div>
         <div style={{ display:'flex', alignItems:'center', gap:8 }}>
           <div style={{ flex:1, height:5, background:'rgba(255,255,255,0.07)', borderRadius:9999, overflow:'hidden' }}>
@@ -265,7 +269,7 @@ function WorldBanner({ world, worldIdx, doneCount, totalCount, starCount, height
                 filter: index < starCount ? 'drop-shadow(0 0 8px rgba(255,215,0,0.38))' : 'none',
               }}
             >
-              ★
+              {index < starCount ? '★' : '★'}
             </span>
           ))}
         </div>
@@ -300,7 +304,7 @@ function BottomSheet({ node, world, onClose, onComplete, completing }) {
         border:`1px solid ${world.accent}30`,
         borderBottom:'none', borderRadius:'26px 26px 0 0',
         padding:'20px 20px 48px',
-        maxHeight:'82vh', overflowY:'auto',
+        maxHeight:'85vh', overflowY:'auto',
         fontFamily:T.font,
         animation:'slideUp 0.30s cubic-bezier(0.34,1.2,0.64,1)',
         boxShadow:`0 -8px 60px ${world.glow}`,
@@ -317,11 +321,15 @@ function BottomSheet({ node, world, onClose, onComplete, completing }) {
               color:T.ink, background: node.isBoss ? '#F59E0B' : node.isProject ? '#C084FC' : world.accent,
               padding:'3px 10px', borderRadius:9999,
             }}>
-              {node.isBoss ? '⚔ Boss Challenge' : node.isProject ? '🏗 Build Project' : `Day ${node.dayNumber} Mission`}
+              <span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
+                {node.isBoss && <IconGlyph name="challenge" size={12} strokeWidth={2.3} color={T.ink}/>}
+                {node.isProject && <IconGlyph name="hammer" size={12} strokeWidth={2.3} color={T.ink}/>}
+                {node.isBoss ? 'Boss Challenge' : node.isProject ? 'Build Project' : `Day ${node.dayNumber} Mission`}
+              </span>
             </span>
             {isDone && <span style={{ fontSize:9, fontWeight:900, letterSpacing:'1px',
               color:T.ink, background:'#22D3A5', padding:'3px 10px', borderRadius:9999 }}>
-              ✓ COMPLETE
+              Complete
             </span>}
           </div>
 
@@ -444,7 +452,14 @@ function ProjectModal({ onClose, enabled, onToggle }) {
         <div style={{ width:40, height:4, background:'rgba(192,132,252,0.40)', borderRadius:9999, margin:'0 auto 22px'}}/>
 
         <div style={{ textAlign:'center', marginBottom:22 }}>
-          <div style={{ fontSize:44, marginBottom:10 }}>🏗</div>
+          <div style={{
+            width:72,height:72,margin:'0 auto 10px',borderRadius:22,
+            display:'flex',alignItems:'center',justifyContent:'center',
+            background:'rgba(192,132,252,0.10)',color:'var(--theme-mastery)',
+            border:'1px solid rgba(192,132,252,0.25)',
+          }}>
+            <IconGlyph name="hammer" size={30} strokeWidth={2.3}/>
+          </div>
           <div style={{ fontSize:22, fontWeight:900, color:T.text, marginBottom:8 }}>Hands-on Projects</div>
           <div style={{ fontSize:14, color:T.textSec, lineHeight:1.55, maxWidth:320, margin:'0 auto' }}>
             Add build challenges every 5 days. Apply what you learn by creating real things.
@@ -455,16 +470,16 @@ function ProjectModal({ onClose, enabled, onToggle }) {
 
         {/* Benefits */}
         {[
-          { icon:'⚡', text:'+50 bonus XP per project completed' },
-          { icon:'🧠', text:'Solidify learning through application' },
-          { icon:'🏆', text:'Earn unique "Builder" achievement badges' },
+          { icon:'bolt', text:'+50 bonus XP per project completed' },
+          { icon:'brain', text:'Solidify learning through application' },
+          { icon:'trophy', text:'Earn unique "Builder" achievement badges' },
         ].map((row, i) => (
           <div key={i} style={{
             display:'flex', alignItems:'center', gap:12,
             background:'rgba(192,132,252,0.06)', border:'1px solid rgba(192,132,252,0.14)',
             borderRadius:14, padding:'11px 14px', marginBottom:8,
           }}>
-            <span style={{ fontSize:20 }}>{row.icon}</span>
+            <IconGlyph name={row.icon} size={18} strokeWidth={2.3} color="var(--theme-mastery)"/>
             <span style={{ fontSize:13, fontWeight:600, color:T.textSec }}>{row.text}</span>
           </div>
         ))}
@@ -485,7 +500,10 @@ function ProjectModal({ onClose, enabled, onToggle }) {
             fontWeight:900, fontSize:14, cursor:'pointer', fontFamily:T.font,
             boxShadow: enabled ? 'none' : '0 0 28px rgba(192,132,252,0.50)',
           }}>
-            {enabled ? 'Remove Projects' : '🏗 Add Projects to Map'}
+            <span style={{ display:'inline-flex', alignItems:'center', gap:8, justifyContent:'center' }}>
+              {!enabled && <IconGlyph name="hammer" size={15} strokeWidth={2.3} color={T.ink}/>}
+              {enabled ? 'Remove Projects' : 'Add Projects to Map'}
+            </span>
           </button>
         </div>
       </div>
@@ -892,7 +910,10 @@ export default function PathPage() {
                   background:'rgba(251,146,60,0.12)', border:'1px solid rgba(251,146,60,0.28)',
                   borderRadius:9999, fontSize:13, fontWeight:900, color:'#FB923C', flexShrink:0,
                   animation:'streakFlame 2.5s ease-in-out infinite',
-                }}>🔥 {progress.streak}</div>
+                }}>
+                  <IconGlyph name="flame" size={14} strokeWidth={2.3} color="#FB923C"/>
+                  {progress.streak}
+                </div>
               )}
             </div>
 
@@ -920,7 +941,8 @@ export default function PathPage() {
                 fontSize:10, fontWeight:800, cursor:'pointer', flexShrink:0,
                 display:'flex', alignItems:'center', gap:4,
               }}>
-                🏗 {projects ? 'Projects ON' : 'Add Projects'}
+                <IconGlyph name="hammer" size={12} strokeWidth={2.3} color={projects ? 'var(--theme-mastery)' : T.textMuted}/>
+                {projects ? 'Projects ON' : 'Add Projects'}
               </button>
             </div>
 
@@ -953,11 +975,10 @@ export default function PathPage() {
           <div style={{ maxWidth:500, margin:'32px auto', padding:'0 20px', display:'flex', flexDirection:'column', gap:18 }}>
             {[0,1,2,3].map(i => (
               <div key={i} style={{ display:'flex', alignItems:'center', gap:16 }}>
-                <div style={{ width:64,height:64,borderRadius:'50%',background:'rgba(255,255,255,0.04)',flexShrink:0,
-                  animation:'pulseNode 1.5s ease-in-out infinite', '--glow':'transparent' }}/>
+                <Skeleton width={64} height={64} borderRadius="50%" style={{ flexShrink:0 }}/>
                 <div style={{ flex:1 }}>
-                  <div style={{ height:12,background:'rgba(255,255,255,0.04)',borderRadius:6,marginBottom:6,width:'65%'}}/>
-                  <div style={{ height:9, background:'rgba(255,255,255,0.03)',borderRadius:6,width:'40%'}}/>
+                  <Skeleton height={12} borderRadius={6} width="65%" style={{ marginBottom: 6 }}/>
+                  <Skeleton height={9} borderRadius={6} width="40%"/>
                 </div>
               </div>
             ))}
@@ -966,13 +987,37 @@ export default function PathPage() {
 
         {/* ── Error ────────────────────────────────────────────────────── */}
         {!loading && error && (
-          <div style={{ textAlign:'center', padding:40, color:'#F87171', fontSize:14 }}>{error}</div>
+          <div style={{ textAlign:'center', padding:40 }}>
+            <div style={{ color:'#F87171', fontSize:14, marginBottom: 14 }}>{error}</div>
+            <button
+              onClick={() => window.location.reload()}
+              style={{
+                padding:'12px 20px',
+                borderRadius:14,
+                border:'1px solid rgba(255,255,255,0.10)',
+                background:'rgba(255,255,255,0.04)',
+                color:T.text,
+                fontSize:13,
+                fontWeight:700,
+                cursor:'pointer',
+                fontFamily:T.font,
+              }}
+            >
+              Retry
+            </button>
+          </div>
         )}
 
         {/* ── Empty state ───────────────────────────────────────────────── */}
         {!loading && !error && allNodes.length === 0 && (
           <div style={{ textAlign:'center', padding:'60px 24px' }}>
-            <div style={{ fontSize:48, marginBottom:16 }}>🗺</div>
+            <div style={{
+              width:72,height:72,margin:'0 auto 16px',borderRadius:24,
+              display:'flex',alignItems:'center',justifyContent:'center',
+              background:'rgba(255,255,255,0.04)',border:`1px solid ${T.border}`,color:T.textSec,
+            }}>
+              <IconGlyph name="map" size={30} strokeWidth={2.2}/>
+            </div>
             <div style={{ fontSize:18, fontWeight:800, color:T.text, marginBottom:8 }}>Your map is empty</div>
             <div style={{ fontSize:14, color:T.textMuted, marginBottom:24, lineHeight:1.6 }}>
               Complete onboarding to generate your learning path
@@ -1141,8 +1186,9 @@ export default function PathPage() {
               boxShadow:'0 18px 34px rgba(2,6,23,0.28)',
               backdropFilter:'blur(16px)', WebkitBackdropFilter:'blur(16px)',
             }}>
-              <span style={{ fontSize:13, fontWeight:700, color:T.textMuted }}>
-                ✦ Complete missions to light the path ahead
+              <span style={{ fontSize:13, fontWeight:700, color:T.textMuted, display:'inline-flex', alignItems:'center', gap:8 }}>
+                <IconGlyph name="sparkles" size={14} strokeWidth={2.2} color={T.textMuted}/>
+                Complete missions to light the path ahead
               </span>
             </div>
           </div>

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
+import IconGlyph from '@/components/IconGlyph'
 
 const GOAL_SUGGESTIONS = [
   'Learn Python',
@@ -27,10 +28,10 @@ const KNOWLEDGE_CHIPS = [
 ]
 
 const TIME_STORIES = {
-  15: '🍿 A short episode',
-  30: '☕ A coffee break',
-  45: '📖 A study session',
-  60: '🎯 A deep dive',
+  15: { icon: 'clapperboard', title: 'A short episode' },
+  30: { icon: 'timer', title: 'A coffee break' },
+  45: { icon: 'book', title: 'A study session' },
+  60: { icon: 'goal', title: 'A deep dive' },
 }
 
 const GENERATION_STEPS = [
@@ -64,10 +65,11 @@ function MascotBubble({ text }) {
         background:'linear-gradient(135deg, rgba(14,245,194,0.20), rgba(0,212,255,0.14))',
         border:'1px solid rgba(14,245,194,0.28)',
         display:'flex', alignItems:'center', justifyContent:'center',
-        fontSize:28, boxShadow:'0 0 32px rgba(14,245,194,0.18)',
+        color:'#0ef5c2',
+        boxShadow:'0 0 32px rgba(14,245,194,0.18)',
         flexShrink:0,
       }}>
-        🤖
+        <IconGlyph name="bot" size={28} strokeWidth={2.3}/>
       </div>
       <div style={{
         position:'relative',
@@ -584,12 +586,12 @@ export default function Onboarding() {
                                 width:52, height:52, borderRadius:'30%',
                                 background:'linear-gradient(135deg, rgba(14,245,194,0.20), rgba(0,212,255,0.18))',
                                 border:'1px solid rgba(14,245,194,0.28)',
-                                display:'grid', placeItems:'center', fontSize:24,
+                                display:'grid', placeItems:'center', color:'#0ef5c2',
                               }}>
-                                🎯
+                                <IconGlyph name="goal" size={24} strokeWidth={2.3}/>
                               </div>
                               <div style={{ display:'flex', alignItems:'center', gap:8, color:'#8e8e93', fontSize:13 }}>
-                                <span>📅</span>
+                                <IconGlyph name="timer" size={14} strokeWidth={2.3} color="#8e8e93"/>
                                 <span>Calendar plan</span>
                               </div>
                             </div>
@@ -623,12 +625,12 @@ export default function Onboarding() {
                                 width:52, height:52, borderRadius:'30%',
                                 background:'linear-gradient(135deg, rgba(0,212,255,0.18), rgba(96,165,250,0.18))',
                                 border:'1px solid rgba(0,212,255,0.28)',
-                                display:'grid', placeItems:'center', fontSize:24,
+                                display:'grid', placeItems:'center', color:'#60A5FA',
                               }}>
-                                🧭
+                                <IconGlyph name="compass" size={24} strokeWidth={2.3}/>
                               </div>
                               <div style={{ display:'flex', alignItems:'center', gap:8, color:'#8e8e93', fontSize:13 }}>
-                                <span>∞</span>
+                                <IconGlyph name="orbit" size={14} strokeWidth={2.3} color="#8e8e93"/>
                                 <span>No deadline</span>
                               </div>
                             </div>
@@ -748,9 +750,13 @@ export default function Onboarding() {
                                 color:Number(minutes) === resolvedWeekdayMins ? '#c8f7eb' : '#8e8e93',
                                 fontSize:12,
                                 fontWeight:700,
+                                display:'flex',
+                                alignItems:'center',
+                                gap:8,
                               }}
                             >
-                              {minutes} min = {story}
+                              <IconGlyph name={story.icon} size={14} strokeWidth={2.3} color={Number(minutes) === resolvedWeekdayMins ? '#0ef5c2' : '#8e8e93'}/>
+                              <span>{minutes} min = {story.title}</span>
                             </div>
                           ))}
                         </div>

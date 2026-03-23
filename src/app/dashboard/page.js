@@ -21,6 +21,8 @@ import HeartBar from '@/components/HeartBar'
 import NoHeartsOverlay from '@/components/NoHeartsOverlay'
 import GemShop from '@/components/GemShop'
 import TreasureChest from '@/components/TreasureChest'
+import IconGlyph from '@/components/IconGlyph'
+import Skeleton from '@/components/Skeleton'
 import { BADGES, RARITY_COLORS } from '@/lib/badges'
 import StreakFlame from '@/components/StreakFlame'
 import BadgeShowcase from '@/components/BadgeShowcase'
@@ -165,11 +167,11 @@ const CAL_DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
 
 // ─── Energy options ────────────────────────────────────────────────────────────
 const ENERGY_OPTIONS = [
-  {key:'energized', icon:'⚡', label:'Energized'},
-  {key:'good',      icon:'✓',  label:'Good'     },
-  {key:'okay',      icon:'~',  label:'Okay'     },
-  {key:'tired',     icon:'○',  label:'Tired'    },
-  {key:'drained',   icon:'–',  label:'Drained'  },
+  {key:'energized', icon:'bolt',   label:'Energized'},
+  {key:'good',      icon:'check',  label:'Good'     },
+  {key:'okay',      icon:'circle', label:'Okay'     },
+  {key:'tired',     icon:'moon',   label:'Tired'    },
+  {key:'drained',   icon:'heart',  label:'Drained'  },
 ]
 function getFilteredTasks(tasks, energy) {
   if (!tasks?.length) return tasks || []
@@ -478,7 +480,8 @@ function EnergySelector({ value, onChange }) {
               boxShadow:active?'inset 0 1px 0 rgba(14,245,194,0.20)':'none',
               whiteSpace:'nowrap',
             }}>
-              <span style={{fontSize:14}}>{opt.icon}</span>{opt.label}
+              <IconGlyph name={opt.icon} size={14} strokeWidth={2.4}/>
+              {opt.label}
             </button>
           )
         })}
@@ -489,18 +492,18 @@ function EnergySelector({ value, onChange }) {
 
 // ─── Task type descriptions (for preview) ───────────────────────────────────
 const TASK_TYPE_INFO = {
-  lesson:     { icon:'📖', what:'Interactive slideshow lesson with quizzes woven in to test understanding as you learn.' },
-  video:      { icon:'🎬', what:'Watch a curated video on this topic, then reflect on the key takeaways.' },
-  practice:   { icon:'🛠️', what:'Hands-on practice project with step-by-step guidance to build something real.' },
-  exercise:   { icon:'💪', what:'Structured exercise with clear steps to work through and check off as you go.' },
-  quiz:       { icon:'❓', what:'Multi-question quiz to test your knowledge — get instant feedback on every answer.' },
-  review:     { icon:'🔄', what:'Review previously learned concepts to strengthen your understanding.' },
-  reading:    { icon:'📄', what:'In-depth article with key terms highlighted — read at your own pace.' },
-  flashcard:  { icon:'🃏', what:'Flip through cards to memorize key concepts — mark each as "Got it" or "Still learning."' },
-  discussion: { icon:'💬', what:'Thought-provoking reflection prompts — write your thinking to deepen understanding.' },
-  challenge:  { icon:'⏱️', what:'Timed challenge that tests your skills under pressure — hints available if you get stuck.' },
-  capstone:   { icon:'🏗️', what:'Multi-step capstone project with milestones — build something portfolio-worthy.' },
-  project:    { icon:'🚀', what:'Portfolio project — build something real, get AI feedback, and add it to your portfolio.' },
+  lesson:     { icon:'book',         what:'Interactive slideshow lesson with quizzes woven in to test understanding as you learn.' },
+  video:      { icon:'clapperboard', what:'Watch a curated video on this topic, then reflect on the key takeaways.' },
+  practice:   { icon:'hammer',       what:'Hands-on practice project with step-by-step guidance to build something real.' },
+  exercise:   { icon:'dumbbell',     what:'Structured exercise with clear steps to work through and check off as you go.' },
+  quiz:       { icon:'message_question', what:'Multi-question quiz to test your knowledge and get instant feedback on every answer.' },
+  review:     { icon:'repeat',       what:'Review previously learned concepts to strengthen your understanding.' },
+  reading:    { icon:'scroll',       what:'In-depth article with key terms highlighted so you can read at your own pace.' },
+  flashcard:  { icon:'layers',       what:'Flip through cards to memorize key concepts and track what is landing.' },
+  discussion: { icon:'message',      what:'Thought-provoking reflection prompts to deepen understanding through writing.' },
+  challenge:  { icon:'timer',        what:'Timed challenge that tests your skills under pressure, with hints if you get stuck.' },
+  capstone:   { icon:'folder_kanban', what:'Multi-step capstone project with milestones so you build something portfolio-worthy.' },
+  project:    { icon:'rocket',       what:'Portfolio project that turns what you learned into something real you can share.' },
 }
 
 const LESSON_LABELS = {
@@ -550,7 +553,20 @@ function TaskPreview({ task, onClose, onStart, onComplete, isCompleting }) {
 
         {/* Type badge row */}
         <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:14}}>
-          <span style={{fontSize:22}}>{info.icon}</span>
+          <div style={{
+            width: 32,
+            height: 32,
+            borderRadius: 10,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: ts.bg,
+            color: ts.color,
+            border: `1px solid ${ts.border}`,
+            flexShrink: 0,
+          }}>
+            <IconGlyph name={info.icon} size={16} strokeWidth={2.3}/>
+          </div>
           <span style={{
             padding:'4px 11px', background:ts.bg, border:`1px solid ${ts.border}`,
             borderRadius:9999, fontSize:11, fontWeight:800, color:ts.color, letterSpacing:'0.8px',
@@ -770,11 +786,6 @@ function StatCard({ label, value, sub, color }) {
       {sub && <div style={{fontSize:11,color:T.textMuted}}>{sub}</div>}
     </div>
   )
-}
-
-// ─── Skeleton loader ───────────────────────────────────────────────────────────
-function Skeleton({w='100%',h=16,r=8,mb=0}) {
-  return <div style={{width:w,height:h,borderRadius:r,background:'rgba(255,255,255,0.05)',marginBottom:mb}}/>
 }
 
 function countCompletedTasks(tasks) {
@@ -1977,7 +1988,13 @@ export default function Dashboard() {
       fontFamily:T.font,padding:24}}>
       <style>{KEYFRAMES}</style>
       <div style={{textAlign:'center'}}>
-        <div style={{fontSize:40,marginBottom:16}}>🎯</div>
+        <div style={{
+          width:64,height:64,margin:'0 auto 16px',borderRadius:22,
+          display:'flex',alignItems:'center',justifyContent:'center',
+          background:'rgba(14,245,194,0.08)',border:`1px solid ${T.tealBorder}`,color:T.teal,
+        }}>
+          <IconGlyph name="goal" size={28} strokeWidth={2.3}/>
+        </div>
         <p style={{color:T.textSec,marginBottom:20,fontSize:15}}>No active goal yet.</p>
         <button onClick={() => router.push('/onboarding')} style={{
           padding:'14px 32px', background:T.primaryGradient,
@@ -2145,7 +2162,15 @@ export default function Dashboard() {
               animationDelay:`${i * 0.15}s`,
               pointerEvents:'auto', cursor:'pointer', fontFamily:T.font,
             }} onClick={() => setBadgeToasts(prev => prev.filter((_, j) => j !== i))}>
-              <span style={{ fontSize:32 }}>{badge.icon}</span>
+              <div style={{
+                width:38,height:38,borderRadius:12,
+                display:'flex',alignItems:'center',justifyContent:'center',
+                background:`${RARITY_COLORS[badge.rarity] || '#0ef5c2'}12`,
+                color:RARITY_COLORS[badge.rarity] || '#0ef5c2',
+                flexShrink:0,
+              }}>
+                <IconGlyph name={badge.icon} size={20} strokeWidth={2.3}/>
+              </div>
               <div>
                 <div style={{ fontSize:11, fontWeight:800, color:RARITY_COLORS[badge.rarity] || '#0ef5c2', textTransform:'uppercase', letterSpacing:'1.5px', marginBottom:2 }}>
                   Badge Earned!
@@ -2166,10 +2191,12 @@ export default function Dashboard() {
           display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',
           animation:'fadeInBg 0.2s ease both',fontFamily:T.font,
         }} onClick={() => setShowBoostEvent(false)}>
-          <div style={{
-            fontSize:64,marginBottom:16,
+        <div style={{
+            width:72,height:72,marginBottom:16,borderRadius:24,
+            display:'flex',alignItems:'center',justifyContent:'center',
+            background:'rgba(251,191,36,0.12)',color:'#FBBF24',
             animation:'checkPop 0.5s cubic-bezier(0.34,1.56,0.64,1)',
-          }}>⚡</div>
+          }}><IconGlyph name="bolt" size={34} strokeWidth={2.3}/></div>
           <div style={{
             fontSize:28,fontWeight:900,
             background:T.highlightGradient,
@@ -2417,7 +2444,7 @@ export default function Dashboard() {
                       fontSize:12,fontWeight:800,color:T.teal,
                       animation:'gemFloat 1.2s ease-out forwards',
                       pointerEvents:'none',whiteSpace:'nowrap',
-                    }}>+{t.amount} 💎</span>
+                    }}>+{t.amount} gems</span>
                 ))}
               </button>
 
@@ -2498,7 +2525,7 @@ export default function Dashboard() {
                     boxShadow:'0 0 30px rgba(251,191,36,0.08)',
                   }}>
                     <div style={{display:'flex',alignItems:'center',gap:8}}>
-                      <span style={{fontSize:16}}>⚡</span>
+                      <IconGlyph name="bolt" size={16} strokeWidth={2.3} color="#FBBF24"/>
                       <span style={{fontSize:13,fontWeight:800,color:'#FBBF24'}}>Double XP is live</span>
                     </div>
                     <span style={{fontSize:14,fontWeight:800,color:'#FBBF24',fontFamily:T.fontMono}}>
@@ -2532,7 +2559,7 @@ export default function Dashboard() {
                   <div style={{position:'relative',zIndex:1}}>
                     <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
                       <div style={{display:'flex',alignItems:'center',gap:8}}>
-                        <span style={{fontSize:18}}>{weeklyChallenge.completed ? '🏆' : '⚔️'}</span>
+                        <IconGlyph name={weeklyChallenge.completed ? 'trophy' : 'challenge'} size={16} strokeWidth={2.3} color={weeklyChallenge.completed ? '#FFD700' : T.teal}/>
                         <span style={{fontSize:10,fontWeight:800,letterSpacing:'1.5px',
                           color:weeklyChallenge.completed ? '#FFD700' : T.teal,textTransform:'uppercase'}}>
                           {weeklyChallenge.completed ? 'Challenge Complete!' : 'Weekly Challenge'}
@@ -2596,7 +2623,7 @@ export default function Dashboard() {
                 }}>
                   <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
                     <div style={{display:'flex',alignItems:'center',gap:8}}>
-                      <span style={{fontSize:16}}>🎯</span>
+                      <IconGlyph name="target" size={16} strokeWidth={2.3} color={T.textSec}/>
                       <span style={{fontSize:12,fontWeight:800,letterSpacing:'1px',color:T.textSec,textTransform:'uppercase'}}>
                         Daily Quests
                       </span>
@@ -2660,7 +2687,7 @@ export default function Dashboard() {
                       backgroundSize:'200% auto',
                       animation:'questShimmer 3s linear infinite',
                     }}>
-                      Quest Master +30 💎
+                      Quest Master +30 gems
                     </div>
                   )}
                 </div>
@@ -2682,13 +2709,13 @@ export default function Dashboard() {
                 }}>
                   <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
                     <div style={{display:'flex',alignItems:'center',gap:8}}>
-                      <span style={{fontSize:16}}>📅</span>
+                      <IconGlyph name="map" size={16} strokeWidth={2.3} color={T.textSec}/>
                       <span style={{fontSize:12,fontWeight:800,letterSpacing:'1px',color:T.textSec,textTransform:'uppercase'}}>
                         Weekly Rewards
                       </span>
                     </div>
                     {rewardCalendar.days_claimed?.length === 7 && (
-                      <span style={{fontSize:11,fontWeight:700,color:'#FFD700'}}>Perfect Week! +50 💎</span>
+                      <span style={{fontSize:11,fontWeight:700,color:'#FFD700'}}>Perfect Week +50 gems</span>
                     )}
                   </div>
                   <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:6}}>
@@ -2729,7 +2756,7 @@ export default function Dashboard() {
                             ) : missed ? (
                               <span style={{fontSize:11,color:T.textDead}}>✕</span>
                             ) : isSunday ? (
-                              <span style={{fontSize:14}}>🎁</span>
+                              <IconGlyph name="trophy" size={14} strokeWidth={2.2} color="#FFD700"/>
                             ) : (
                               <span style={{
                                 fontSize:11,fontWeight:700,
@@ -2762,7 +2789,7 @@ export default function Dashboard() {
                         {claimingReward ? (
                           <div style={{width:12,height:12,border:`2px solid ${T.teal}`,borderTopColor:'transparent',borderRadius:'50%',animation:'spin 0.6s linear infinite'}}/>
                         ) : (
-                          <>Claim today's reward: +{CAL_REWARDS[calToday]} 💎</>
+                          <>Claim today&apos;s reward: +{CAL_REWARDS[calToday]} gems</>
                         )}
                       </button>
                     )
@@ -2787,7 +2814,7 @@ export default function Dashboard() {
                 animation:'levelPop 0.50s cubic-bezier(0.34,1.3,0.64,1)',
                 fontFamily:T.font,whiteSpace:'nowrap',
               }}>
-                <span style={{fontSize:22}}>🎯</span>
+                <IconGlyph name="target" size={18} strokeWidth={2.3} color="#FFD700"/>
                 <div>
                   <div style={{fontSize:14,fontWeight:800,color:'#FFD700'}}>Quest Master!</div>
                   <div style={{fontSize:11,color:T.textMuted}}>+30 bonus gems earned</div>
@@ -2804,7 +2831,7 @@ export default function Dashboard() {
                   display:'flex',alignItems:'center',gap:10,
                   animation:'fadeUp 0.30s ease',
                 }}>
-                  <span style={{fontSize:20}}>🛡</span>
+                  <IconGlyph name="shield_check" size={18} strokeWidth={2.3} color={T.teal}/>
                   <div>
                     <div style={{fontSize:13,fontWeight:700,color:T.teal}}>Streak protected</div>
                     <div style={{fontSize:11,color:T.textMuted}}>{freezeCount} freeze{freezeCount===1?'':'s'} remaining</div>
@@ -2822,7 +2849,7 @@ export default function Dashboard() {
                   borderRadius:14,cursor:freezing?'default':'pointer',
                   display:'flex',alignItems:'center',gap:10,fontFamily:T.font,
                 }}>
-                  <span style={{fontSize:18}}>🛡</span>
+                  <IconGlyph name="shield" size={18} strokeWidth={2.3} color={T.flame}/>
                   <div style={{textAlign:'left'}}>
                     <div style={{fontSize:13,fontWeight:700,color:T.flame}}>
                       {freezing ? 'Protecting streak…' : 'Use streak freeze'}
@@ -2846,7 +2873,7 @@ export default function Dashboard() {
                   display:'flex',alignItems:'center',gap:12,
                   animation:'fadeUp 0.3s ease both',
                 }}>
-                  <div style={{width:36,height:36,borderRadius:'50%',background:'rgba(251,191,36,0.12)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,flexShrink:0}}>⚠️</div>
+                  <div style={{width:36,height:36,borderRadius:'50%',background:'rgba(251,191,36,0.12)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,color:'#FBBF24'}}><IconGlyph name="alert" size={18} strokeWidth={2.3}/></div>
                   <div style={{flex:1}}>
                     <div style={{fontSize:13,fontWeight:700,color:'#FBBF24',marginBottom:2}}>
                       {decayingConcepts.length} concept{decayingConcepts.length !== 1 ? 's' : ''} need{decayingConcepts.length === 1 ? 's' : ''} review
@@ -2877,7 +2904,7 @@ export default function Dashboard() {
                 ) : (
                   <div style={{textAlign:'center',padding:'40px 0',color:T.textMuted,fontSize:14}}>
                     {tasks.every(t=>t.completed)
-                      ? 'All tasks complete. Great work today. 🎯'
+                      ? 'All tasks complete. Great work today.'
                       : 'No tasks available.'}
                   </div>
                 ) : (
@@ -2888,7 +2915,7 @@ export default function Dashboard() {
 
                 {energy === 'drained' && (
                   <div style={{textAlign:'center',padding:'8px 0',color:T.textMuted,fontSize:13}}>
-                    Rest day — just stay in the habit 🌙
+                    Rest day. Stay in the habit.
                   </div>
                 )}
                 {hiddenCount > 0 && energy !== 'drained' && (
@@ -2930,8 +2957,8 @@ export default function Dashboard() {
                 <span style={{
                   width:42, height:42, borderRadius:14, flexShrink:0,
                   background:'rgba(236,72,153,0.12)', border:'1px solid rgba(236,72,153,0.25)',
-                  display:'flex', alignItems:'center', justifyContent:'center', fontSize:20,
-                }}>🚀</span>
+                  display:'flex', alignItems:'center', justifyContent:'center', color:'#EC4899',
+                }}><IconGlyph name="rocket" size={20} strokeWidth={2.3}/></span>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:14,fontWeight:800,color:T.text,marginBottom:2}}>Start a Project</div>
                   <div style={{fontSize:11,color:T.textMuted}}>Build something real, get AI feedback, add it to your portfolio</div>
@@ -2948,7 +2975,7 @@ export default function Dashboard() {
                   borderRadius:14,padding:'12px 16px',
                   display:'flex',alignItems:'center',gap:10,
                 }}>
-                  <span style={{fontSize:18}}>👋</span>
+                  <IconGlyph name="shield_check" size={18} strokeWidth={2.3} color={T.flame}/>
                   <div>
                     <div style={{fontSize:13,fontWeight:700,color:T.flame}}>Good to have you back</div>
                     <div style={{fontSize:12,color:T.textMuted}}>Path adjusted — you're right on track.</div>
@@ -3044,7 +3071,7 @@ export default function Dashboard() {
             </h2>
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:20}}>
               <StatCard label="Total XP"       value={xpDisplay.totalXp.toLocaleString()} sub="lifetime"        color={T.amber}/>
-              <StatCard label="Streak"         value={`${streakData.current}d`}             sub={streakData.current>=7?'On fire! 🔥':'Keep going'} color={T.flame}/>
+              <StatCard label="Streak"         value={`${streakData.current}d`}             sub={streakData.current>=7?'Strong momentum':'Keep going'} color={T.flame}/>
               <StatCard label="Best Streak"    value={`${streakData.longest}d`}             sub="personal best"/>
               <StatCard label="Days Done"      value={doneRows}                             sub={`of ${totalRows}`} color={T.teal}/>
             </div>
@@ -3228,7 +3255,7 @@ export default function Dashboard() {
                 Streak
               </div>
               {[
-                {label:'Current', sub:'Complete a mission to keep it', val:`🔥 ${streakData.current}`, color:T.flame},
+                {label:'Current', sub:'Complete a mission to keep it', val:`${streakData.current} days`, color:T.flame},
                 {label:'Best',    sub:'Personal record',                val:`${streakData.longest}d`,  color:T.text},
               ].map((row,i) => (
                 <div key={i} style={{display:'flex',alignItems:'center',justifyContent:'space-between',
@@ -3319,7 +3346,11 @@ export default function Dashboard() {
                 display:'flex',alignItems:'center',justifyContent:'space-between',
                 color:T.textSec,fontSize:14,fontWeight:600,
               }}>
-                🚀 My Portfolio <ArrowRight/>
+                <span style={{ display:'inline-flex', alignItems:'center', gap:10 }}>
+                  <IconGlyph name="rocket" size={16} strokeWidth={2.3}/>
+                  My Portfolio
+                </span>
+                <ArrowRight/>
               </button>
             </div>
 

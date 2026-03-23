@@ -8,7 +8,7 @@ export const BADGES = [
     name: 'First Spark',
     description: 'Complete your first task',
     category: 'streak',
-    icon: '⚡',
+    icon: 'bolt',
     rarity: 'common',
   },
   {
@@ -16,7 +16,7 @@ export const BADGES = [
     name: 'Week Warrior',
     description: 'Maintain a 7-day streak',
     category: 'streak',
-    icon: '🔥',
+    icon: 'flame',
     rarity: 'common',
   },
   {
@@ -24,7 +24,7 @@ export const BADGES = [
     name: 'Fortnight Force',
     description: 'Maintain a 14-day streak',
     category: 'streak',
-    icon: '💪',
+    icon: 'dumbbell',
     rarity: 'rare',
   },
   {
@@ -32,7 +32,7 @@ export const BADGES = [
     name: 'Monthly Master',
     description: 'Maintain a 30-day streak',
     category: 'streak',
-    icon: '👑',
+    icon: 'crown',
     rarity: 'epic',
   },
   {
@@ -40,7 +40,7 @@ export const BADGES = [
     name: 'Century Legend',
     description: 'Reach a 100-day streak',
     category: 'streak',
-    icon: '🏆',
+    icon: 'trophy',
     rarity: 'legendary',
   },
 
@@ -50,7 +50,7 @@ export const BADGES = [
     name: 'Quick Study',
     description: 'Complete a lesson in under 3 minutes',
     category: 'learning',
-    icon: '⏱️',
+    icon: 'timer',
     rarity: 'rare',
   },
   {
@@ -58,7 +58,7 @@ export const BADGES = [
     name: 'Perfect Score',
     description: 'Get 100% on a quiz without losing a heart',
     category: 'learning',
-    icon: '💯',
+    icon: 'badge',
     rarity: 'rare',
   },
   {
@@ -66,7 +66,7 @@ export const BADGES = [
     name: 'Combo King',
     description: 'Hit a 5x answer combo in a lesson',
     category: 'learning',
-    icon: '🎯',
+    icon: 'target',
     rarity: 'epic',
   },
   {
@@ -74,7 +74,7 @@ export const BADGES = [
     name: 'Concept Master',
     description: 'Reach 100% mastery on any concept',
     category: 'learning',
-    icon: '🧠',
+    icon: 'brain',
     rarity: 'epic',
   },
 
@@ -84,7 +84,7 @@ export const BADGES = [
     name: 'Explorer',
     description: 'Start an Explore mode path',
     category: 'progress',
-    icon: '🧭',
+    icon: 'compass',
     rarity: 'common',
   },
   {
@@ -92,7 +92,7 @@ export const BADGES = [
     name: 'Halfway Hero',
     description: 'Reach 50% of your goal timeline',
     category: 'progress',
-    icon: '🏅',
+    icon: 'medal',
     rarity: 'rare',
   },
   {
@@ -100,7 +100,7 @@ export const BADGES = [
     name: 'Finisher',
     description: 'Complete all days of a goal',
     category: 'progress',
-    icon: '🎓',
+    icon: 'graduation',
     rarity: 'epic',
   },
   {
@@ -108,7 +108,7 @@ export const BADGES = [
     name: 'Scholar',
     description: 'Reach Level 10',
     category: 'progress',
-    icon: '📚',
+    icon: 'book',
     rarity: 'epic',
   },
 
@@ -118,7 +118,7 @@ export const BADGES = [
     name: 'Night Owl',
     description: 'Complete a task after 10 PM',
     category: 'special',
-    icon: '🦉',
+    icon: 'moon',
     rarity: 'common',
   },
   {
@@ -126,7 +126,7 @@ export const BADGES = [
     name: 'Early Bird',
     description: 'Complete a task before 7 AM',
     category: 'special',
-    icon: '🐦',
+    icon: 'sunrise',
     rarity: 'common',
   },
 ]

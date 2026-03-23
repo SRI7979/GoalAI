@@ -9,6 +9,8 @@ import { getLevelProgress, LEVEL_TITLES } from '@/lib/xp'
 import { streakStatusLabel } from '@/lib/streak'
 import { trackStatsViewed } from '@/lib/analytics'
 import BadgeShowcase from '@/components/BadgeShowcase'
+import IconGlyph from '@/components/IconGlyph'
+import Skeleton from '@/components/Skeleton'
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const T = {
@@ -84,11 +86,6 @@ function TabBar({ onNav }) {
       ))}
     </div>
   )
-}
-
-// ─── Skeleton ─────────────────────────────────────────────────────────────────
-function Skel({ w='100%', h=16, r=8, mb=0 }) {
-  return <div style={{ width:w, height:h, borderRadius:r, background:'rgba(255,255,255,0.05)', marginBottom:mb }}/>
 }
 
 // ─── Stat hero number ─────────────────────────────────────────────────────────
@@ -268,7 +265,7 @@ function WeeklyChart({ rows }) {
 function MasteryList({ masteries, loading }) {
   if (loading) return (
     <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-      {[0,1,2].map(i => <Skel key={i} h={52} r={12}/>)}
+      {[0,1,2].map(i => <Skeleton key={i} h={52} r={12}/>)}
     </div>
   )
   if (!masteries.length) return (
@@ -346,9 +343,9 @@ function consistencyGrade(completedDays, totalDays, currentStreak) {
 // ─── Personal best card ───────────────────────────────────────────────────────
 function PersonalBestCard({ longestStreak, totalMissions, totalXp, delay=0 }) {
   const items = [
-    { label:'Best streak',     value:`${longestStreak} days`, icon:'🔥', color:T.flame  },
-    { label:'Missions done',   value:totalMissions,            icon:'✓',  color:T.teal   },
-    { label:'Total XP earned', value:totalXp.toLocaleString(), icon:'⚡', color:T.amber  },
+    { label:'Best streak',     value:`${longestStreak} days`, icon:'flame', color:T.flame  },
+    { label:'Missions done',   value:totalMissions,            icon:'check_circle',  color:T.teal   },
+    { label:'Total XP earned', value:totalXp.toLocaleString(), icon:'bolt', color:T.amber  },
   ]
   return (
     <div style={{
@@ -368,7 +365,9 @@ function PersonalBestCard({ longestStreak, totalMissions, totalXp, delay=0 }) {
             padding:'8px 0',
             borderBottom: i < items.length-1 ? '1px solid rgba(255,255,255,0.04)' : 'none',
           }}>
-            <span style={{ fontSize:18, width:24, textAlign:'center', flexShrink:0 }}>{item.icon}</span>
+            <span style={{ width:24, textAlign:'center', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', color:item.color }}>
+              <IconGlyph name={item.icon} size={18} strokeWidth={2.3}/>
+            </span>
             <div style={{ flex:1 }}>
               <div style={{ fontSize:11, color:T.textMuted, fontWeight:600 }}>{item.label}</div>
               <div style={{ fontSize:17, fontWeight:900, color:item.color, lineHeight:1.2 }}>{item.value}</div>
@@ -463,7 +462,7 @@ function StreakCard({ current, longest }) {
           {current}
         </span>
         <span style={{ fontSize:14, color:T.textMuted }}>days</span>
-        {current > 0 && <span style={{ fontSize:22 }}>🔥</span>}
+        {current > 0 && <IconGlyph name="flame" size={20} strokeWidth={2.3} color={T.flame}/>}
       </div>
 
       {label && (
@@ -625,16 +624,22 @@ export default function StatsPage() {
 
           {loading ? (
             <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-              <Skel h={110} r={18}/>
+              <Skeleton h={110} r={18}/>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-                <Skel h={90} r={18}/><Skel h={90} r={18}/>
+                <Skeleton h={90} r={18}/><Skeleton h={90} r={18}/>
               </div>
-              <Skel h={120} r={18}/>
-              <Skel h={90} r={18}/>
+              <Skeleton h={120} r={18}/>
+              <Skeleton h={90} r={18}/>
             </div>
           ) : !goal ? (
             <div style={{ textAlign:'center', padding:'60px 20px' }}>
-              <div style={{ fontSize:40, marginBottom:16 }}>📊</div>
+              <div style={{
+                width:64,height:64,margin:'0 auto 16px',borderRadius:22,
+                display:'flex',alignItems:'center',justifyContent:'center',
+                background:'rgba(255,255,255,0.04)',border:`1px solid ${T.border}`,color:T.textSec,
+              }}>
+                <IconGlyph name="chart" size={26} strokeWidth={2.2}/>
+              </div>
               <div style={{ fontSize:16, fontWeight:700, color:T.text, marginBottom:8 }}>No goal active</div>
               <div style={{ fontSize:13, color:T.textMuted, marginBottom:24 }}>
                 Start your first learning path to see stats.
@@ -721,7 +726,7 @@ export default function StatsPage() {
                 animation:'fadeUp 0.40s 0.23s both',
               }}>
                 <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                  <span style={{ fontSize:20 }}>🚀</span>
+                  <IconGlyph name="rocket" size={18} strokeWidth={2.3} color={T.teal}/>
                   <div>
                     <div style={{ fontSize:14, fontWeight:700, color:T.text }}>My Portfolio</div>
                     <div style={{ fontSize:11, color:T.textMuted }}>View completed projects & AI reviews</div>

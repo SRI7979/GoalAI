@@ -1,23 +1,23 @@
 import { getSkillConfig } from '@/lib/skillTypes'
 
 const AUTHENTICITY_LEVELS = {
-  verified: { label: 'Verified', color: '#34D399', icon: '✓' },
-  likely_genuine: { label: 'Likely Genuine', color: '#3B82F6', icon: '◉' },
-  suspicious: { label: 'Suspicious', color: '#F59E0B', icon: '⚠' },
-  low_effort: { label: 'Low Effort', color: '#FF453A', icon: '✗' },
+  verified: { label: 'Verified', color: '#34D399', icon: 'shield_check' },
+  likely_genuine: { label: 'Likely Genuine', color: '#3B82F6', icon: 'badge' },
+  suspicious: { label: 'Suspicious', color: '#F59E0B', icon: 'alert' },
+  low_effort: { label: 'Low Effort', color: '#FF453A', icon: 'shield' },
 }
 
 export const PROJECT_REVIEW_CRITERIA = {
-  coding: { c1: 'Originality', c2: 'Technical Depth', c3: 'Code Quality', expert: 'senior developer', expertLabel: 'How a Senior Developer Would Improve This', icons: ['💡', '🧩', '⚡'] },
-  language: { c1: 'Fluency', c2: 'Grammar Accuracy', c3: 'Vocabulary Range', expert: 'language coach', expertLabel: 'How a Language Coach Would Improve This', icons: ['🗣', '✍️', '📚'] },
-  math: { c1: 'Method Choice', c2: 'Reasoning Rigor', c3: 'Clarity of Work', expert: 'math mentor', expertLabel: 'How a Math Mentor Would Improve This', icons: ['📐', '🧠', '📝'] },
-  music: { c1: 'Technique', c2: 'Musicality', c3: 'Practice Discipline', expert: 'music instructor', expertLabel: 'How a Music Instructor Would Improve This', icons: ['🎵', '🎶', '🥁'] },
-  design: { c1: 'Hierarchy', c2: 'Craft', c3: 'Usability', expert: 'product designer', expertLabel: 'How a Product Designer Would Improve This', icons: ['🎨', '🧱', '✨'] },
-  business: { c1: 'Strategic Depth', c2: 'Logic', c3: 'Actionability', expert: 'business strategist', expertLabel: 'How a Strategist Would Improve This', icons: ['💼', '📊', '🚀'] },
-  hardware: { c1: 'System Design', c2: 'Debugging', c3: 'Reliability', expert: 'hardware engineer', expertLabel: 'How an Engineer Would Improve This', icons: ['🔧', '📟', '🤖'] },
-  writing: { c1: 'Voice', c2: 'Structure', c3: 'Engagement', expert: 'editor', expertLabel: 'How an Editor Would Improve This', icons: ['✍️', '🧱', '🌟'] },
-  science: { c1: 'Scientific Rigor', c2: 'Methodology', c3: 'Interpretation', expert: 'research scientist', expertLabel: 'How a Research Scientist Would Improve This', icons: ['🔬', '🧪', '📈'] },
-  general: { c1: 'Originality', c2: 'Depth', c3: 'Execution', expert: 'mentor', expertLabel: 'How a Professional Would Improve This', icons: ['💡', '🧩', '⚡'] },
+  coding: { c1: 'Originality', c2: 'Technical Depth', c3: 'Code Quality', expert: 'senior developer', expertLabel: 'How a Senior Developer Would Improve This', icons: ['lightbulb', 'layers', 'gauge'] },
+  language: { c1: 'Fluency', c2: 'Grammar Accuracy', c3: 'Vocabulary Range', expert: 'language coach', expertLabel: 'How a Language Coach Would Improve This', icons: ['message', 'pen', 'book'] },
+  math: { c1: 'Method Choice', c2: 'Reasoning Rigor', c3: 'Clarity of Work', expert: 'math mentor', expertLabel: 'How a Math Mentor Would Improve This', icons: ['target', 'brain', 'file'] },
+  music: { c1: 'Technique', c2: 'Musicality', c3: 'Practice Discipline', expert: 'music instructor', expertLabel: 'How a Music Instructor Would Improve This', icons: ['music', 'audio', 'timer'] },
+  design: { c1: 'Hierarchy', c2: 'Craft', c3: 'Usability', expert: 'product designer', expertLabel: 'How a Product Designer Would Improve This', icons: ['design', 'grid', 'sparkles'] },
+  business: { c1: 'Strategic Depth', c2: 'Logic', c3: 'Actionability', expert: 'business strategist', expertLabel: 'How a Strategist Would Improve This', icons: ['briefcase', 'bar_chart', 'rocket'] },
+  hardware: { c1: 'System Design', c2: 'Debugging', c3: 'Reliability', expert: 'hardware engineer', expertLabel: 'How an Engineer Would Improve This', icons: ['wrench', 'cpu', 'bot'] },
+  writing: { c1: 'Voice', c2: 'Structure', c3: 'Engagement', expert: 'editor', expertLabel: 'How an Editor Would Improve This', icons: ['pen', 'layers', 'sparkles'] },
+  science: { c1: 'Scientific Rigor', c2: 'Methodology', c3: 'Interpretation', expert: 'research scientist', expertLabel: 'How a Research Scientist Would Improve This', icons: ['microscope', 'flask', 'line_chart'] },
+  general: { c1: 'Originality', c2: 'Depth', c3: 'Execution', expert: 'mentor', expertLabel: 'How a Professional Would Improve This', icons: ['lightbulb', 'layers', 'gauge'] },
 }
 
 const VERIFICATION_PLANS = {
@@ -126,9 +126,9 @@ export function getProjectCriteriaCards(review = {}, skillType = 'general') {
   const criteria = getProjectReviewCriteria(skillType)
   const safeReview = review || {}
   return [
-    { label: criteria.c1, score: safeReview.originality_score, icon: criteria.icons?.[0] || '💡' },
-    { label: criteria.c2, score: safeReview.complexity_score, icon: criteria.icons?.[1] || '🧩' },
-    { label: criteria.c3, score: safeReview.efficiency_score, icon: criteria.icons?.[2] || '⚡' },
+    { label: criteria.c1, score: safeReview.originality_score, icon: criteria.icons?.[0] || 'lightbulb' },
+    { label: criteria.c2, score: safeReview.complexity_score, icon: criteria.icons?.[1] || 'layers' },
+    { label: criteria.c3, score: safeReview.efficiency_score, icon: criteria.icons?.[2] || 'gauge' },
   ].filter((item) => item.score !== null && item.score !== undefined)
 }
 
