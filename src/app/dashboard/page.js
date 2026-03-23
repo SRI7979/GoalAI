@@ -107,6 +107,7 @@ const KEYFRAMES = `
   @keyframes gemPulse{0%{transform:scale(1)}50%{transform:scale(1.22)}100%{transform:scale(1)}}
   @keyframes gemFloat{0%{opacity:1;transform:translateY(0)}100%{opacity:0;transform:translateY(-36px)}}
   @keyframes nextDayProgress{0%{transform:translateX(-120%)}100%{transform:translateX(240%)}}
+  @keyframes missionBorderSpin{to{transform:rotate(360deg)}}
   @property --chal-angle{syntax:'<angle>';initial-value:0deg;inherits:false}
   @keyframes chalBorderSpin{to{--chal-angle:360deg}}
   @keyframes questShimmer{0%{background-position:200% center}100%{background-position:-200% center}}
@@ -118,6 +119,7 @@ const KEYFRAMES = `
     @keyframes pulseActive{to{}}
     @keyframes xpBarGlow {to{}}
     @keyframes levelPop  {from{opacity:0}to{opacity:1}}
+    @keyframes missionBorderSpin{to{}}
   }
 `
 
@@ -200,6 +202,60 @@ const StatsIcon    = () => <svg width="22" height="22" viewBox="0 0 24 24" fill=
 const SettingsIcon = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
 const ShopIcon     = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2L3 7v13a2 2 0 002 2h14a2 2 0 002-2V7l-3-5H6z"/><line x1="3" y1="7" x2="21" y2="7"/><path d="M16 11a4 4 0 01-8 0"/></svg>
 const BadgesIcon   = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89L17 22l-5-3-5 3 1.523-9.11"/></svg>
+const PathBoltLogo = ({ size = 28 }) => (
+  <div style={{
+    width:size,height:size,borderRadius:'28%',
+    background:'linear-gradient(135deg,var(--theme-primary),var(--theme-secondary))',
+    display:'flex',alignItems:'center',justifyContent:'center',
+    boxShadow:'0 0 20px rgba(14,245,194,0.20), inset 0 1px 0 rgba(255,255,255,0.35)',
+    flexShrink:0,
+  }}>
+    <svg width={Math.round(size * 0.48)} height={Math.round(size * 0.48)} viewBox="0 0 24 24" fill="none" stroke="#050608" strokeWidth="2.5" strokeLinecap="round">
+      <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+    </svg>
+  </div>
+)
+
+function MiniProgressRing({ size = 38, value = 0, total = 1, stroke = 'var(--theme-primary)', track = 'rgba(255,255,255,0.08)', label, labelColor = T.text, textSize = 11 }) {
+  const safeTotal = Math.max(total, 1)
+  const ratio = Math.max(0, Math.min(1, value / safeTotal))
+  const strokeWidth = size <= 28 ? 3 : 4
+  const radius = (size - strokeWidth) / 2
+  const circumference = 2 * Math.PI * radius
+  return (
+    <div style={{ position:'relative', width:size, height:size, flexShrink:0 }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ transform:'rotate(-90deg)' }}>
+        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke={track} strokeWidth={strokeWidth}/>
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke={stroke}
+          strokeWidth={strokeWidth}
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={circumference * (1 - ratio)}
+          style={{ transition:'stroke-dashoffset 0.45s cubic-bezier(0.16,1,0.3,1)' }}
+        />
+      </svg>
+      <div style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:textSize, fontWeight:900, color:labelColor }}>
+        {label ?? value}
+      </div>
+    </div>
+  )
+}
+
+function StaggerBlock({ index = 0, children }) {
+  return (
+    <div style={{
+      animation:'fadeUp 0.4s ease-out both',
+      animationDelay:`${index * 0.05}s`,
+    }}>
+      {children}
+    </div>
+  )
+}
 
 // ─── XP toast ──────────────────────────────────────────────────────────────────
 function XPToast({ id, amount, x, y, onDone }) {
@@ -248,35 +304,41 @@ function LevelUpBanner({ data, onDismiss }) {
 // ─── XP Level Bar ──────────────────────────────────────────────────────────────
 function XPLevelBar({ level, title, xpInLevel, xpForLevel, pct, animating }) {
   return (
-    <div style={{maxWidth:600,margin:'0 auto',padding:'12px 20px 0'}}>
+    <div style={{maxWidth:600,margin:'0 auto',padding:'0 20px'}}>
       <div style={{
-        background:T.surface, border:`1px solid ${T.border}`, borderRadius:14,
-        padding:'10px 14px', backdropFilter:'blur(20px)', WebkitBackdropFilter:'blur(20px)',
+        background:'linear-gradient(145deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02))',
+        border:`1px solid ${T.border}`, borderRadius:18,
+        padding:'12px 14px', backdropFilter:'blur(20px)', WebkitBackdropFilter:'blur(20px)',
+        display:'flex', alignItems:'center', gap:12,
       }}>
-        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:7}}>
-          <div style={{display:'flex',alignItems:'center',gap:8}}>
-            <div style={{
-              width:28, height:28, borderRadius:'50%',
-              background:T.masteryGradient,
-              display:'flex', alignItems:'center', justifyContent:'center',
-              fontWeight:900, fontSize:13, color:'#fff', flexShrink:0,
-              boxShadow:'0 0 14px rgba(129,140,248,0.35)',
-            }}>{level}</div>
-            <span style={{fontSize:13,fontWeight:700,color:T.text}}>Level {level}</span>
-            <span style={{fontSize:11,color:T.textMuted}}>· {title}</span>
+        <MiniProgressRing
+          size={34}
+          value={xpInLevel}
+          total={xpForLevel}
+          stroke="var(--theme-mastery)"
+          track="rgba(129,140,248,0.12)"
+          label={level}
+          labelColor="#fff"
+          textSize={11}
+        />
+        <div style={{ flex:1, minWidth:0 }}>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,marginBottom:7}}>
+            <div style={{minWidth:0}}>
+              <div style={{fontSize:13,fontWeight:800,color:T.text,lineHeight:1.1}}>Level {level} · {title}</div>
+            </div>
+            <span style={{fontSize:11,color:T.textMuted,fontWeight:700,whiteSpace:'nowrap'}}>
+              {xpInLevel} / {xpForLevel} XP
+            </span>
           </div>
-          <span style={{fontSize:11,color:T.textMuted,fontWeight:600}}>
-            {xpInLevel} / {xpForLevel} XP
-          </span>
-        </div>
-        <div style={{height:5,background:'rgba(255,255,255,0.06)',borderRadius:9999,overflow:'hidden'}}>
-          <div style={{
-            height:'100%', width:`${Math.round(pct*100)}%`,
-            background:T.primaryGradientSoft, borderRadius:9999,
-            transition: animating ? 'width 0.55s cubic-bezier(0.16,1,0.3,1)' : 'none',
-            boxShadow: animating ? '0 0 12px rgba(14,245,194,0.55)' : '0 0 6px rgba(14,245,194,0.25)',
-            animation: animating ? 'xpBarGlow 1.2s ease' : 'none',
-          }}/>
+          <div style={{height:6,background:'rgba(255,255,255,0.06)',borderRadius:9999,overflow:'hidden'}}>
+            <div style={{
+              height:'100%', width:`${Math.round(pct*100)}%`,
+              background:T.masteryGradientSoft, borderRadius:9999,
+              transition: animating ? 'width 0.55s cubic-bezier(0.16,1,0.3,1)' : 'none',
+              boxShadow: animating ? '0 0 14px rgba(129,140,248,0.55)' : '0 0 8px rgba(129,140,248,0.22)',
+              animation: animating ? 'xpBarGlow 1.2s ease' : 'none',
+            }}/>
+          </div>
         </div>
       </div>
     </div>
@@ -295,38 +357,66 @@ function MissionHeroCard({ todayRow, tasks, dayNumber }) {
   const concept   = todayRow.covered_topics?.[0] || `Day ${dayNumber}`
 
   return (
-    <div style={{maxWidth:600,margin:'0 auto',padding:'12px 20px 0'}}>
+    <div style={{maxWidth:600,margin:'0 auto',padding:'0 20px'}}>
       <div style={{
+        position:'relative',
         background: allDone
           ? 'linear-gradient(145deg,rgba(14,245,194,0.10) 0%,rgba(0,212,255,0.06) 100%)'
-          : 'linear-gradient(145deg,rgba(255,255,255,0.06) 0%,rgba(255,255,255,0.02) 100%)',
-        border:`1px solid ${allDone ? T.tealBorder : T.border}`,
-        borderRadius:22, padding:'20px',
+          : 'linear-gradient(145deg,rgba(255,255,255,0.08) 0%,rgba(255,255,255,0.03) 100%)',
+        border:`1px solid ${allDone ? T.tealBorder : 'rgba(255,255,255,0.10)'}`,
+        borderRadius:24, padding:'22px 20px 20px',
         backdropFilter:'blur(24px)', WebkitBackdropFilter:'blur(24px)',
         boxShadow: allDone
           ? 'inset 0 1px 0 rgba(14,245,194,0.22),0 0 40px rgba(14,245,194,0.08)'
-          : 'inset 0 1px 0 rgba(255,255,255,0.08),0 8px 32px rgba(0,0,0,0.20)',
+          : 'inset 0 1px 0 rgba(255,255,255,0.10),0 16px 38px rgba(0,0,0,0.24)',
+        overflow:'hidden',
       }}>
+        <div style={{
+          position:'absolute', inset:-1, borderRadius:24, padding:1,
+          background:'conic-gradient(from 0deg, rgba(14,245,194,0.00), rgba(14,245,194,0.36), rgba(0,212,255,0.28), rgba(14,245,194,0.00))',
+          animation:'missionBorderSpin 12s linear infinite',
+          pointerEvents:'none',
+          opacity:allDone ? 0.35 : 0.75,
+        }}>
+          <div style={{ width:'100%', height:'100%', borderRadius:23, background:'transparent' }}/>
+        </div>
+        <div style={{
+          position:'absolute', inset:1, borderRadius:23,
+          background:'linear-gradient(180deg, rgba(255,255,255,0.02), transparent 60%)',
+          pointerEvents:'none',
+        }}/>
         {/* Label */}
-        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10}}>
-          <span style={{fontSize:10,fontWeight:800,letterSpacing:'1.8px',
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:14,marginBottom:12,position:'relative'}}>
+          <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+            <span style={{fontSize:10,fontWeight:800,letterSpacing:'1.8px',
             color:allDone?T.teal:T.textMuted,textTransform:'uppercase'}}>
-            Day {dayNumber} Mission
-          </span>
-          {allDone && (
-            <span style={{fontSize:10,fontWeight:700,color:T.ink,
-              background:T.teal,padding:'2px 8px',borderRadius:9999}}>Complete</span>
-          )}
+              Day {dayNumber} Mission
+            </span>
+            {allDone && (
+              <span style={{fontSize:10,fontWeight:700,color:T.ink,
+                background:T.teal,padding:'2px 8px',borderRadius:9999}}>Complete</span>
+            )}
+          </div>
+          <MiniProgressRing
+            size={40}
+            value={completed}
+            total={Math.max(total, 1)}
+            stroke="var(--theme-primary)"
+            track="rgba(255,255,255,0.08)"
+            label={`${completed}/${total}`}
+            labelColor={allDone ? T.teal : T.textSec}
+            textSize={10}
+          />
         </div>
 
         {/* Title */}
-        <h1 style={{fontSize:22,fontWeight:800,color:T.text,
-          letterSpacing:'-0.5px',lineHeight:1.2,marginBottom:12}}>
+        <h1 style={{fontSize:18,fontWeight:800,color:T.text,
+          letterSpacing:'-0.3px',lineHeight:1.25,marginBottom:14,position:'relative'}}>
           {concept}
         </h1>
 
         {/* Meta */}
-        <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:14,flexWrap:'wrap'}}>
+        <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:14,flexWrap:'wrap',position:'relative'}}>
           {totalMin > 0 && (
             <span style={{display:'flex',alignItems:'center',gap:4,
               fontSize:12,color:T.textMuted,fontWeight:600}}>
@@ -334,7 +424,7 @@ function MissionHeroCard({ todayRow, tasks, dayNumber }) {
             </span>
           )}
           <span style={{display:'flex',alignItems:'center',gap:4,
-            fontSize:12,color:'#FBBF24',fontWeight:700}}>
+            fontSize:12,color:'#FCD34D',fontWeight:800}}>
             <BoltIcon />+{reward} XP
           </span>
           <span style={{fontSize:12,color:T.textMuted,fontWeight:600}}>
@@ -343,7 +433,7 @@ function MissionHeroCard({ todayRow, tasks, dayNumber }) {
         </div>
 
         {/* Progress bar */}
-        <div style={{display:'flex',alignItems:'center',gap:10}}>
+        <div style={{display:'flex',alignItems:'center',gap:10,position:'relative'}}>
           <div style={{flex:1,height:6,background:'rgba(255,255,255,0.06)',
             borderRadius:9999,overflow:'hidden'}}>
             <div style={{
@@ -365,7 +455,7 @@ function MissionHeroCard({ todayRow, tasks, dayNumber }) {
 // ─── Energy Selector ───────────────────────────────────────────────────────────
 function EnergySelector({ value, onChange }) {
   return (
-    <div style={{maxWidth:600,margin:'0 auto',padding:'14px 20px 0'}}>
+    <div style={{maxWidth:600,margin:'0 auto',padding:'0 20px'}}>
       <div style={{fontSize:11,fontWeight:700,color:T.textMuted,
         textTransform:'uppercase',letterSpacing:'1.2px',marginBottom:8}}>
         Energy today
@@ -642,7 +732,7 @@ function TomorrowPreview({ tomorrowRow }) {
   if (!tomorrowRow) return null
   const name = tomorrowRow.covered_topics?.[0] || `Day ${tomorrowRow.day_number}`
   return (
-    <div style={{maxWidth:600,margin:'0 auto',padding:'10px 20px 0'}}>
+    <div style={{maxWidth:600,margin:'0 auto',padding:'0 20px'}}>
       <div style={{
         background:T.surface, border:`1px solid ${T.border}`,
         borderRadius:14, padding:'12px 16px',
@@ -1835,6 +1925,9 @@ export default function Dashboard() {
 
   const doneRows   = allRows.filter(r => r.completion_status === 'completed').length
   const totalRows  = allRows.length
+  const shortGoalText = goal?.goal_text
+    ? (goal.goal_text.length > 20 ? `${goal.goal_text.slice(0, 20)}…` : goal.goal_text)
+    : 'Your path'
   const totalMins  = allRows.reduce((acc,r) => {
     const t = Array.isArray(r.tasks)?r.tasks:[]
     return acc + t.filter(tk=>tk.completed).reduce((s,tk)=>s+(Number(tk.durationMin)||0),0)
@@ -2248,99 +2341,96 @@ export default function Dashboard() {
         {/* ── Sticky top bar ── */}
         <div style={{
           position:'sticky',top:0,zIndex:60,
-          background:T.chrome,
-          backdropFilter:'blur(28px) saturate(200%)',
-          WebkitBackdropFilter:'blur(28px) saturate(200%)',
-          borderBottom:`1px solid ${T.border}`,
+          background:'rgba(5,6,8,0.92)',
+          backdropFilter:'blur(20px) saturate(180%)',
+          WebkitBackdropFilter:'blur(20px) saturate(180%)',
+          borderBottom:'1px solid rgba(14,245,194,0.06)',
         }}>
-          <div style={{maxWidth:600,margin:'0 auto',height:60,
-            display:'flex',alignItems:'center',gap:12,padding:'0 20px'}}>
-            {/* Goal (tap to open goals sidebar) */}
+          <div style={{maxWidth:600,margin:'0 auto',height:56,
+            display:'flex',alignItems:'center',gap:14,padding:'0 20px',justifyContent:'space-between'}}>
             <button onClick={() => setShowGoalsSidebar(true)} style={{
-              flex:1,minWidth:0,background:'none',border:'none',
+              minWidth:0,maxWidth:'48%',background:'none',border:'none',
               cursor:'pointer',fontFamily:T.font,textAlign:'left',padding:0,
+              display:'flex',alignItems:'center',gap:10,
             }}>
+              <PathBoltLogo />
               <div style={{
-                fontSize:14,fontWeight:700,color:T.text,
-                whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',
-                display:'flex',alignItems:'center',gap:5,
+                minWidth:0,
               }}>
-                {goal.goal_text}
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={T.textMuted} strokeWidth="2.5" strokeLinecap="round"><polyline points="6 9 12 15 18 9"/></svg>
-              </div>
-              {totalRows > 0 && (
-                <div style={{display:'flex',alignItems:'center',gap:6,marginTop:2}}>
-                  <div style={{width:80,height:3,background:'rgba(255,255,255,0.06)',
-                    borderRadius:9999,overflow:'hidden'}}>
-                    <div style={{height:'100%',
-                      width:`${(totalDaysPlanned||totalRows)>0?(doneRows/(totalDaysPlanned||totalRows))*100:0}%`,
-                      background:T.primaryGradientSoft,
-                      borderRadius:9999,transition:'width 0.5s'}}/>
-                  </div>
-                  <span style={{fontSize:10,color:T.textMuted,fontWeight:600}}>
-                    {doneRows}/{totalDaysPlanned||totalRows}d
-                  </span>
+                <div style={{
+                  fontSize:14,fontWeight:800,color:T.text,
+                  whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',
+                  display:'flex',alignItems:'center',gap:5,
+                }}>
+                  {shortGoalText}
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={T.textMuted} strokeWidth="2.5" strokeLinecap="round"><polyline points="6 9 12 15 18 9"/></svg>
                 </div>
-              )}
+              </div>
             </button>
 
-            {/* Streak */}
-            {streakData.current > 0 && (
-              <div style={{display:'flex',alignItems:'center',gap:4,
-                padding:'5px 10px',background:T.flameDim,
-                border:`1px solid ${T.flameBorder}`,borderRadius:9999}}>
+            <div style={{display:'flex',alignItems:'center',gap:12,flexShrink:0}}>
+              <button onClick={() => setActiveTab('shop')} style={{
+                display:'flex',alignItems:'center',gap:6,
+                padding:'6px 10px',background:T.tealDim,
+                border:`1px solid ${T.tealBorder}`,borderRadius:9999,
+                cursor:'pointer',fontFamily:T.font,position:'relative',
+              }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                  style={{animation:gemPulse?'gemPulse 0.3s ease':'none'}}>
+                  <path d="M6 3L2 9l10 12L22 9l-4-6H6z" fill={T.teal} opacity="0.85"/>
+                  <path d="M12 3l-2 6h4l-2-6z" fill="#fff" opacity="0.25"/>
+                  <path d="M6 3L2 9l10 12L22 9l-4-6H6z" stroke={T.teal} strokeWidth="1.5" fill="none"/>
+                </svg>
+                <span style={{
+                  fontSize:13,fontWeight:800,color:T.teal,
+                  fontFamily:T.fontMono,
+                  animation:gemPulse?'gemPulse 0.3s ease':'none',
+                }}>{gems}</span>
+                {gemToasts.map(t => (
+                  <span key={t.id}
+                    onAnimationEnd={() => setGemToasts(prev => prev.filter(x => x.id !== t.id))}
+                    style={{
+                      position:'absolute',top:-8,right:0,
+                      fontSize:12,fontWeight:800,color:T.teal,
+                      animation:'gemFloat 1.2s ease-out forwards',
+                      pointerEvents:'none',whiteSpace:'nowrap',
+                    }}>+{t.amount} 💎</span>
+                ))}
+              </button>
+
+              <button onClick={() => setActiveTab('settings')} style={{
+                display:'flex',alignItems:'center',padding:0,background:'none',border:'none',
+                cursor:'pointer',fontFamily:T.font,
+              }}>
+                <HeartBar hearts={heartsRemaining} prevHearts={prevHearts} maxHearts={maxHearts} />
+              </button>
+
+              <button onClick={() => setActiveTab('stats')} style={{
+                display:'flex',alignItems:'center',gap:4,
+                padding:'6px 10px',background:T.flameDim,
+                border:`1px solid ${T.flameBorder}`,borderRadius:9999,
+                cursor:'pointer',fontFamily:T.font,
+              }}>
                 <StreakFlame streak={streakData.current} size={18} />
                 <span style={{fontSize:13,fontWeight:800,color:T.flame}}>{streakData.current}</span>
-              </div>
-            )}
+              </button>
 
-            {/* Hearts */}
-            <HeartBar hearts={heartsRemaining} prevHearts={prevHearts} maxHearts={maxHearts} />
-
-            {/* Gems */}
-            <button onClick={() => setActiveTab('shop')} style={{
-              display:'flex',alignItems:'center',gap:4,
-              padding:'5px 10px',background:T.tealDim,
-              border:`1px solid ${T.tealBorder}`,borderRadius:9999,
-              cursor:'pointer',fontFamily:T.font,position:'relative',
-            }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                style={{animation:gemPulse?'gemPulse 0.3s ease':'none'}}>
-                <path d="M6 3L2 9l10 12L22 9l-4-6H6z" fill={T.teal} opacity="0.85"/>
-                <path d="M12 3l-2 6h4l-2-6z" fill="#fff" opacity="0.25"/>
-                <path d="M6 3L2 9l10 12L22 9l-4-6H6z" stroke={T.teal} strokeWidth="1.5" fill="none"/>
-              </svg>
-              <span style={{
-                fontSize:13,fontWeight:800,color:T.teal,
-                fontFamily:T.fontMono,
-                animation:gemPulse?'gemPulse 0.3s ease':'none',
-              }}>{gems}</span>
-              {/* Floating gem toasts */}
-              {gemToasts.map(t => (
-                <span key={t.id}
-                  onAnimationEnd={() => setGemToasts(prev => prev.filter(x => x.id !== t.id))}
-                  style={{
-                    position:'absolute',top:-8,right:0,
-                    fontSize:12,fontWeight:800,color:T.teal,
-                    animation:'gemFloat 1.2s ease-out forwards',
-                    pointerEvents:'none',whiteSpace:'nowrap',
-                  }}>+{t.amount} 💎</span>
-              ))}
-            </button>
-
-            {/* Level */}
-            <div style={{display:'flex',alignItems:'center',gap:6,
-              padding:'5px 10px',background:T.masteryDim,
-              border:`1px solid ${T.masteryBorder}`,borderRadius:9999}}>
-              <div style={{
-                width:20,height:20,borderRadius:'50%',
-                background:T.masteryGradient,
+              <button onClick={() => setActiveTab('stats')} style={{
                 display:'flex',alignItems:'center',justifyContent:'center',
-                fontWeight:900,fontSize:10,color:'#fff',
-              }}>{xpDisplay.level}</div>
-              <span style={{fontSize:12,fontWeight:700,color:T.mastery}}>
-                {xpDisplay.title}
-              </span>
+                width:28,height:28,padding:0,background:'none',border:'none',
+                cursor:'pointer',fontFamily:T.font,
+              }}>
+                <MiniProgressRing
+                  size={24}
+                  value={xpDisplay.xpInLevel}
+                  total={xpDisplay.xpForLevel}
+                  stroke="var(--theme-mastery)"
+                  track="rgba(129,140,248,0.12)"
+                  label={xpDisplay.level}
+                  labelColor="#fff"
+                  textSize={9}
+                />
+              </button>
             </div>
           </div>
         </div>
@@ -2360,38 +2450,41 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Double XP banner */}
-        {boostTimeLeft > 0 && (
-          <div style={{maxWidth:600,margin:'8px auto 0',padding:'0 20px'}}>
-            <div style={{
-              background:'linear-gradient(90deg,rgba(251,191,36,0.10),rgba(14,245,194,0.08))',
-              border:'1px solid rgba(251,191,36,0.22)',
-              borderRadius:12,padding:'10px 16px',
-              display:'flex',alignItems:'center',justifyContent:'space-between',
-              animation:'pulseActive 2s ease-in-out infinite',
-            }}>
-              <div style={{display:'flex',alignItems:'center',gap:8}}>
-                <span style={{fontSize:16}}>⚡</span>
-                <span style={{fontSize:13,fontWeight:700,color:'#FBBF24'}}>2x XP Active</span>
-              </div>
-              <span style={{fontSize:14,fontWeight:800,color:'#FBBF24',fontFamily:T.fontMono}}>
-                {Math.floor(boostTimeLeft/60)}:{String(boostTimeLeft%60).padStart(2,'0')}
-              </span>
-            </div>
-          </div>
-        )}
-
         {/* ══════════════════════════════════════════════════════════════ */}
         {/* HOME TAB                                                       */}
         {/* ══════════════════════════════════════════════════════════════ */}
         {activeTab === 'home' && (
           <>
-            <XPLevelBar {...xpDisplay} animating={xpAnimating}/>
-            <MissionHeroCard todayRow={todayRow} tasks={tasks} dayNumber={dayNumber}/>
-            <EnergySelector value={energy} onChange={handleEnergyChange}/>
+            <StaggerBlock index={0}>
+              <XPLevelBar {...xpDisplay} animating={xpAnimating}/>
+            </StaggerBlock>
+
+            {boostTimeLeft > 0 && (
+              <StaggerBlock index={1}>
+                <div style={{maxWidth:600,margin:'0 auto',padding:'0 20px'}}>
+                  <div style={{
+                    background:'linear-gradient(90deg,rgba(251,191,36,0.12),rgba(14,245,194,0.10),rgba(0,212,255,0.10))',
+                    border:'1px solid rgba(251,191,36,0.22)',
+                    borderRadius:16,padding:'12px 16px',
+                    display:'flex',alignItems:'center',justifyContent:'space-between',
+                    animation:'pulseActive 2s ease-in-out infinite',
+                    boxShadow:'0 0 30px rgba(251,191,36,0.08)',
+                  }}>
+                    <div style={{display:'flex',alignItems:'center',gap:8}}>
+                      <span style={{fontSize:16}}>⚡</span>
+                      <span style={{fontSize:13,fontWeight:800,color:'#FBBF24'}}>Double XP is live</span>
+                    </div>
+                    <span style={{fontSize:14,fontWeight:800,color:'#FBBF24',fontFamily:T.fontMono}}>
+                      {Math.floor(boostTimeLeft/60)}:{String(boostTimeLeft%60).padStart(2,'0')}
+                    </span>
+                  </div>
+                </div>
+              </StaggerBlock>
+            )}
 
             {/* ── Weekly Challenge ── */}
             {weeklyChallenge && (
+              <StaggerBlock index={2}>
               <div style={{maxWidth:600,margin:'12px auto 0',padding:'0 20px'}}>
                 <div style={{
                   background: weeklyChallenge.completed
@@ -2462,10 +2555,12 @@ export default function Dashboard() {
                   </div>
                 </div>
               </div>
+              </StaggerBlock>
             )}
 
             {/* ── Daily Quests ── */}
             {quests.length > 0 && (
+              <StaggerBlock index={3}>
               <div style={{maxWidth:600,margin:'12px auto 0',padding:'0 20px'}}>
                 <div style={{
                   background:T.surface,border:`1px solid ${T.border}`,
@@ -2543,104 +2638,115 @@ export default function Dashboard() {
                   )}
                 </div>
               </div>
+              </StaggerBlock>
             )}
 
+            <StaggerBlock index={4}>
+              <MissionHeroCard todayRow={todayRow} tasks={tasks} dayNumber={dayNumber}/>
+            </StaggerBlock>
+
             {/* ── Reward Calendar ── */}
-            <div style={{maxWidth:600,margin:'12px auto 0',padding:'0 20px'}}>
-              <div style={{
-                background:T.surface,border:`1px solid ${T.border}`,
-                borderRadius:20,padding:'16px 18px',
-                backdropFilter:'blur(16px)',WebkitBackdropFilter:'blur(16px)',
-              }}>
-                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
-                  <div style={{display:'flex',alignItems:'center',gap:8}}>
-                    <span style={{fontSize:16}}>📅</span>
-                    <span style={{fontSize:12,fontWeight:800,letterSpacing:'1px',color:T.textSec,textTransform:'uppercase'}}>
-                      Weekly Rewards
-                    </span>
+            <StaggerBlock index={5}>
+              <div style={{maxWidth:600,margin:'12px auto 0',padding:'0 20px'}}>
+                <div style={{
+                  background:T.surface,border:`1px solid ${T.border}`,
+                  borderRadius:20,padding:'16px 18px',
+                  backdropFilter:'blur(16px)',WebkitBackdropFilter:'blur(16px)',
+                }}>
+                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
+                    <div style={{display:'flex',alignItems:'center',gap:8}}>
+                      <span style={{fontSize:16}}>📅</span>
+                      <span style={{fontSize:12,fontWeight:800,letterSpacing:'1px',color:T.textSec,textTransform:'uppercase'}}>
+                        Weekly Rewards
+                      </span>
+                    </div>
+                    {rewardCalendar.days_claimed?.length === 7 && (
+                      <span style={{fontSize:11,fontWeight:700,color:'#FFD700'}}>Perfect Week! +50 💎</span>
+                    )}
                   </div>
-                  {rewardCalendar.days_claimed?.length === 7 && (
-                    <span style={{fontSize:11,fontWeight:700,color:'#FFD700'}}>Perfect Week! +50 💎</span>
-                  )}
-                </div>
-                <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:6}}>
-                  {CAL_DAYS.map((day, i) => {
-                    const claimed = rewardCalendar.days_claimed?.includes(i)
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:6}}>
+                    {CAL_DAYS.map((day, i) => {
+                      const claimed = rewardCalendar.days_claimed?.includes(i)
+                      const todayIdx = new Date().getDay()
+                      const calToday = todayIdx === 0 ? 6 : todayIdx - 1
+                      const isToday = i === calToday
+                      const isPast = i < calToday
+                      const missed = isPast && !claimed
+                      const isSunday = i === 6
+
+                      return (
+                        <div key={i}
+                          onClick={isToday && !claimed ? handleClaimReward : undefined}
+                          style={{
+                            display:'flex',flexDirection:'column',alignItems:'center',gap:4,
+                            cursor: isToday && !claimed ? 'pointer' : 'default',
+                          }}>
+                          <div style={{
+                            width: isSunday ? 40 : 36, height: isSunday ? 40 : 36,
+                            borderRadius:'50%',
+                            background: claimed ? T.primaryGradient
+                              : isToday ? 'rgba(14,245,194,0.06)'
+                              : missed ? 'rgba(255,255,255,0.02)'
+                              : 'rgba(255,255,255,0.03)',
+                            border: claimed ? `2px solid ${T.teal}`
+                              : isToday ? '2px solid rgba(14,245,194,0.50)'
+                              : isSunday && !missed ? '2px solid rgba(255,215,0,0.30)'
+                              : `1px solid ${missed ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.08)'}`,
+                            display:'flex',alignItems:'center',justifyContent:'center',
+                            animation: isToday && !claimed ? 'pulseActive 2s ease-in-out infinite' : 'none',
+                            transition:'all 0.2s',
+                            boxShadow: claimed ? '0 0 10px rgba(14,245,194,0.30)' : 'none',
+                          }}>
+                            {claimed ? (
+                              <span style={{fontSize:14,color:T.ink,fontWeight:900}}>✓</span>
+                            ) : missed ? (
+                              <span style={{fontSize:11,color:T.textDead}}>✕</span>
+                            ) : isSunday ? (
+                              <span style={{fontSize:14}}>🎁</span>
+                            ) : (
+                              <span style={{
+                                fontSize:11,fontWeight:700,
+                                color: isToday ? T.teal : T.textMuted,
+                              }}>{CAL_REWARDS[i]}</span>
+                            )}
+                          </div>
+                          <span style={{
+                            fontSize:9,fontWeight:700,letterSpacing:'0.5px',
+                            color: claimed ? T.teal : isToday ? T.textSec : T.textMuted,
+                          }}>{day}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  {/* Claim CTA for today */}
+                  {(() => {
                     const todayIdx = new Date().getDay()
                     const calToday = todayIdx === 0 ? 6 : todayIdx - 1
-                    const isToday = i === calToday
-                    const isPast = i < calToday
-                    const missed = isPast && !claimed
-                    const isSunday = i === 6
-
+                    const alreadyClaimed = rewardCalendar.days_claimed?.includes(calToday)
+                    if (alreadyClaimed) return null
                     return (
-                      <div key={i}
-                        onClick={isToday && !claimed ? handleClaimReward : undefined}
-                        style={{
-                          display:'flex',flexDirection:'column',alignItems:'center',gap:4,
-                          cursor: isToday && !claimed ? 'pointer' : 'default',
-                        }}>
-                        <div style={{
-                          width: isSunday ? 40 : 36, height: isSunday ? 40 : 36,
-                          borderRadius:'50%',
-                          background: claimed ? T.primaryGradient
-                            : isToday ? 'rgba(14,245,194,0.06)'
-                            : missed ? 'rgba(255,255,255,0.02)'
-                            : 'rgba(255,255,255,0.03)',
-                          border: claimed ? `2px solid ${T.teal}`
-                            : isToday ? '2px solid rgba(14,245,194,0.50)'
-                            : isSunday && !missed ? '2px solid rgba(255,215,0,0.30)'
-                            : `1px solid ${missed ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.08)'}`,
-                          display:'flex',alignItems:'center',justifyContent:'center',
-                          animation: isToday && !claimed ? 'pulseActive 2s ease-in-out infinite' : 'none',
-                          transition:'all 0.2s',
-                          boxShadow: claimed ? '0 0 10px rgba(14,245,194,0.30)' : 'none',
-                        }}>
-                          {claimed ? (
-                            <span style={{fontSize:14,color:T.ink,fontWeight:900}}>✓</span>
-                          ) : missed ? (
-                            <span style={{fontSize:11,color:T.textDead}}>✕</span>
-                          ) : isSunday ? (
-                            <span style={{fontSize:14}}>🎁</span>
-                          ) : (
-                            <span style={{
-                              fontSize:11,fontWeight:700,
-                              color: isToday ? T.teal : T.textMuted,
-                            }}>{CAL_REWARDS[i]}</span>
-                          )}
-                        </div>
-                        <span style={{
-                          fontSize:9,fontWeight:700,letterSpacing:'0.5px',
-                          color: claimed ? T.teal : isToday ? T.textSec : T.textMuted,
-                        }}>{day}</span>
-                      </div>
+                      <button onClick={handleClaimReward} disabled={claimingReward} style={{
+                        width:'100%',marginTop:12,padding:'10px',
+                        background:'rgba(14,245,194,0.08)',border:`1px solid ${T.tealBorder}`,
+                        borderRadius:12,color:T.teal,fontSize:13,fontWeight:700,
+                        cursor:claimingReward?'default':'pointer',fontFamily:T.font,
+                        display:'flex',alignItems:'center',justifyContent:'center',gap:6,
+                      }}>
+                        {claimingReward ? (
+                          <div style={{width:12,height:12,border:`2px solid ${T.teal}`,borderTopColor:'transparent',borderRadius:'50%',animation:'spin 0.6s linear infinite'}}/>
+                        ) : (
+                          <>Claim today's reward: +{CAL_REWARDS[calToday]} 💎</>
+                        )}
+                      </button>
                     )
-                  })}
+                  })()}
                 </div>
-                {/* Claim CTA for today */}
-                {(() => {
-                  const todayIdx = new Date().getDay()
-                  const calToday = todayIdx === 0 ? 6 : todayIdx - 1
-                  const alreadyClaimed = rewardCalendar.days_claimed?.includes(calToday)
-                  if (alreadyClaimed) return null
-                  return (
-                    <button onClick={handleClaimReward} disabled={claimingReward} style={{
-                      width:'100%',marginTop:12,padding:'10px',
-                      background:'rgba(14,245,194,0.08)',border:`1px solid ${T.tealBorder}`,
-                      borderRadius:12,color:T.teal,fontSize:13,fontWeight:700,
-                      cursor:claimingReward?'default':'pointer',fontFamily:T.font,
-                      display:'flex',alignItems:'center',justifyContent:'center',gap:6,
-                    }}>
-                      {claimingReward ? (
-                        <div style={{width:12,height:12,border:`2px solid ${T.teal}`,borderTopColor:'transparent',borderRadius:'50%',animation:'spin 0.6s linear infinite'}}/>
-                      ) : (
-                        <>Claim today's reward: +{CAL_REWARDS[calToday]} 💎</>
-                      )}
-                    </button>
-                  )
-                })()}
               </div>
-            </div>
+            </StaggerBlock>
+
+            <StaggerBlock index={6}>
+              <EnergySelector value={energy} onChange={handleEnergyChange}/>
+            </StaggerBlock>
 
             {/* ── Quest Master Toast ── */}
             {questMasterToast && (
@@ -2704,6 +2810,7 @@ export default function Dashboard() {
 
             {/* Mastery decay warning */}
             {decayingConcepts.length > 0 && (
+              <StaggerBlock index={7}>
               <div style={{maxWidth:600,margin:'0 auto',padding:'10px 20px 0'}}>
                 <div style={{
                   padding:'14px 16px',borderRadius:16,
@@ -2723,48 +2830,53 @@ export default function Dashboard() {
                   </div>
                 </div>
               </div>
+              </StaggerBlock>
             )}
 
             {/* Task list */}
-            <div style={{maxWidth:600,margin:'0 auto',padding:'14px 20px 0',display:'grid',gap:10}}>
-              {todayRow ? visibleTasks.length > 0 ? (
-                visibleTasks.map((task, i) => (
-                  <TaskItem key={task.id} task={task} isCompleting={completing}
-                    onComplete={completeTask}
-                    onOpenLesson={t => {
-                      if (heartsRemaining === 0) { setShowNoHearts(true); return }
-                      setShowLesson({ ...t, _concept: todayRow?.covered_topics?.[0] || t.title })
-                    }}
-                    onPreview={t => setPreviewTask(t)}
-                    index={i}/>
-                ))
-              ) : (
-                <div style={{textAlign:'center',padding:'40px 0',color:T.textMuted,fontSize:14}}>
-                  {tasks.every(t=>t.completed)
-                    ? 'All tasks complete. Great work today. 🎯'
-                    : 'No tasks available.'}
-                </div>
-              ) : (
-                <div style={{textAlign:'center',padding:'40px 0',color:T.textMuted,fontSize:14}}>
-                  Your plan is being generated...
-                </div>
-              )}
+            <StaggerBlock index={8}>
+              <div style={{maxWidth:600,margin:'0 auto',padding:'14px 20px 0',display:'grid',gap:10}}>
+                {todayRow ? visibleTasks.length > 0 ? (
+                  visibleTasks.map((task, i) => (
+                    <TaskItem key={task.id} task={task} isCompleting={completing}
+                      onComplete={completeTask}
+                      onOpenLesson={t => {
+                        if (heartsRemaining === 0) { setShowNoHearts(true); return }
+                        setShowLesson({ ...t, _concept: todayRow?.covered_topics?.[0] || t.title })
+                      }}
+                      onPreview={t => setPreviewTask(t)}
+                      index={i}/>
+                  ))
+                ) : (
+                  <div style={{textAlign:'center',padding:'40px 0',color:T.textMuted,fontSize:14}}>
+                    {tasks.every(t=>t.completed)
+                      ? 'All tasks complete. Great work today. 🎯'
+                      : 'No tasks available.'}
+                  </div>
+                ) : (
+                  <div style={{textAlign:'center',padding:'40px 0',color:T.textMuted,fontSize:14}}>
+                    Your plan is being generated...
+                  </div>
+                )}
 
-              {energy === 'drained' && (
-                <div style={{textAlign:'center',padding:'8px 0',color:T.textMuted,fontSize:13}}>
-                  Rest day — just stay in the habit 🌙
-                </div>
-              )}
-              {hiddenCount > 0 && energy !== 'drained' && (
-                <p style={{textAlign:'center',fontSize:12,color:T.textMuted,padding:'4px 0'}}>
-                  {hiddenCount} more task{hiddenCount>1?'s':''} available when you have more energy
-                </p>
-              )}
-            </div>
+                {energy === 'drained' && (
+                  <div style={{textAlign:'center',padding:'8px 0',color:T.textMuted,fontSize:13}}>
+                    Rest day — just stay in the habit 🌙
+                  </div>
+                )}
+                {hiddenCount > 0 && energy !== 'drained' && (
+                  <p style={{textAlign:'center',fontSize:12,color:T.textMuted,padding:'4px 0'}}>
+                    {hiddenCount} more task{hiddenCount>1?'s':''} available when you have more energy
+                  </p>
+                )}
+              </div>
+            </StaggerBlock>
 
             {/* Tomorrow preview */}
             {!isTodayComplete && (
-              <TomorrowPreview tomorrowRow={tomorrowRow}/>
+              <StaggerBlock index={9}>
+                <TomorrowPreview tomorrowRow={tomorrowRow}/>
+              </StaggerBlock>
             )}
 
             {/* Start a Project — manual trigger */}
