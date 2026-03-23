@@ -1,8 +1,8 @@
 // Login page — iOS Liquid Glass Edition
 'use client'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 
 export default function Login() {
@@ -13,6 +13,15 @@ export default function Login() {
   const [error, setError] = useState('')
   const [focused, setFocused] = useState(null)
   const router = useRouter()
+  const searchParams = useSearchParams()
+
+  useEffect(() => {
+    const requestedMode = searchParams.get('mode')
+    if (requestedMode === 'signup' || requestedMode === 'login') {
+      setMode(requestedMode)
+      setError('')
+    }
+  }, [searchParams])
 
   const handleAuth = async (e) => {
     e.preventDefault()

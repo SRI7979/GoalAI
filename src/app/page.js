@@ -146,7 +146,7 @@ export default function Home() {
               margin: '0 auto 40px',
               fontWeight: 400,
             }}>
-              Stop drowning in tutorials you'll never finish. PathAI gives you one clear task each day — watch this, build this, review this. Miss a day? We adapt. You just show up.
+              Stop drowning in tutorials you&apos;ll never finish. PathAI gives you one clear task each day — watch this, build this, review this. Miss a day? We adapt. You just show up.
             </p>
 
             {/* CTAs */}
@@ -182,6 +182,28 @@ export default function Home() {
                 <span style={{ color: '#0ef5c2', fontWeight: 800, fontSize: 15 }}>$12</span>
                 <span style={{ color: '#636366', fontSize: 14, fontWeight: 500 }}>/mo · Cancel anytime</span>
               </div>
+            </div>
+
+            <div style={{ marginTop: 16 }}>
+              <Link href="/demo" style={{
+                display:'inline-flex',
+                alignItems:'center',
+                gap:8,
+                padding:'12px 18px',
+                borderRadius:14,
+                border:'1px solid rgba(255,255,255,0.14)',
+                background:'rgba(255,255,255,0.04)',
+                color:'#cfd4db',
+                fontSize:14,
+                fontWeight:700,
+                textDecoration:'none',
+                backdropFilter:'blur(20px) saturate(180%)',
+                WebkitBackdropFilter:'blur(20px) saturate(180%)',
+                boxShadow:'inset 0 1px 0 rgba(255,255,255,0.16)',
+              }}>
+                Try a lesson
+                <span style={{ color:'#8e8e93', fontWeight:600 }}>no account needed</span>
+              </Link>
             </div>
           </div>
 

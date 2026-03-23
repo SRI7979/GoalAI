@@ -346,7 +346,7 @@ function QuizView({ quiz, onComplete, onWrongAnswer, onCorrectAnswer, comboCount
 
 
 // ─── Main Lesson Viewer ──────────────────────────────────────────────────────
-export default function LessonViewer({ concept, taskTitle, goal, knowledge, lessonKey, aiMode = 'hint', onClose, onComplete, onHeartLost }) {
+export default function LessonViewer({ concept, taskTitle, goal, knowledge, lessonKey, presetLesson = null, aiMode = 'hint', onClose, onComplete, onHeartLost }) {
   const [loading, setLoading]               = useState(true)
   const [error, setError]                   = useState('')
   const [slides, setSlides]                 = useState([])
@@ -374,6 +374,12 @@ export default function LessonViewer({ concept, taskTitle, goal, knowledge, less
     async function load() {
       startTimeRef.current = Date.now()
       setLoading(true); setError(''); setShowQuiz(false); setCurrent(0)
+      if (presetLesson && Array.isArray(presetLesson.slides) && presetLesson.slides.length > 0) {
+        setSlides(presetLesson.slides)
+        setQuiz(presetLesson.quiz || null)
+        setLoading(false)
+        return
+      }
       if (typeof window !== 'undefined') {
         try {
           const cachedRaw = window.localStorage.getItem(cacheKey)
@@ -386,7 +392,8 @@ export default function LessonViewer({ concept, taskTitle, goal, knowledge, less
         } catch (_) {}
       }
       try {
-        const res = await fetch('/api/lesson', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ concept, taskTitle, goal, knowledge }) })
+        const lessonKnowledge = knowledgeKey ? JSON.parse(knowledgeKey) : null
+        const res = await fetch('/api/lesson', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ concept, taskTitle, goal, knowledge: lessonKnowledge }) })
         const data = await res.json()
         if (data.slides) setSlides(data.slides)
         if (data.quiz)   setQuiz(data.quiz)
@@ -397,7 +404,7 @@ export default function LessonViewer({ concept, taskTitle, goal, knowledge, less
       setLoading(false)
     }
     load()
-  }, [concept, taskTitle, goal, knowledgeKey, cacheKey])
+  }, [concept, taskTitle, goal, knowledgeKey, cacheKey, presetLesson])
 
   const totalSlides = slides.length
   const isLastSlide = current === totalSlides - 1
