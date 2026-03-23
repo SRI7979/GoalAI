@@ -2,7 +2,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 
 export default function Login() {
@@ -13,15 +13,15 @@ export default function Login() {
   const [error, setError] = useState('')
   const [focused, setFocused] = useState(null)
   const router = useRouter()
-  const searchParams = useSearchParams()
 
   useEffect(() => {
-    const requestedMode = searchParams.get('mode')
+    if (typeof window === 'undefined') return
+    const requestedMode = new URLSearchParams(window.location.search).get('mode')
     if (requestedMode === 'signup' || requestedMode === 'login') {
       setMode(requestedMode)
       setError('')
     }
-  }, [searchParams])
+  }, [])
 
   const handleAuth = async (e) => {
     e.preventDefault()
