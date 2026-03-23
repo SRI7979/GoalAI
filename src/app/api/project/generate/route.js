@@ -1,5 +1,7 @@
 import { getSupabaseServerClient } from '@/lib/supabaseServer'
 import { detectSkillType, getVerificationType } from '@/lib/skillTypes'
+import { buildProjectProofSummary, getProjectVerificationPlan } from '@/lib/projectProof'
+import { ensureProjectProgress, normalizeProjectSteps } from '@/lib/projectVerification'
 
 function extractAccessToken(request) {
   const authHeader = request.headers.get('authorization') || request.headers.get('Authorization')
@@ -100,11 +102,122 @@ const SKILL_VARIANTS = {
   ],
 }
 
+function buildPerformanceProfile(previousProjects = [], skillType) {
+  const relevantProjects = previousProjects.filter((project) => (project.skill_type || skillType) === skillType)
+  const sample = relevantProjects.length > 0 ? relevantProjects : previousProjects
+  const completedCount = sample.length
+  const reviewed = sample.filter((project) => project.ai_review?.overall_score)
+  const avgScore = reviewed.length > 0
+    ? Math.round(reviewed.reduce((sum, project) => sum + (project.ai_review?.overall_score || 0), 0) / reviewed.length)
+    : null
+  const authenticityProjects = sample.filter((project) => Number.isFinite(Number(project.authenticity_score)))
+  const avgAuthenticity = authenticityProjects.length > 0
+    ? Math.round(authenticityProjects.reduce((sum, project) => sum + (project.authenticity_score || 0), 0) / authenticityProjects.length)
+    : null
+
+  let supportLevel = 'moderate'
+  let stretchDirection = 'slightly harder than their recent work'
+  if ((avgScore !== null && avgScore < 72) || (avgAuthenticity !== null && avgAuthenticity < 65)) {
+    supportLevel = 'high'
+    stretchDirection = 'challenging but scaffolded, with visible quick wins'
+  } else if ((avgScore !== null && avgScore >= 86) && (avgAuthenticity === null || avgAuthenticity >= 78)) {
+    supportLevel = 'low'
+    stretchDirection = 'more independent and a bit more ambitious than usual'
+  }
+
+  return {
+    completedCount,
+    avgScore,
+    avgAuthenticity,
+    supportLevel,
+    stretchDirection,
+  }
+}
+
+function describeVariantContext(variant = {}) {
+  return variant.context || variant.domain || variant.scenario || variant.analysis || variant.elements || 'real-world application'
+}
+
+function inferRequiredOutput(step = {}, skillType = 'general') {
+  if (step.required_output) return step.required_output
+  if (step.requires_code) return 'Submit code that demonstrates the step works.'
+  if (step.requires_practice) return 'Complete the practice checklist and reflect on what improved.'
+  if (step.requires_response) {
+    if (skillType === 'language') return 'Submit your response in the target language with context-appropriate wording.'
+    if (skillType === 'math' || skillType === 'science') return 'Submit a step-by-step solution with reasoning, not just a final answer.'
+    if (skillType === 'design') return 'Describe the design choices you made and how they satisfy the brief.'
+    if (skillType === 'hardware') return 'Report observed outputs, readings, or expected behavior checks.'
+    return 'Submit the written output required for this step.'
+  }
+  return 'Produce the evidence needed to prove this step is complete.'
+}
+
+function inferVerificationFocus(step = {}, skillType = 'general') {
+  if (step.verification_focus) return step.verification_focus
+  if (step.requires_code) return 'Artifact + process verification through code checks and explain-your-choices prompts.'
+  if (step.requires_practice) return 'Process + defense verification through checklist completion and reflection.'
+  if (skillType === 'language') return 'Artifact + defense verification through language quality and scenario appropriateness.'
+  if (skillType === 'math' || skillType === 'science') return 'Artifact + defense verification through method quality and reasoning.'
+  if (skillType === 'design') return 'Artifact + defense verification through rationale, hierarchy, and usability thinking.'
+  if (skillType === 'hardware') return 'Artifact + process verification through expected behavior and troubleshooting logic.'
+  return 'Artifact + defense verification against the project brief.'
+}
+
+function normalizeProjectPayload(parsed = {}, skillType, variant, mode, performanceProfile) {
+  const estimatedMinutes = Math.max(45, Math.min(120, Number(parsed.estimated_minutes) || 60))
+  const rawSteps = Array.isArray(parsed.steps) ? parsed.steps : []
+  const stepCount = Math.max(rawSteps.length || 0, 1)
+  const preliminarySteps = rawSteps.slice(0, 10).map((step, index) => ({
+    id: step.id || `s${index + 1}`,
+    title: step.title || `Step ${index + 1}`,
+    description: step.description || 'Complete this part of the project.',
+    hint: step.hint || '',
+    concepts: Array.isArray(step.concepts) ? step.concepts : [],
+    checkpoint: Boolean(step.checkpoint),
+    requires_code: Boolean(step.requires_code),
+    requires_response: Boolean(step.requires_response),
+    requires_practice: Boolean(step.requires_practice),
+    response_prompt: step.response_prompt || null,
+    practice_checklist: Array.isArray(step.practice_checklist) ? step.practice_checklist : undefined,
+    min_words: Number.isFinite(Number(step.min_words)) ? Number(step.min_words) : undefined,
+    required_output: inferRequiredOutput(step, skillType),
+    verification_focus: inferVerificationFocus(step, skillType),
+    estimated_minutes: Math.max(5, Math.min(20, Number(step.estimated_minutes) || Math.round(estimatedMinutes / stepCount))),
+  }))
+  const steps = normalizeProjectSteps(preliminarySteps, {
+    skill_type: skillType,
+    concepts_tested: parsed.concepts_tested || [],
+  })
+
+  const verificationPlan = getProjectVerificationPlan(skillType, mode)
+  const realWorldContext = parsed.real_world_context || describeVariantContext(variant)
+  const finalDeliverable = parsed.final_deliverable || parsed.deliverables?.[0] || 'A polished, shareable final output that proves the skill.'
+  const shareSummary = parsed.share_summary || `${parsed.title || 'This project'} applies ${Array.isArray(parsed.concepts_tested) && parsed.concepts_tested.length > 0 ? parsed.concepts_tested.slice(0, 3).join(', ') : 'core concepts'} in a real-world scenario.`
+
+  return {
+    ...parsed,
+    estimated_minutes: estimatedMinutes,
+    steps,
+    real_world_context: realWorldContext,
+    final_deliverable: finalDeliverable,
+    verification_summary: parsed.verification_summary || verificationPlan.summary,
+    share_summary: shareSummary,
+    performance_profile: performanceProfile,
+  }
+}
+
 // ─── PROMPT BUILDER ──────────────────────────────────────────────────
-function buildPrompt(skillType, { goal, concepts, difficulty, variant, isBuildMode }) {
+function buildPrompt(skillType, { goal, concepts, difficulty, variant, isBuildMode, performanceProfile }) {
   const modeDesc = isBuildMode
     ? 'BUILD MODE — provide minimal step descriptions (1-2 sentences max), just goals and deliverables. The learner wants to figure it out themselves.'
     : 'GUIDED MODE — provide detailed step descriptions (3-5 sentences) with specific instructions.'
+  const learnerProfileBlock = `RECENT PERFORMANCE PROFILE:
+- Completed related projects: ${performanceProfile?.completedCount || 0}
+- Average AI review score: ${performanceProfile?.avgScore ?? 'N/A'}
+- Average authenticity score: ${performanceProfile?.avgAuthenticity ?? 'N/A'}
+- Support level: ${performanceProfile?.supportLevel || 'moderate'}
+- Stretch target: ${performanceProfile?.stretchDirection || 'slightly harder than recent work'}
+`
 
   // ── CODING (existing behavior, preserved) ──
   if (skillType === 'coding') {
@@ -116,15 +229,20 @@ DIFFICULTY: ${difficulty || 'beginner'}
 ESTIMATED TIME: 45-90 minutes
 PROJECT DOMAIN: Use "${variant.domain}" as the theme — the project should involve ${variant.items} with fields like ${variant.fields}
 MODE: ${modeDesc}
+${learnerProfileBlock}
 
 Return ONLY valid JSON:
 {
   "title": "Specific project name themed around ${variant.domain} (e.g., 'Build a ${variant.domain.charAt(0).toUpperCase() + variant.domain.slice(1)} Tracker' not 'Project 1')",
   "description": "2-3 sentence description of what the learner will build and why it matters",
   "skill_type": "coding",
+  "real_world_context": "Specific real-world reason this project matters",
   "difficulty": "${difficulty || 'beginner'}",
   "concepts_tested": ["concept1", "concept2"],
   "estimated_minutes": 60,
+  "final_deliverable": "Clear, tangible output the learner can share",
+  "verification_summary": "How this project will be verified",
+  "share_summary": "One sentence describing why this proves the learner's skill",
   "steps": [
     {
       "id": "s1",
@@ -133,23 +251,26 @@ Return ONLY valid JSON:
       "hint": "A helpful hint if the learner gets stuck",
       "concepts": ["which concepts this step practices"],
       "requires_code": true,
-      "checkpoint": ${isBuildMode ? 'true' : 'false'}
+      "checkpoint": ${isBuildMode ? 'true' : 'false'},
+      "required_output": "What must be produced for this step",
+      "verification_focus": "What the verifier should look for"
     }
   ],
-  "starter_code": "// Complete starter code template\\n// Include comments showing where to add code\\n// Must be REAL, runnable starting point",
-  "starter_language": "python",
+  "starter_code": "// Complete JavaScript starter code template\\n// Include comments showing where to add code\\n// Must be REAL, runnable starting point",
+  "starter_language": "javascript",
   "deliverables": ["What the finished project should include/demonstrate"],
   "success_criteria": "How to know the project is complete and correct"
 }
 
 RULES:
-- Generate 5-8 specific, actionable steps
+- Generate 6-10 specific, actionable steps
 - Steps should build on each other progressively
-- Starter code must be complete and runnable as-is
+- Starter code must be complete and runnable as-is in JavaScript
 - The project should produce something tangible the learner can show
 - Difficulty should match concepts covered — don't require unknown concepts
 - Each step should take 5-15 minutes
 - Make the project title creative and specific — not generic
+- Make the project feel impressive enough to share publicly
 - Mark "requires_code": true for steps where the learner should submit code
 - Mark "checkpoint": true for 2-3 key steps where understanding should be verified
 - The ${variant.domain} theme must be used for data/examples (NOT a generic project)${isBuildMode ? '\n- BUILD MODE: Keep step descriptions minimal. Only provide goals, not how-to instructions.' : ''}`
@@ -167,15 +288,20 @@ ESTIMATED TIME: 45-90 minutes
 SCENARIO THEME: ${variant.scenario} — ${variant.context}
 SITUATIONS TO COVER: ${variant.situations}
 MODE: ${modeDesc}
+${learnerProfileBlock}
 
 Return ONLY valid JSON:
 {
   "title": "Creative scenario title (e.g., 'Your First Day in Madrid' not 'Spanish Practice')",
   "description": "2-3 sentences about the immersive scenario and what the learner will practice",
   "skill_type": "language",
+  "real_world_context": "Specific real-world communication context",
   "difficulty": "${difficulty || 'beginner'}",
   "concepts_tested": ["greeting", "ordering", "numbers", "polite requests"],
   "estimated_minutes": 50,
+  "final_deliverable": "Clear, tangible output the learner can share",
+  "verification_summary": "How this project will be verified",
+  "share_summary": "One sentence describing why this proves the learner's skill",
   "steps": [
     {
       "id": "s1",
@@ -185,7 +311,9 @@ Return ONLY valid JSON:
       "concepts": ["which language concepts this practices"],
       "requires_response": true,
       "response_prompt": "The other person says: '[dialogue in ${targetLang}]' — Respond in ${targetLang} to [specific goal].",
-      "checkpoint": false
+      "checkpoint": false,
+      "required_output": "What the learner must produce for this scenario",
+      "verification_focus": "What the verifier should look for"
     }
   ],
   "reference_material": "KEY VOCABULARY:\\n- word = translation\\n- word = translation\\n\\nKEY GRAMMAR:\\n- Rule: explanation with example\\n\\nUSEFUL PHRASES:\\n- phrase = translation",
@@ -195,7 +323,7 @@ Return ONLY valid JSON:
 }
 
 RULES:
-- Generate 6-8 conversation scenarios that build in complexity
+- Generate 6-10 conversation scenarios that build in complexity
 - Each step IS a realistic interaction scenario — give context and the other person's line
 - "response_prompt" MUST include what the other person says in ${targetLang} and what the learner should respond
 - Include diverse vocabulary (greetings, questions, descriptions, reactions, numbers)
@@ -216,15 +344,20 @@ ESTIMATED TIME: 45-90 minutes
 SCENARIO: ${variant.scenario} — ${variant.context}
 PROBLEM TYPES: ${variant.problems}
 MODE: ${modeDesc}
+${learnerProfileBlock}
 
 Return ONLY valid JSON:
 {
   "title": "Creative project name (e.g., 'Optimize the Pizza Shop Budget' not 'Math Practice')",
   "description": "2-3 sentences about the real-world scenario and what math the learner will apply",
   "skill_type": "math",
+  "real_world_context": "Specific real-world problem context",
   "difficulty": "${difficulty || 'beginner'}",
   "concepts_tested": ["algebra", "graphing", "optimization"],
   "estimated_minutes": 55,
+  "final_deliverable": "Clear, tangible output the learner can share",
+  "verification_summary": "How this project will be verified",
+  "share_summary": "One sentence describing why this proves the learner's skill",
   "steps": [
     {
       "id": "s1",
@@ -234,7 +367,9 @@ Return ONLY valid JSON:
       "concepts": ["which math concepts this step uses"],
       "requires_response": true,
       "response_prompt": "Show your step-by-step solution: [specific problem with numbers and data]",
-      "checkpoint": true
+      "checkpoint": true,
+      "required_output": "What the learner must produce for this problem",
+      "verification_focus": "What the verifier should look for"
     }
   ],
   "reference_material": "FORMULAS:\\n- Formula = explanation\\n\\nGIVEN DATA:\\n- Data point: value\\n\\nMETHOD GUIDE:\\n- Step-by-step approach outline",
@@ -244,7 +379,7 @@ Return ONLY valid JSON:
 }
 
 RULES:
-- Generate 6-8 problems that build toward a complete analysis
+- Generate 6-10 problems that build toward a complete analysis
 - Each step is a MATH PROBLEM with specific numbers and data
 - "response_prompt" must ask for step-by-step solutions (not just final answers)
 - Include specific numbers, units, and real-world data in every problem
@@ -266,15 +401,20 @@ ESTIMATED TIME: 45-90 minutes
 PRACTICE THEME: ${variant.scenario} — ${variant.context}
 ELEMENTS TO PRACTICE: ${variant.elements}
 MODE: ${modeDesc}
+${learnerProfileBlock}
 
 Return ONLY valid JSON:
 {
   "title": "Creative session title (e.g., 'Master the Blues Scale Jam' not 'Practice Session')",
   "description": "2-3 sentences about what the learner will practice and the skill they'll develop",
   "skill_type": "music",
+  "real_world_context": "Specific real-world performance context",
   "difficulty": "${difficulty || 'beginner'}",
   "concepts_tested": ["chord shapes", "rhythm", "timing"],
   "estimated_minutes": 50,
+  "final_deliverable": "Clear, tangible output the learner can share",
+  "verification_summary": "How this project will be verified",
+  "share_summary": "One sentence describing why this proves the learner's skill",
   "steps": [
     {
       "id": "s1",
@@ -284,7 +424,9 @@ Return ONLY valid JSON:
       "concepts": ["which music concepts this practices"],
       "requires_practice": true,
       "practice_checklist": ["Specific self-check item 1", "Item 2", "Item 3"],
-      "checkpoint": false
+      "checkpoint": false,
+      "required_output": "What the learner must produce for this exercise",
+      "verification_focus": "What the verifier should look for"
     }
   ],
   "reference_material": "NOTATION/TABS:\\n- Specific notation for the exercises\\n\\nTECHNIQUE GUIDE:\\n- How to execute each technique\\n\\nTEMPO: Start at X BPM, target Y BPM\\n\\nTIPS:\\n- Practice tips",
@@ -294,7 +436,7 @@ Return ONLY valid JSON:
 }
 
 RULES:
-- Generate 6-8 practice exercises that build progressively
+- Generate 6-10 practice exercises that build progressively
 - Each step has a "practice_checklist" with 3-5 specific, self-verifiable criteria
 - Checklist items must be observable/audible (not vague like "sounds good")
 - Include tempo targets, repetition counts, or duration goals
@@ -315,15 +457,20 @@ ESTIMATED TIME: 45-90 minutes
 DESIGN PROJECT: ${variant.scenario} — ${variant.context}
 FINAL DELIVERABLE: ${variant.deliverable}
 MODE: ${modeDesc}
+${learnerProfileBlock}
 
 Return ONLY valid JSON:
 {
   "title": "Creative brief title (e.g., 'Redesign the Local Café Menu' not 'Design Project')",
   "description": "2-3 sentences about the design challenge and client/user context",
   "skill_type": "design",
+  "real_world_context": "Specific real-world design brief",
   "difficulty": "${difficulty || 'beginner'}",
   "concepts_tested": ["layout", "typography", "color theory", "hierarchy"],
   "estimated_minutes": 60,
+  "final_deliverable": "Clear, tangible output the learner can share",
+  "verification_summary": "How this project will be verified",
+  "share_summary": "One sentence describing why this proves the learner's skill",
   "steps": [
     {
       "id": "s1",
@@ -333,7 +480,9 @@ Return ONLY valid JSON:
       "concepts": ["which design concepts this step uses"],
       "requires_response": true,
       "response_prompt": "Describe your design decisions: What layout/colors/typography did you choose and why?",
-      "checkpoint": false
+      "checkpoint": false,
+      "required_output": "What the learner must produce for this design step",
+      "verification_focus": "What the verifier should look for"
     }
   ],
   "reference_material": "DESIGN BRIEF:\\n- Client/project context\\n- Target audience\\n\\nCONSTRAINTS:\\n- Size/format requirements\\n- Brand colors or style\\n\\nPRINCIPLES TO APPLY:\\n- Relevant design principles",
@@ -343,7 +492,7 @@ Return ONLY valid JSON:
 }
 
 RULES:
-- Generate 6-8 steps following the design process (research → sketch → refine → polish)
+- Generate 6-10 steps following the design process (research → sketch → refine → polish)
 - Each step asks the learner to describe their design decisions and reasoning
 - Include specific constraints (sizes, colors, fonts, target audience)
 - Reference material must have the full design brief and constraints
@@ -363,15 +512,20 @@ ESTIMATED TIME: 45-90 minutes
 BUSINESS SCENARIO: ${variant.scenario} — ${variant.context}
 ANALYSIS AREAS: ${variant.analysis}
 MODE: ${modeDesc}
+${learnerProfileBlock}
 
 Return ONLY valid JSON:
 {
   "title": "Specific scenario title (e.g., 'Launch Strategy for EcoBean Coffee' not 'Business Plan')",
   "description": "2-3 sentences about the business scenario and what the learner will analyze/create",
   "skill_type": "business",
+  "real_world_context": "Specific real-world business context",
   "difficulty": "${difficulty || 'beginner'}",
   "concepts_tested": ["market analysis", "strategy", "financial planning"],
   "estimated_minutes": 60,
+  "final_deliverable": "Clear, tangible output the learner can share",
+  "verification_summary": "How this project will be verified",
+  "share_summary": "One sentence describing why this proves the learner's skill",
   "steps": [
     {
       "id": "s1",
@@ -382,7 +536,9 @@ Return ONLY valid JSON:
       "requires_response": true,
       "response_prompt": "Write your analysis: [specific question with context and data to reference]",
       "min_words": 100,
-      "checkpoint": false
+      "checkpoint": false,
+      "required_output": "What the learner must produce for this analysis",
+      "verification_focus": "What the verifier should look for"
     }
   ],
   "reference_material": "SCENARIO:\\n- Business situation details\\n\\nMARKET DATA:\\n- Relevant market data and numbers\\n\\nFRAMEWORK:\\n- Analytical framework to apply",
@@ -392,7 +548,7 @@ Return ONLY valid JSON:
 }
 
 RULES:
-- Generate 6-8 analysis tasks building a complete business document
+- Generate 6-10 analysis tasks building a complete business document
 - Each step should produce written analysis with evidence and reasoning
 - Include specific market data, numbers, and scenarios in the problems
 - "min_words": 100 for most steps (substantive analysis expected)
@@ -413,15 +569,20 @@ ESTIMATED TIME: 45-90 minutes
 PROJECT: ${variant.scenario} — ${variant.context}
 COMPONENTS: ${variant.components}
 MODE: ${modeDesc}
+${learnerProfileBlock}
 
 Return ONLY valid JSON:
 {
   "title": "Specific build title (e.g., 'Build a Smart Plant Watering System' not 'Arduino Project')",
   "description": "2-3 sentences about what the learner will build and how it works",
   "skill_type": "hardware",
+  "real_world_context": "Specific real-world hardware scenario",
   "difficulty": "${difficulty || 'beginner'}",
   "concepts_tested": ["digital I/O", "sensors", "serial communication"],
   "estimated_minutes": 60,
+  "final_deliverable": "Clear, tangible output the learner can share",
+  "verification_summary": "How this project will be verified",
+  "share_summary": "One sentence describing why this proves the learner's skill",
   "steps": [
     {
       "id": "s1",
@@ -431,7 +592,9 @@ Return ONLY valid JSON:
       "concepts": ["which hardware concepts this uses"],
       "requires_response": true,
       "response_prompt": "Report your results: What output/readings did you observe? Does it match expected behavior?",
-      "checkpoint": false
+      "checkpoint": false,
+      "required_output": "What the learner must produce for this build/test step",
+      "verification_focus": "What the verifier should look for"
     }
   ],
   "reference_material": "COMPONENTS:\\n- Component: specification\\n\\nWIRING:\\n- Pin connections (text-based diagram)\\n\\nCODE:\\n- Starter code for the microcontroller\\n\\nEXPECTED OUTPUT:\\n- What each step should produce",
@@ -441,7 +604,7 @@ Return ONLY valid JSON:
 }
 
 RULES:
-- Generate 6-8 build+test steps alternating between wiring and verification
+- Generate 6-10 build+test steps alternating between wiring and verification
 - Each step should have expected outputs the learner can verify
 - Include specific pin numbers, component values, and expected readings
 - Reference material must have full wiring diagram and starter code
@@ -461,15 +624,20 @@ ESTIMATED TIME: 45-90 minutes
 WRITING TYPE: ${variant.scenario} — ${variant.context}
 CRAFT ELEMENTS: ${variant.elements}
 MODE: ${modeDesc}
+${learnerProfileBlock}
 
 Return ONLY valid JSON:
 {
   "title": "Creative project title (e.g., 'The Midnight Café — A Short Story in Five Acts' not 'Writing Assignment')",
   "description": "2-3 sentences about the writing challenge and what the learner will create",
   "skill_type": "writing",
+  "real_world_context": "Specific real-world writing context",
   "difficulty": "${difficulty || 'beginner'}",
   "concepts_tested": ["narrative structure", "dialogue", "descriptive language"],
   "estimated_minutes": 55,
+  "final_deliverable": "Clear, tangible output the learner can share",
+  "verification_summary": "How this project will be verified",
+  "share_summary": "One sentence describing why this proves the learner's skill",
   "steps": [
     {
       "id": "s1",
@@ -480,7 +648,9 @@ Return ONLY valid JSON:
       "requires_response": true,
       "response_prompt": "[Specific writing prompt with constraints — genre, word count target, focus element]",
       "min_words": 150,
-      "checkpoint": false
+      "checkpoint": false,
+      "required_output": "What the learner must produce for this writing step",
+      "verification_focus": "What the verifier should look for"
     }
   ],
   "reference_material": "WRITING PROMPT:\\n- Full prompt details and scenario\\n\\nSTYLE GUIDE:\\n- Tone, voice, and style requirements\\n\\nCRAFT FOCUS:\\n- Specific techniques to practice\\n\\nEXAMPLES:\\n- Brief example excerpts showing the technique",
@@ -490,7 +660,7 @@ Return ONLY valid JSON:
 }
 
 RULES:
-- Generate 6-8 steps following the writing process (brainstorm → outline → draft → revise → polish)
+- Generate 6-10 steps following the writing process (brainstorm → outline → draft → revise → polish)
 - Each step should produce actual written content (not just planning notes)
 - Include word count targets and specific craft focus for each step
 - "min_words": 100-200 for writing steps
@@ -511,15 +681,20 @@ ESTIMATED TIME: 45-90 minutes
 INVESTIGATION: ${variant.scenario} — ${variant.context}
 ELEMENTS: ${variant.elements}
 MODE: ${modeDesc}
+${learnerProfileBlock}
 
 Return ONLY valid JSON:
 {
   "title": "Engaging investigation title (e.g., 'Why Do Ice Cubes Melt Faster in Salt Water?' not 'Science Lab')",
   "description": "2-3 sentences about the scientific question and investigation approach",
   "skill_type": "science",
+  "real_world_context": "Specific real-world investigation context",
   "difficulty": "${difficulty || 'beginner'}",
   "concepts_tested": ["hypothesis testing", "data analysis", "scientific reasoning"],
   "estimated_minutes": 55,
+  "final_deliverable": "Clear, tangible output the learner can share",
+  "verification_summary": "How this project will be verified",
+  "share_summary": "One sentence describing why this proves the learner's skill",
   "steps": [
     {
       "id": "s1",
@@ -529,7 +704,9 @@ Return ONLY valid JSON:
       "concepts": ["which science concepts this step uses"],
       "requires_response": true,
       "response_prompt": "[Specific scientific question — ask for hypothesis, observations, calculations, or analysis with reasoning]",
-      "checkpoint": true
+      "checkpoint": true,
+      "required_output": "What the learner must produce for this investigation step",
+      "verification_focus": "What the verifier should look for"
     }
   ],
   "reference_material": "BACKGROUND:\\n- Relevant scientific concepts and laws\\n\\nDATA:\\n- Given observations or experimental data\\n\\nMETHOD:\\n- Investigation approach and tools",
@@ -539,7 +716,7 @@ Return ONLY valid JSON:
 }
 
 RULES:
-- Generate 6-8 steps following scientific method (question → hypothesis → method → data → analysis → conclusion)
+- Generate 6-10 steps following scientific method (question → hypothesis → method → data → analysis → conclusion)
 - Each step requires scientific reasoning, not just recall
 - Include specific data, measurements, and observations in problems
 - Reference material must have relevant scientific background and data
@@ -556,15 +733,20 @@ CONCEPTS COVERED SO FAR: ${concepts || 'Fundamentals'}
 DIFFICULTY: ${difficulty || 'beginner'}
 ESTIMATED TIME: 45-90 minutes
 MODE: ${modeDesc}
+${learnerProfileBlock}
 
 Return ONLY valid JSON:
 {
   "title": "Creative, specific project name",
   "description": "2-3 sentence description",
   "skill_type": "general",
+  "real_world_context": "Specific real-world reason this matters",
   "difficulty": "${difficulty || 'beginner'}",
   "concepts_tested": ["concept1", "concept2"],
   "estimated_minutes": 60,
+  "final_deliverable": "Clear, tangible output the learner can share",
+  "verification_summary": "How this project will be verified",
+  "share_summary": "One sentence describing why this proves the learner's skill",
   "steps": [
     {
       "id": "s1",
@@ -574,7 +756,9 @@ Return ONLY valid JSON:
       "concepts": ["concepts"],
       "requires_response": true,
       "response_prompt": "What the learner should produce for this step",
-      "checkpoint": false
+      "checkpoint": false,
+      "required_output": "What the learner must produce for this step",
+      "verification_focus": "What the verifier should look for"
     }
   ],
   "reference_material": "Key reference material and background info",
@@ -584,10 +768,11 @@ Return ONLY valid JSON:
 }
 
 RULES:
-- Generate 6-8 specific, actionable steps
+- Generate 6-10 specific, actionable steps
 - Steps should build on each other progressively
 - Each step should take 5-15 minutes
 - Make the title creative and specific
+- Make the project feel impressive enough to share publicly
 - Mark "checkpoint": true for 2-3 key steps${isBuildMode ? '\n- BUILD MODE: Keep descriptions minimal.' : ''}`
 }
 
@@ -621,6 +806,12 @@ export async function POST(request) {
     // Detect skill type from goal
     const skillType = detectSkillType(goal)
     const verificationType = getVerificationType(skillType)
+    const { data: previousProjects } = await supabase
+      .from('projects')
+      .select('skill_type, authenticity_score, ai_review, mode, created_at')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(12)
 
     // Generate variant seed for anti-copy
     const variantSeed = generateVariantSeed(user.id, goalId, dayNumber)
@@ -628,6 +819,7 @@ export async function POST(request) {
     const variant = variants[variantSeed % variants.length]
 
     const isBuildMode = mode === 'build'
+    const performanceProfile = buildPerformanceProfile(previousProjects || [], skillType)
 
     const prompt = buildPrompt(skillType, {
       goal,
@@ -635,6 +827,7 @@ export async function POST(request) {
       difficulty: difficulty || 'beginner',
       variant,
       isBuildMode,
+      performanceProfile,
     })
 
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -654,7 +847,20 @@ export async function POST(request) {
     const data = await res.json()
     const raw = data.choices?.[0]?.message?.content?.trim() || ''
     const clean = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
-    const parsed = JSON.parse(clean)
+    const parsed = normalizeProjectPayload(JSON.parse(clean), skillType, variant, mode, performanceProfile)
+
+    const progress = ensureProjectProgress({
+      project_brief: {
+        real_world_context: parsed.real_world_context,
+        final_deliverable: parsed.final_deliverable,
+        verification_summary: parsed.verification_summary,
+        share_summary: parsed.share_summary,
+        performance_profile: performanceProfile,
+        verification_plan: getProjectVerificationPlan(skillType, isBuildMode ? 'build' : 'guided'),
+        variation_context: variant,
+        verification_type: verificationType,
+      },
+    })
 
     // Save to database — map reference_material to starter_code column
     const row = {
@@ -672,20 +878,16 @@ export async function POST(request) {
       xp_reward: isBuildMode ? 150 : 100,
       gem_reward: isBuildMode ? 40 : 25,
       status: 'not_started',
-      progress: {
-        steps_completed: [],
-        notes: '',
-        started_at: null,
-        completed_at: null,
-        code_submissions: {},
-        response_submissions: {},
-        checkpoint_results: {},
-        time_tracking: {},
-        hints_used: 0,
-        ai_usage: {},
-      },
+      progress,
       day_number: dayNumber || null,
     }
+
+    row.progress.proof_summary = buildProjectProofSummary({
+      ...row,
+      mode: isBuildMode ? 'build' : 'guided',
+      skill_type: skillType,
+      authenticity_score: null,
+    })
 
     // Try with new columns first, fall back without them
     let saved, error

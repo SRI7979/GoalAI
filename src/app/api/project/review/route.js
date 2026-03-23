@@ -1,23 +1,11 @@
 import { getSupabaseServerClient } from '@/lib/supabaseServer'
+import { getProjectReviewCriteria } from '@/lib/projectProof'
 
 function extractAccessToken(request) {
   const authHeader = request.headers.get('authorization') || request.headers.get('Authorization')
   if (!authHeader) return null
   if (!authHeader.toLowerCase().startsWith('bearer ')) return null
   return authHeader.slice(7).trim() || null
-}
-
-// Skill-specific review criteria labels
-const REVIEW_CRITERIA = {
-  coding: { c1: 'originality', c2: 'complexity', c3: 'efficiency', expert: 'senior developer', expertLabel: '👨‍💻 Senior Dev Tips' },
-  language: { c1: 'fluency', c2: 'grammar accuracy', c3: 'vocabulary range', expert: 'language teacher', expertLabel: '🗣 Language Coach Tips' },
-  math: { c1: 'problem-solving approach', c2: 'mathematical rigor', c3: 'reasoning clarity', expert: 'math professor', expertLabel: '📐 Expert Math Tips' },
-  music: { c1: 'technique accuracy', c2: 'musicality', c3: 'practice consistency', expert: 'music instructor', expertLabel: '🎵 Music Coach Tips' },
-  design: { c1: 'visual hierarchy', c2: 'creativity', c3: 'usability', expert: 'senior designer', expertLabel: '🎨 Design Expert Tips' },
-  business: { c1: 'analytical depth', c2: 'strategic thinking', c3: 'evidence quality', expert: 'business consultant', expertLabel: '💼 Business Expert Tips' },
-  hardware: { c1: 'circuit design', c2: 'troubleshooting skill', c3: 'documentation quality', expert: 'hardware engineer', expertLabel: '🔧 Engineering Tips' },
-  writing: { c1: 'voice and style', c2: 'structure', c3: 'engagement', expert: 'editor', expertLabel: '✍️ Editor Tips' },
-  science: { c1: 'scientific rigor', c2: 'methodology', c3: 'analysis quality', expert: 'research scientist', expertLabel: '🔬 Research Tips' },
 }
 
 export async function POST(request) {
@@ -45,7 +33,7 @@ export async function POST(request) {
     if (project.ai_review) return Response.json({ review: project.ai_review })
 
     const skillType = project.skill_type || 'coding'
-    const criteria = REVIEW_CRITERIA[skillType] || REVIEW_CRITERIA.coding
+    const criteria = getProjectReviewCriteria(skillType)
 
     const stepsDesc = (project.steps || [])
       .map((s, i) => `${i + 1}. ${s.title}: ${s.description}`)
@@ -70,6 +58,8 @@ export async function POST(request) {
 
     const isBuildMode = project.mode === 'build'
     const submissionContext = codeContext || responseContext
+    const authenticity = project.progress?.authenticity || null
+    const brief = project.progress?.project_brief || {}
 
     const prompt = `Review a learner's completed ${skillType} project and provide comprehensive, skill-appropriate feedback.
 
@@ -79,10 +69,13 @@ SKILL TYPE: ${skillType}
 CONCEPTS TESTED: ${(project.concepts_tested || []).join(', ')}
 DIFFICULTY: ${project.difficulty}
 MODE: ${isBuildMode ? 'Build Mode (minimal guidance)' : 'Guided Mode'}
+REAL-WORLD CONTEXT: ${brief.real_world_context || 'Not provided'}
+FINAL DELIVERABLE: ${brief.final_deliverable || project.deliverables?.[0] || 'Not specified'}
 STEPS COMPLETED:
 ${stepsDesc}
 ${submissionContext ? `\nLEARNER'S SUBMISSIONS:\n${submissionContext}` : ''}
 ${checkpointSummary ? `\nCHECKPOINT RESULTS: ${checkpointSummary}` : ''}
+${authenticity ? `\nAUTHENTICITY SNAPSHOT: ${authenticity.score}% (${authenticity.label})` : ''}
 
 Return ONLY valid JSON:
 {
@@ -97,11 +90,16 @@ Return ONLY valid JSON:
   "originality_score": 80,
   "complexity_score": 75,
   "efficiency_score": 85,
+  "criteria_labels": ["${criteria.c1}", "${criteria.c2}", "${criteria.c3}"],
   "senior_tips": [
     "How a ${criteria.expert} would improve this — specific, actionable advice"
   ],
+  "professional_improvements": [
+    "Specific professional-level improvement"
+  ],
   "next_challenge": "A specific, harder follow-up project idea that builds on what they just did",
-  "next_steps": "What they should focus on next to grow their ${skillType} skills"
+  "next_steps": "What they should focus on next to grow their ${skillType} skills",
+  "verification_confidence": "high|medium|low"
 }
 
 RULES:
@@ -114,6 +112,7 @@ RULES:
 - complexity_score: ${criteria.c2} (0-100)
 - efficiency_score: ${criteria.c3} (0-100)
 - senior_tips: 2-3 specific improvements a ${criteria.expert} would suggest
+- professional_improvements can mirror senior_tips, but phrase them like a professional feedback pass
 - next_challenge: a concrete, specific harder project idea (not vague)
 - next_steps should be actionable and forward-looking
 - Tailor ALL feedback to ${skillType} — use domain-appropriate language
@@ -140,6 +139,13 @@ ${isBuildMode ? '- Give BONUS credit for using Build Mode — they had minimal g
 
     // Add expert label for frontend display
     review._expertLabel = criteria.expertLabel
+    review.criteria_labels = Array.isArray(review.criteria_labels) && review.criteria_labels.length === 3
+      ? review.criteria_labels
+      : [criteria.c1, criteria.c2, criteria.c3]
+    review.professional_improvements = Array.isArray(review.professional_improvements) && review.professional_improvements.length > 0
+      ? review.professional_improvements
+      : review.senior_tips || []
+    review.verification_confidence = review.verification_confidence || (authenticity?.score >= 85 ? 'high' : authenticity?.score >= 70 ? 'medium' : 'low')
 
     // Save review to project
     await supabase

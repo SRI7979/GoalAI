@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { buildProjectProofSummary, getAuthenticityLevel, getProjectCriteriaCards } from '@/lib/projectProof'
 
 const font = "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif"
 const T = {
@@ -57,7 +58,7 @@ export default function SharedProjectPage() {
     <div style={{ minHeight: '100dvh', background: T.bg, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontFamily: font, gap: 12, padding: 40 }}>
       <div style={{ fontSize: 40 }}>404</div>
       <div style={{ color: T.text, fontSize: 16, fontWeight: 700 }}>Project not found</div>
-      <div style={{ color: T.textMuted, fontSize: 13 }}>This project may be private or doesn't exist.</div>
+      <div style={{ color: T.textMuted, fontSize: 13 }}>This project may be private or doesn&apos;t exist.</div>
     </div>
   )
 
@@ -67,16 +68,14 @@ export default function SharedProjectPage() {
   const completedSteps = project.progress?.steps_completed || []
   const completedAt = project.progress?.completed_at
   const authScore = project.authenticity_score
+  const isVerified = project?.progress?.verification_status === 'verified'
   const isBuild = project.mode === 'build'
   const timeSpent = project.progress?.started_at && project.progress?.completed_at
     ? Math.round((new Date(project.progress.completed_at) - new Date(project.progress.started_at)) / 60000)
     : null
-
-  let authLabel, authColor
-  if (authScore >= 85) { authLabel = 'Verified'; authColor = T.green }
-  else if (authScore >= 70) { authLabel = 'Likely Genuine'; authColor = T.blue }
-  else if (authScore >= 40) { authLabel = 'Unverified'; authColor = T.amber }
-  else if (authScore !== null && authScore !== undefined) { authLabel = 'Low Effort'; authColor = T.red }
+  const auth = authScore !== null && authScore !== undefined ? getAuthenticityLevel(authScore) : null
+  const proofSummary = buildProjectProofSummary(project, project.progress?.authenticity || null)
+  const criteriaCards = getProjectCriteriaCards(review, project.skill_type || 'general')
 
   return (
     <div style={{ minHeight: '100dvh', background: T.bg, fontFamily: font, color: T.text }}>
@@ -112,8 +111,9 @@ export default function SharedProjectPage() {
         <div style={{ display: 'flex', justifyContent: 'center', gap: 8, flexWrap: 'wrap' }}>
           <span style={{ padding: '5px 12px', borderRadius: 9999, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', background: dc.bg, border: `1px solid ${dc.border}`, color: dc.color }}>{project.difficulty}</span>
           {isBuild && <span style={{ padding: '5px 12px', borderRadius: 9999, fontSize: 10, fontWeight: 800, background: 'rgba(168,85,247,0.08)', border: '1px solid rgba(168,85,247,0.22)', color: T.purple }}>⚡ Build Mode</span>}
+          {isVerified && <span style={{ padding: '5px 12px', borderRadius: 9999, fontSize: 10, fontWeight: 800, background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.22)', color: T.green }}>✓ Verified</span>}
           {review?.grade && <span style={{ padding: '5px 12px', borderRadius: 9999, fontSize: 10, fontWeight: 800, background: 'rgba(255,215,0,0.08)', border: '1px solid rgba(255,215,0,0.22)', color: T.gold }}>Grade: {review.grade}</span>}
-          {authLabel && <span style={{ padding: '5px 12px', borderRadius: 9999, fontSize: 10, fontWeight: 800, background: `${authColor}10`, border: `1px solid ${authColor}25`, color: authColor }}>{authScore >= 85 ? '✓ ' : ''}{authLabel}</span>}
+          {auth && <span style={{ padding: '5px 12px', borderRadius: 9999, fontSize: 10, fontWeight: 800, background: `${auth.color}10`, border: `1px solid ${auth.color}25`, color: auth.color }}>{authScore >= 85 ? '✓ ' : ''}{auth.label}</span>}
           <span style={{ padding: '5px 12px', borderRadius: 9999, fontSize: 10, fontWeight: 800, background: T.tealDim, border: `1px solid ${T.tealBorder}`, color: T.teal }}>{completedSteps.length}/{steps.length} Steps</span>
           {timeSpent && <span style={{ padding: '5px 12px', borderRadius: 9999, fontSize: 10, fontWeight: 800, background: T.card, border: `1px solid ${T.border}`, color: T.textMuted }}>⏱ {timeSpent} min</span>}
           {completedAt && <span style={{ padding: '5px 12px', borderRadius: 9999, fontSize: 10, fontWeight: 800, background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.22)', color: T.green }}>{new Date(completedAt).toLocaleDateString()}</span>}
@@ -122,13 +122,9 @@ export default function SharedProjectPage() {
 
       <div style={{ maxWidth: 600, margin: '0 auto', padding: '24px 20px 80px' }}>
         {/* Advanced review scores */}
-        {review && (review.originality_score || review.complexity_score || review.efficiency_score) && (
+        {review && criteriaCards.length > 0 && (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 24 }}>
-            {[
-              { label: 'Originality', score: review.originality_score, icon: '🎨' },
-              { label: 'Complexity', score: review.complexity_score, icon: '🧩' },
-              { label: 'Efficiency', score: review.efficiency_score, icon: '⚡' },
-            ].map(s => s.score ? (
+            {criteriaCards.map((s) => s.score ? (
               <div key={s.label} style={{ padding: '14px', borderRadius: 14, background: T.card, border: `1px solid ${T.border}`, textAlign: 'center' }}>
                 <div style={{ fontSize: 18, marginBottom: 4 }}>{s.icon}</div>
                 <div style={{ fontSize: 20, fontWeight: 900, color: s.score >= 80 ? T.teal : s.score >= 60 ? T.amber : T.red }}>{s.score}</div>
@@ -137,6 +133,32 @@ export default function SharedProjectPage() {
             ) : null)}
           </div>
         )}
+
+        <div style={{ marginBottom: 24, borderRadius: 16, padding: 18, background: 'linear-gradient(165deg, rgba(14,245,194,0.05), rgba(59,130,246,0.03))', border: `1px solid ${T.tealBorder}` }}>
+          <div style={{ fontSize: 12, fontWeight: 800, color: T.textMuted, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '1px' }}>Proof Summary</div>
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 10, fontWeight: 800, color: T.textMuted, textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 4 }}>What Was Built</div>
+            <div style={{ fontSize: 13, lineHeight: 1.6, color: T.text }}>{proofSummary.finalDeliverable}</div>
+          </div>
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 10, fontWeight: 800, color: T.textMuted, textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 4 }}>Why It Matters</div>
+            <div style={{ fontSize: 12, lineHeight: 1.6, color: '#b0b0b8' }}>{proofSummary.realWorldContext}</div>
+          </div>
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 10, fontWeight: 800, color: T.textMuted, textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 4 }}>How It Was Verified</div>
+            <div style={{ fontSize: 12, lineHeight: 1.6, color: '#b0b0b8' }}>{proofSummary.verificationSummary}</div>
+          </div>
+          {proofSummary.verificationLayers?.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {proofSummary.verificationLayers.map((layer) => (
+                <div key={layer.id} style={{ padding: '8px 10px', borderRadius: 12, background: layer.passed ? 'rgba(52,211,153,0.08)' : 'rgba(255,255,255,0.04)', border: `1px solid ${layer.passed ? 'rgba(52,211,153,0.22)' : T.border}` }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, color: layer.passed ? T.green : T.text }}>{layer.title}</div>
+                  <div style={{ fontSize: 10, color: T.textMuted, marginTop: 2 }}>{layer.passed ? `${layer.confidence || 'verified'} confidence` : 'pending proof'}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* Concepts */}
         {project.concepts_tested?.length > 0 && (
@@ -184,7 +206,7 @@ export default function SharedProjectPage() {
 
               {review.senior_tips?.length > 0 && (
                 <div style={{ marginBottom: 14 }}>
-                  <div style={{ fontSize: 11, fontWeight: 800, color: T.purple, marginBottom: 6 }}>Senior Dev Tips</div>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: T.purple, marginBottom: 6 }}>{review._expertLabel || 'Expert Tips'}</div>
                   {review.senior_tips.map((s, i) => <div key={i} style={{ fontSize: 12, color: '#b0b0b8', marginBottom: 4, paddingLeft: 12 }}><span style={{ color: T.purple }}>→</span> {s}</div>)}
                 </div>
               )}

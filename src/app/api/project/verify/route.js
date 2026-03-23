@@ -242,14 +242,25 @@ export async function POST(request) {
     const raw = data.choices?.[0]?.message?.content?.trim() || ''
     const clean = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
     const result = JSON.parse(clean)
+    result.verification_layers = Array.isArray(result.verification_layers)
+      ? result.verification_layers
+      : [
+        { id: 'artifact', title: 'Artifact', passed: Boolean(result.passed), note: 'Response was submitted and evaluated against the step goal.' },
+        { id: 'process', title: 'Process', passed: response.trim().length >= 40, note: 'Response depth suggests real engagement with the task.' },
+        { id: 'defense', title: 'Defense', passed: Number(result.score) >= 70, note: 'Evaluation indicates the learner can explain or justify the work.' },
+      ]
 
     // Save response to project progress
     const responseSubmissions = project.progress?.response_submissions || {}
+    const previousSubmission = responseSubmissions[stepId] || {}
     responseSubmissions[stepId] = {
       response: response.slice(0, 5000),
       score: result.score,
       passed: result.passed,
       submittedAt: new Date().toISOString(),
+      attempts: (previousSubmission.attempts || 0) + 1,
+      word_count: response.trim().split(/\s+/).filter(Boolean).length,
+      verification_layers: result.verification_layers,
     }
 
     await supabase

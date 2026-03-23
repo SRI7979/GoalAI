@@ -150,10 +150,12 @@ RULES:
 
       // Save checkpoint result to project progress
       const checkpointResults = project.progress?.checkpoint_results || {}
+      const previousResult = checkpointResults[stepId] || {}
       checkpointResults[stepId] = {
         passed: result.passed,
         score: result.score,
         answeredAt: new Date().toISOString(),
+        attempts: (previousResult.attempts || 0) + 1,
       }
 
       await supabase

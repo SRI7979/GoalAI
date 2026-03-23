@@ -53,7 +53,18 @@ function validateCode(code, step, language) {
   const score = totalChecks > 0 ? Math.round((passedCount / totalChecks) * 100) : 0
   const passed = score >= 60
 
-  return { passed, score, checks, passedCount, totalChecks }
+  return {
+    passed,
+    score,
+    checks,
+    passedCount,
+    totalChecks,
+    verification_layers: [
+      { id: 'artifact', title: 'Artifact', passed, note: 'Structure and expected code patterns were validated.' },
+      { id: 'process', title: 'Process', passed: code.trim().length >= 40, note: 'Code length and completeness suggest real implementation work.' },
+      { id: 'defense', title: 'Defense', passed: passedCount >= Math.max(1, Math.round(totalChecks * 0.6)), note: 'The submission reflects understanding of the required constructs.' },
+    ],
+  }
 }
 
 // Extract expected keywords based on step content and language
@@ -167,11 +178,16 @@ export async function POST(request) {
 
     // Save code submission to project progress
     const codeSubmissions = project.progress?.code_submissions || {}
+    const previousSubmission = codeSubmissions[stepId] || {}
     codeSubmissions[stepId] = {
       code: code.slice(0, 5000), // Limit stored code size
       validated: result.passed,
       score: result.score,
       submittedAt: new Date().toISOString(),
+      attempts: (previousSubmission.attempts || 0) + 1,
+      line_count: code.split('\n').length,
+      char_count: code.length,
+      verification_layers: result.verification_layers,
     }
 
     await supabase

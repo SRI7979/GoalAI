@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import ProjectViewer from '@/components/ProjectViewer'
+import { buildProjectProofSummary, getAuthenticityLevel } from '@/lib/projectProof'
 
 const font = "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif"
 const T = {
@@ -17,14 +18,10 @@ const DIFFICULTY_COLORS = { beginner: T.teal, intermediate: T.amber, advanced: T
 
 function AuthBadge({ score }) {
   if (score === null || score === undefined) return null
-  let label, color
-  if (score >= 85) { label = 'Verified'; color = T.green }
-  else if (score >= 70) { label = 'Genuine'; color = T.blue }
-  else if (score >= 40) { label = 'Unverified'; color = T.amber }
-  else { label = 'Low'; color = T.red }
+  const level = getAuthenticityLevel(score)
   return (
-    <span style={{ padding: '3px 8px', borderRadius: 9999, fontSize: 8, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px', background: `${color}10`, border: `1px solid ${color}25`, color }}>
-      {score >= 85 ? '✓ ' : ''}{label}
+    <span style={{ padding: '3px 8px', borderRadius: 9999, fontSize: 8, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px', background: `${level.color}10`, border: `1px solid ${level.color}25`, color: level.color }}>
+      {score >= 85 ? '✓ ' : ''}{level.label}
     </span>
   )
 }
@@ -44,9 +41,11 @@ export default function PortfolioPage() {
 
       const { data } = await supabase
         .from('projects').select('*').eq('user_id', user.id)
-        .in('status', ['completed', 'reviewed'])
         .order('created_at', { ascending: false })
-      setProjects(data || [])
+      setProjects((data || []).filter((project) => (
+        project?.progress?.verification_status === 'verified'
+        || ['completed', 'reviewed'].includes(project?.status)
+      )))
       setLoading(false)
     }
     load()
@@ -58,7 +57,7 @@ export default function PortfolioPage() {
     : null
   const allConcepts = [...new Set(projects.flatMap(p => p.concepts_tested || []))]
   const totalXp = projects.reduce((s, p) => s + (p.xp_reward || 0), 0)
-  const verifiedCount = projects.filter(p => (p.authenticity_score || 0) >= 85).length
+  const verifiedCount = projects.filter(p => p?.progress?.verification_status === 'verified').length
   const avgAuth = projects.filter(p => p.authenticity_score).length > 0
     ? Math.round(projects.reduce((s, p) => s + (p.authenticity_score || 0), 0) / projects.filter(p => p.authenticity_score).length)
     : null
@@ -102,6 +101,13 @@ export default function PortfolioPage() {
               <span style={{ fontSize: 10, fontWeight: 800, color: T.green }}>✓ {verifiedCount} Verified Project{verifiedCount !== 1 ? 's' : ''}</span>
             </div>
           )}
+        </div>
+
+        <div style={{ padding: '16px 18px', borderRadius: 18, background: T.card, border: `1px solid ${T.border}`, marginBottom: 24 }}>
+          <div style={{ fontSize: 12, fontWeight: 800, color: T.textMuted, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '1px' }}>Proof of Skill Resume</div>
+          <div style={{ fontSize: 13, lineHeight: 1.7, color: '#b0b0b8' }}>
+            This portfolio highlights project-based proof of ability, not course completion. Each entry is scored by AI review, weighted by authenticity, and framed around what was built in the real world.
+          </div>
         </div>
 
         {/* Stats grid */}
@@ -151,6 +157,8 @@ export default function PortfolioPage() {
               const score = p.ai_review?.overall_score
               const grade = p.ai_review?.grade
               const isBuild = p.mode === 'build'
+              const isVerified = p?.progress?.verification_status === 'verified'
+              const proofSummary = buildProjectProofSummary(p, p.progress?.authenticity || null)
               const timeSpent = p.progress?.started_at && p.progress?.completed_at
                 ? Math.round((new Date(p.progress.completed_at) - new Date(p.progress.started_at)) / 60000)
                 : null
@@ -166,6 +174,10 @@ export default function PortfolioPage() {
                       </div>
                       <div style={{ fontSize: 12, color: T.textMuted, lineHeight: 1.5 }}>
                         {p.description?.slice(0, 100)}{p.description?.length > 100 ? '...' : ''}
+                      </div>
+                      <div style={{ marginTop: 8, padding: '8px 10px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: `1px solid ${T.border}` }}>
+                        <div style={{ fontSize: 9, fontWeight: 800, color: T.textMuted, textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 4 }}>Proof</div>
+                        <div style={{ fontSize: 11, lineHeight: 1.5, color: T.text }}>{proofSummary.finalDeliverable}</div>
                       </div>
                     </div>
                     {hasReview && score && (
@@ -183,7 +195,13 @@ export default function PortfolioPage() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                     <span style={{ padding: '3px 8px', borderRadius: 9999, fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.6px', color: dc, background: `${dc}12`, border: `1px solid ${dc}30` }}>{p.difficulty}</span>
                     {isBuild && <span style={{ padding: '3px 8px', borderRadius: 9999, fontSize: 9, fontWeight: 800, background: 'rgba(168,85,247,0.08)', border: '1px solid rgba(168,85,247,0.22)', color: T.purple }}>⚡ Build</span>}
+                    {isVerified && <span style={{ padding: '3px 8px', borderRadius: 9999, fontSize: 9, fontWeight: 800, background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.2)', color: T.green }}>✓ Verified</span>}
                     <AuthBadge score={p.authenticity_score} />
+                    {proofSummary.verificationLayers?.filter((layer) => layer.passed).slice(0, 2).map((layer) => (
+                      <span key={layer.id} style={{ padding: '3px 8px', borderRadius: 9999, fontSize: 9, fontWeight: 700, background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.2)', color: T.green }}>
+                        {layer.title}
+                      </span>
+                    ))}
                     {timeSpent && <span style={{ fontSize: 9, color: T.textMuted, fontWeight: 700 }}>⏱ {timeSpent}m</span>}
                     {(p.concepts_tested || []).slice(0, 2).map((c, ci) => (
                       <span key={ci} style={{ padding: '3px 8px', borderRadius: 9999, fontSize: 9, fontWeight: 700, background: 'rgba(255,255,255,0.04)', color: T.textMuted }}>{c}</span>
