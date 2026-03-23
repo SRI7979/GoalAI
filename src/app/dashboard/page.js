@@ -330,8 +330,8 @@ function XPLevelBar({ level, title, xpInLevel, xpForLevel, pct, animating }) {
               {xpInLevel} / {xpForLevel} XP
             </span>
           </div>
-          <div style={{height:6,background:'rgba(255,255,255,0.06)',borderRadius:9999,overflow:'hidden'}}>
-            <div style={{
+          <div className="progress-track" style={{height:6,background:'rgba(255,255,255,0.06)',borderRadius:9999,overflow:'hidden'}}>
+            <div className="progress-fill" style={{
               height:'100%', width:`${Math.round(pct*100)}%`,
               background:T.masteryGradientSoft, borderRadius:9999,
               transition: animating ? 'width 0.55s cubic-bezier(0.16,1,0.3,1)' : 'none',
@@ -434,9 +434,9 @@ function MissionHeroCard({ todayRow, tasks, dayNumber }) {
 
         {/* Progress bar */}
         <div style={{display:'flex',alignItems:'center',gap:10,position:'relative'}}>
-          <div style={{flex:1,height:6,background:'rgba(255,255,255,0.06)',
+          <div className="progress-track" style={{flex:1,height:6,background:'rgba(255,255,255,0.06)',
             borderRadius:9999,overflow:'hidden'}}>
-            <div style={{
+            <div className="progress-fill" style={{
               height:'100%', width:`${Math.round(pct*100)}%`,
               background:T.primaryGradientSoft, borderRadius:9999,
               transition:'width 0.50s cubic-bezier(0.16,1,0.3,1)',
@@ -464,7 +464,7 @@ function EnergySelector({ value, onChange }) {
         {ENERGY_OPTIONS.map(opt => {
           const active = value === opt.key
           return (
-            <button key={opt.key} onClick={() => onChange(opt.key)} style={{
+            <button key={opt.key} onClick={() => onChange(opt.key)} className="interactive-secondary" style={{
               flexShrink:0, padding:'7px 14px',
               background: active
                 ? 'linear-gradient(135deg,rgba(14,245,194,0.16),rgba(0,212,255,0.10))'
@@ -613,7 +613,7 @@ function TaskPreview({ task, onClose, onStart, onComplete, isCompleting }) {
           </div>
         ) : (
           <div style={{display:'flex',gap:10}}>
-            <button onClick={() => { onClose(); onStart(task) }} style={{
+            <button onClick={() => { onClose(); onStart(task) }} className="interactive-secondary" style={{
               flex:1, padding:'14px 12px',
               background:'rgba(14,245,194,0.06)',
               border:`1px solid ${T.tealBorder}`, borderRadius:14,
@@ -629,6 +629,7 @@ function TaskPreview({ task, onClose, onStart, onComplete, isCompleting }) {
             </button>
             <button
               disabled={anyCompleting}
+              className={anyCompleting ? undefined : 'interactive-cta'}
               onClick={e => { onClose(); onComplete(task, e) }}
               style={{
                 flex:'none', padding:'14px 20px',
@@ -662,6 +663,7 @@ function TaskItem({ task, onPreview, index }) {
   return (
     <div
       onClick={() => onPreview(task)}
+      className="interactive-card"
       style={{
         background: task.completed ? 'rgba(14,245,194,0.03)' : T.surface,
         border:`1px solid ${task.completed?'rgba(14,245,194,0.14)':T.border}`,
@@ -936,6 +938,14 @@ export default function Dashboard() {
   const boostCheckedRef = useRef(false)
   const pendingTimersRef = useRef([])
   const isMountedRef = useRef(true)
+  const tabScrollPositionsRef = useRef({
+    home: 0,
+    badges: 0,
+    shop: 0,
+    stats: 0,
+    path: 0,
+    settings: 0,
+  })
 
   const themeVars = useMemo(() => getDashboardThemeVars(activeTheme), [activeTheme])
   const pageThemeStyle = useMemo(() => ({
@@ -1270,8 +1280,19 @@ export default function Dashboard() {
     }
   }, [])
 
-  // Scroll to top on tab change
-  useEffect(() => { window.scrollTo(0, 0) }, [activeTab])
+  useEffect(() => {
+    const nextY = Number(tabScrollPositionsRef.current[activeTab] || 0)
+    const frame = window.requestAnimationFrame(() => {
+      window.scrollTo({ top: nextY, behavior: 'auto' })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [activeTab])
+
+  const handleTabSelect = useCallback((nextTab) => {
+    if (nextTab === activeTab) return
+    tabScrollPositionsRef.current[activeTab] = window.scrollY
+    setActiveTab(nextTab)
+  }, [activeTab])
 
   // XP boost countdown timer
   useEffect(() => {
@@ -2345,13 +2366,14 @@ export default function Dashboard() {
           backdropFilter:'blur(20px) saturate(180%)',
           WebkitBackdropFilter:'blur(20px) saturate(180%)',
           borderBottom:'1px solid rgba(14,245,194,0.06)',
-        }}>
+        }} className="safe-top-shell">
           <div style={{maxWidth:600,margin:'0 auto',height:56,
             display:'flex',alignItems:'center',gap:14,padding:'0 20px',justifyContent:'space-between'}}>
-            <button onClick={() => setShowGoalsSidebar(true)} style={{
+            <button onClick={() => setShowGoalsSidebar(true)} className="interactive-icon" style={{
               minWidth:0,maxWidth:'48%',background:'none',border:'none',
               cursor:'pointer',fontFamily:T.font,textAlign:'left',padding:0,
               display:'flex',alignItems:'center',gap:10,
+              minHeight:44,
             }}>
               <PathBoltLogo />
               <div style={{
@@ -2369,11 +2391,12 @@ export default function Dashboard() {
             </button>
 
             <div style={{display:'flex',alignItems:'center',gap:12,flexShrink:0}}>
-              <button onClick={() => setActiveTab('shop')} style={{
+              <button onClick={() => handleTabSelect('shop')} className="interactive-icon gem-glint" style={{
                 display:'flex',alignItems:'center',gap:6,
                 padding:'6px 10px',background:T.tealDim,
                 border:`1px solid ${T.tealBorder}`,borderRadius:9999,
                 cursor:'pointer',fontFamily:T.font,position:'relative',
+                minHeight:44,
               }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
                   style={{animation:gemPulse?'gemPulse 0.3s ease':'none'}}>
@@ -2398,27 +2421,31 @@ export default function Dashboard() {
                 ))}
               </button>
 
-              <button onClick={() => setActiveTab('settings')} style={{
+              <button onClick={() => handleTabSelect('settings')} className="interactive-icon" style={{
                 display:'flex',alignItems:'center',padding:0,background:'none',border:'none',
                 cursor:'pointer',fontFamily:T.font,
+                minHeight:44,
               }}>
                 <HeartBar hearts={heartsRemaining} prevHearts={prevHearts} maxHearts={maxHearts} />
               </button>
 
-              <button onClick={() => setActiveTab('stats')} style={{
+              <button onClick={() => handleTabSelect('stats')} className="interactive-icon" style={{
                 display:'flex',alignItems:'center',gap:4,
                 padding:'6px 10px',background:T.flameDim,
                 border:`1px solid ${T.flameBorder}`,borderRadius:9999,
                 cursor:'pointer',fontFamily:T.font,
+                minHeight:44,
               }}>
                 <StreakFlame streak={streakData.current} size={18} />
                 <span style={{fontSize:13,fontWeight:800,color:T.flame}}>{streakData.current}</span>
               </button>
 
-              <button onClick={() => setActiveTab('stats')} style={{
+              <button onClick={() => handleTabSelect('stats')} className="interactive-icon" style={{
                 display:'flex',alignItems:'center',justifyContent:'center',
                 width:28,height:28,padding:0,background:'none',border:'none',
                 cursor:'pointer',fontFamily:T.font,
+                minHeight:44,
+                minWidth:44,
               }}>
                 <MiniProgressRing
                   size={24}
@@ -2454,7 +2481,7 @@ export default function Dashboard() {
         {/* HOME TAB                                                       */}
         {/* ══════════════════════════════════════════════════════════════ */}
         {activeTab === 'home' && (
-          <>
+          <div className="shell-transition-fade">
             <StaggerBlock index={0}>
               <XPLevelBar {...xpDisplay} animating={xpAnimating}/>
             </StaggerBlock>
@@ -2978,6 +3005,7 @@ export default function Dashboard() {
                 <button
                   onClick={handleStartNextDay}
                   disabled={nextDayBusy}
+                  className="interactive-cta"
                   style={{
                     width:'100%',
                     padding:'16px 18px',
@@ -3003,14 +3031,14 @@ export default function Dashboard() {
             )}
 
             <div style={{height:showInlineNextDayCTA || showInlineNextDayProgress ? 36 : 24}}/>
-          </>
+          </div>
         )}
 
         {/* ══════════════════════════════════════════════════════════════ */}
         {/* STATS TAB                                                      */}
         {/* ══════════════════════════════════════════════════════════════ */}
         {activeTab === 'stats' && (
-          <div style={{maxWidth:600,margin:'0 auto',padding:'20px 20px 0'}}>
+          <div className="shell-transition-fade" style={{maxWidth:600,margin:'0 auto',padding:'20px 20px 0'}}>
             <h2 style={{fontSize:22,fontWeight:800,color:T.text,letterSpacing:'-0.4px',marginBottom:16}}>
               Your Progress
             </h2>
@@ -3093,7 +3121,7 @@ export default function Dashboard() {
         {/* PATH TAB                                                       */}
         {/* ══════════════════════════════════════════════════════════════ */}
         {activeTab === 'path' && (
-          <div style={{maxWidth:600,margin:'0 auto',padding:'24px 20px 0',textAlign:'center'}}>
+          <div className="shell-transition-fade" style={{maxWidth:600,margin:'0 auto',padding:'24px 20px 0',textAlign:'center'}}>
             <h2 style={{fontSize:22,fontWeight:800,color:T.text,marginBottom:8,letterSpacing:'-0.4px'}}>
               Learning Path
             </h2>
@@ -3161,7 +3189,7 @@ export default function Dashboard() {
         {/* SETTINGS TAB                                                   */}
         {/* ══════════════════════════════════════════════════════════════ */}
         {activeTab === 'settings' && (
-          <div style={{maxWidth:600,margin:'0 auto',padding:'20px 20px 0'}}>
+          <div className="shell-transition-fade" style={{maxWidth:600,margin:'0 auto',padding:'20px 20px 0'}}>
             <h2 style={{fontSize:22,fontWeight:800,color:T.text,letterSpacing:'-0.4px',marginBottom:20}}>
               Settings
             </h2>
@@ -3324,39 +3352,41 @@ export default function Dashboard() {
         {/* SHOP TAB                                                       */}
         {/* ══════════════════════════════════════════════════════════════ */}
         {activeTab === 'badges' && (
-          <div style={{ paddingTop: 20, paddingBottom: 40 }}>
+          <div className="shell-transition-fade" style={{ paddingTop: 20, paddingBottom: 40 }}>
             <BadgeShowcase earnedIds={earnedBadgeIds} />
           </div>
         )}
 
         {activeTab === 'shop' && (
-          <GemShop
-            gems={gems}
-            goalId={goal?.id}
-            activeTheme={activeTheme}
-            maxHearts={maxHearts}
-            onPurchase={(data) => {
-              if (data.newGemTotal != null) setGems(data.newGemTotal)
-              if (data.heartsRemaining != null) { setPrevHearts(heartsRemaining); setHeartsRemaining(data.heartsRemaining) }
-              if (data.maxHearts != null) {
-                setMaxHearts(data.maxHearts)
-                setStoredMaxHearts(data.maxHearts)
-              }
-              if (data.freezeCount != null) setFreezeCount(data.freezeCount)
-              if (data.xpBoostUntil) setXpBoostUntil(new Date(data.xpBoostUntil))
-              if (Array.isArray(data.ownedThemes)) {
-                setStoredOwnedThemes(data.ownedThemes)
-                setOwnedThemes(data.ownedThemes)
-              }
-              if (data.streakRepaired) {
-                setStreakData(prev => ({ ...prev, current: data.currentStreak || prev.current }))
-              }
-              setGemPulse(true)
-              setTimeout(() => setGemPulse(false), 400)
-              // Reload to sync all state from server
-              load(true)
-            }}
-          />
+          <div className="shell-transition-fade">
+            <GemShop
+              gems={gems}
+              goalId={goal?.id}
+              activeTheme={activeTheme}
+              maxHearts={maxHearts}
+              onPurchase={(data) => {
+                if (data.newGemTotal != null) setGems(data.newGemTotal)
+                if (data.heartsRemaining != null) { setPrevHearts(heartsRemaining); setHeartsRemaining(data.heartsRemaining) }
+                if (data.maxHearts != null) {
+                  setMaxHearts(data.maxHearts)
+                  setStoredMaxHearts(data.maxHearts)
+                }
+                if (data.freezeCount != null) setFreezeCount(data.freezeCount)
+                if (data.xpBoostUntil) setXpBoostUntil(new Date(data.xpBoostUntil))
+                if (Array.isArray(data.ownedThemes)) {
+                  setStoredOwnedThemes(data.ownedThemes)
+                  setOwnedThemes(data.ownedThemes)
+                }
+                if (data.streakRepaired) {
+                  setStreakData(prev => ({ ...prev, current: data.currentStreak || prev.current }))
+                }
+                setGemPulse(true)
+                setTimeout(() => setGemPulse(false), 400)
+                // Reload to sync all state from server
+                load(true)
+              }}
+            />
+          </div>
         )}
       </div>
 
@@ -3367,8 +3397,7 @@ export default function Dashboard() {
         backdropFilter:'blur(32px) saturate(200%)',
         WebkitBackdropFilter:'blur(32px) saturate(200%)',
         borderTop:`1px solid ${T.border}`,
-        paddingBottom:'env(safe-area-inset-bottom,0px)',
-      }}>
+      }} className="safe-bottom-nav">
         <div style={{maxWidth:600,margin:'0 auto',
           display:'grid',gridTemplateColumns:'repeat(6, 1fr)'}}>
           {[
@@ -3381,12 +3410,13 @@ export default function Dashboard() {
           ].map(({key,label,Icon}) => {
             const active = activeTab === key
             return (
-              <button key={key} onClick={() => setActiveTab(key)} style={{
+              <button key={key} onClick={() => handleTabSelect(key)} className="interactive-icon" style={{
                 background:'none',border:'none',
                 padding:'10px 0 12px',
                 display:'flex',flexDirection:'column',alignItems:'center',gap:3,
                 cursor:'pointer',color:active?T.teal:T.textMuted,
                 fontFamily:T.font,transition:'color 0.18s',position:'relative',
+                minHeight:52,
               }}>
                 {active && (
                   <div style={{

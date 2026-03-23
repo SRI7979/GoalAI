@@ -24,7 +24,7 @@ function ConfettiParticle({ x, delay, duration, color, size, spin }) {
       background: color,
       borderRadius: spin % 2 === 0 ? '50%' : '2px',
       animation:  `confettiFall ${duration}s ${delay}s ease-in both`,
-      transform:  `rotate(${spin}deg)`,
+      '--spin-start': `${spin}deg`,
       opacity:    0,
       boxShadow:  `0 0 4px ${color}80`,
     }} />
@@ -102,8 +102,8 @@ export default function MissionComplete({ isVisible, data, onDoLater, onStartTom
       {/* ── Keyframes (injected once) ── */}
       <style>{`
         @keyframes confettiFall {
-          0%   { opacity: 1; transform: translateY(0)   rotate(0deg)   scaleX(1); }
-          100% { opacity: 0; transform: translateY(110vh) rotate(720deg) scaleX(0.6); }
+          0%   { opacity: 1; transform: translate3d(0,0,0) rotate(var(--spin-start, 0deg)) scale(1); }
+          100% { opacity: 0; transform: translate3d(0,110vh,0) rotate(calc(var(--spin-start, 0deg) + 680deg)) scale(0.58); }
         }
         @keyframes mcBackdrop  { from { opacity: 0 } to { opacity: 1 } }
         @keyframes mcScaleIn   {
@@ -181,9 +181,13 @@ export default function MissionComplete({ isVisible, data, onDoLater, onStartTom
               justifyContent:'center',
               margin:        '0 auto 16px',
               boxShadow:     '0 0 48px rgba(14,245,194,0.22)',
-              fontSize:      28,
             }}>
-              🎯
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#0ef5c2" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="7.5"/>
+                <circle cx="12" cy="12" r="3.25"/>
+                <path d="M16 8l4-4"/>
+                <path d="M18.5 5.5l1 1"/>
+              </svg>
             </div>
             <div style={{
               fontSize:      11,

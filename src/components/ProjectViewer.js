@@ -867,7 +867,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
   // ═════════════════════════════════════════════════════════════════════
   if (loading) {
     return (
-      <div style={{ ...OVERLAY, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
+      <div className="overlay-slide-up" style={{ ...OVERLAY, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
         <style>{STYLES}</style>
         <div style={{ position: 'relative', width: 56, height: 56 }}>
           <div style={{ width: 56, height: 56, borderRadius: '50%', border: `3px solid ${T.tealDim}`, borderTopColor: T.teal, animation: 'spin 0.7s linear infinite' }}/>
@@ -884,7 +884,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
   // ═════════════════════════════════════════════════════════════════════
   if (error) {
     return (
-      <div style={{ ...OVERLAY, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, padding: 40 }}>
+      <div className="overlay-slide-up" style={{ ...OVERLAY, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, padding: 40 }}>
         <div style={{ fontSize: 40 }}>😵</div>
         <div style={{ color: T.text, fontSize: 16, fontWeight: 700 }}>Something went wrong</div>
         <div style={{ color: T.textMuted, fontSize: 13 }}>{error}</div>
@@ -898,7 +898,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
   // ═════════════════════════════════════════════════════════════════════
   if (!project && !modeChosen && !readOnly) {
     return (
-      <div style={{ ...OVERLAY, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 20, padding: 40 }}>
+      <div className="overlay-slide-up" style={{ ...OVERLAY, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 20, padding: 40 }}>
         <style>{STYLES}</style>
         <div style={{ fontSize: 48, marginBottom: 8 }}>🚀</div>
         <div style={{ fontSize: 22, fontWeight: 900, color: T.text, textAlign: 'center', letterSpacing: '-0.5px' }}>Choose Your Mode</div>
@@ -946,7 +946,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
   // ═════════════════════════════════════════════════════════════════════
   if (showCelebration) {
     return (
-      <div style={{ ...OVERLAY, zIndex: 10000, background: 'rgba(6,6,15,0.95)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 40 }}>
+      <div className="overlay-slide-up" style={{ ...OVERLAY, zIndex: 10000, background: 'rgba(6,6,15,0.95)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 40 }}>
         <style>{STYLES}</style>
         {Array.from({ length: 24 }).map((_, i) => (
           <div key={i} style={{ position: 'absolute', left: `${10 + Math.random() * 80}%`, top: `${30 + Math.random() * 40}%`, width: 8, height: 8, borderRadius: i % 3 === 0 ? '50%' : 2, background: [T.teal, T.gold, T.purple, T.pink, T.blue][i % 5], animation: `confettiFloat ${1.5 + Math.random() * 1.5}s ease ${Math.random() * 0.5}s forwards` }}/>
@@ -989,7 +989,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
   // MAIN RENDER
   // ═════════════════════════════════════════════════════════════════════
   return (
-    <div style={{ ...OVERLAY, overflowY: 'auto', overflowX: 'hidden', overscrollBehaviorY: 'contain', WebkitOverflowScrolling: 'touch' }}>
+    <div className="overlay-slide-up" style={{ ...OVERLAY, overflowY: 'auto', overflowX: 'hidden', overscrollBehaviorY: 'contain', WebkitOverflowScrolling: 'touch' }}>
       <style>{STYLES}</style>
 
       {xpPopup && <XpPopup xp={xpPopup} label={xpPopupLabel} onDone={() => { setXpPopup(null); setXpPopupLabel(null) }} />}

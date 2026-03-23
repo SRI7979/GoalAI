@@ -7,6 +7,7 @@ import { HEARTS_MAX } from '@/lib/tokens'
 function HeartSvg({ filled, cracking, sz = 18 }) {
   return (
     <svg
+      className={filled && !cracking ? 'heart-idle' : undefined}
       width={sz} height={sz} viewBox="0 0 24 24" fill="none"
       style={{
         transition: 'filter 0.2s',
@@ -40,12 +41,12 @@ export default function HeartBar({ hearts = HEARTS_MAX, prevHearts = null, maxHe
   }, [hearts, prevHearts])
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 3, minHeight: 20 }}>
       {Array.from({ length: maxHearts }, (_, i) => {
         const isFilled   = i < hearts
         const isCracking = i === crackingIndex
         return (
-          <div key={i} style={{ position: 'relative' }}>
+          <div key={i} style={{ position: 'relative', minWidth: 16, minHeight: 16 }}>
             <HeartSvg filled={isFilled || isCracking} cracking={isCracking} sz={16} />
           </div>
         )

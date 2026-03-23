@@ -494,8 +494,45 @@ a {
   to   { opacity: 1; transform: translateX(0);    }
 }
 
+@keyframes shellFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes overlaySlideUp {
+  from { opacity: 0; transform: translateY(100%); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes overlaySlideDown {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(100%); }
+}
+
+@keyframes shimmerSweep {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(220%); }
+}
+
+@keyframes gemGlintSweep {
+  0%, 72%, 100% { transform: translateX(-160%) rotate(18deg); opacity: 0; }
+  76% { opacity: 0.85; }
+  84% { transform: translateX(180%) rotate(18deg); opacity: 0; }
+}
+
+@keyframes heartIdlePulse {
+  0%, 100% { opacity: 0.92; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.03); }
+}
+
 /* ── Reduced motion overrides ───────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
   @keyframes crackRedFade    { to { opacity: 0; } }
   @keyframes heartShake      { to { } }
   @keyframes redVignette     { to { opacity: 0; } }
@@ -532,4 +569,146 @@ a {
     background: rgba(18, 24, 48, 0.92);
     border-color: rgba(255,255,255,0.12);
   }
+}
+
+.interactive-cta,
+.interactive-secondary,
+.interactive-card,
+.interactive-icon {
+  transition:
+    transform 150ms var(--ease-out),
+    box-shadow 150ms var(--ease-out),
+    border-color 150ms var(--ease-out),
+    background-color 150ms var(--ease-out),
+    opacity 150ms var(--ease-out),
+    filter 150ms var(--ease-out);
+}
+
+.interactive-cta:hover:not(:disabled) {
+  transform: translateY(-1px) scale(1.02);
+  box-shadow:
+    0 18px 36px rgba(0, 0, 0, 0.24),
+    0 0 24px rgba(14, 245, 194, 0.22);
+}
+
+.interactive-cta:active:not(:disabled) {
+  transform: translateY(0) scale(0.97);
+}
+
+.interactive-secondary:hover:not(:disabled),
+.interactive-icon:hover:not(:disabled) {
+  border-color: rgba(14, 245, 194, 0.20) !important;
+  filter: brightness(1.03);
+}
+
+.interactive-secondary:active:not(:disabled),
+.interactive-icon:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.interactive-card:hover:not([aria-disabled='true']) {
+  transform: translateY(-1px);
+  box-shadow:
+    0 18px 34px rgba(0, 0, 0, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.interactive-card:active:not([aria-disabled='true']) {
+  transform: translateY(0);
+  box-shadow:
+    0 10px 22px rgba(0, 0, 0, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.interactive-cta:disabled,
+.interactive-secondary:disabled,
+.interactive-card[aria-disabled='true'],
+.interactive-icon:disabled {
+  opacity: 0.4;
+  cursor: default !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.progress-track {
+  position: relative;
+  overflow: hidden;
+}
+
+.progress-fill {
+  position: relative;
+  overflow: hidden;
+  transition: width 600ms var(--ease-out);
+}
+
+.progress-fill::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 44%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.24), transparent);
+  animation: shimmerSweep 2s linear infinite;
+  opacity: 0.55;
+}
+
+.gem-glint {
+  position: relative;
+  overflow: hidden;
+}
+
+.gem-glint::after {
+  content: '';
+  position: absolute;
+  inset: -40% auto -40% -30%;
+  width: 32%;
+  background: linear-gradient(180deg, transparent, rgba(255,255,255,0.82), transparent);
+  transform: translateX(-160%) rotate(18deg);
+  animation: gemGlintSweep 5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.heart-idle {
+  animation: heartIdlePulse 4s ease-in-out infinite;
+  transform-origin: center;
+}
+
+.shell-transition-fade {
+  animation: shellFadeIn 0.2s ease-out both;
+}
+
+.overlay-slide-up {
+  animation: overlaySlideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.overlay-slide-down {
+  animation: overlaySlideDown 0.25s ease-in both;
+}
+
+.skeleton-shimmer {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(90deg, rgba(255,255,255,0.05), rgba(255,255,255,0.10), rgba(255,255,255,0.05));
+  background-size: 240% 100%;
+  animation: shimmer 1.5s linear infinite;
+}
+
+.safe-bottom-nav {
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 8px);
+}
+
+.safe-top-shell {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+.safe-bottom-sheet {
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+}
+
+.hide-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
 }

@@ -477,7 +477,7 @@ export default function LessonViewer({ concept, taskTitle, goal, knowledge, less
         @keyframes comboBurst { 0% { transform: scale(0.8); opacity: 0; } 50% { transform: scale(1.2); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
       `}</style>
 
-      <div style={{
+      <div className="overlay-slide-up" style={{
         position: 'fixed', inset: 0, zIndex: 200,
         background: 'linear-gradient(180deg, #06060f 0%, #080814 100%)',
         fontFamily: "'DM Sans', -apple-system, 'SF Pro Display', system-ui, sans-serif",
@@ -489,7 +489,7 @@ export default function LessonViewer({ concept, taskTitle, goal, knowledge, less
         {/* ── Top bar ── */}
         <div style={{ padding: '14px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.08)', background: 'rgba(6,6,15,0.88)', backdropFilter: 'blur(28px) saturate(200%)', WebkitBackdropFilter: 'blur(28px) saturate(200%)', boxShadow: 'inset 0 -1px 0 rgba(255,255,255,0.04)' }}>
           {/* Close */}
-          <button onClick={onClose} style={{ width: 36, height: 36, background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.10)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#8e8e93', transition: 'all 0.18s', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}
+          <button onClick={onClose} className="interactive-icon" style={{ width: 36, height: 36, background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.10)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#8e8e93', transition: 'all 0.18s', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}
             onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.12)'; e.currentTarget.style.color = '#f5f5f7' }}
             onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = '#8e8e93' }}
           >
@@ -505,7 +505,7 @@ export default function LessonViewer({ concept, taskTitle, goal, knowledge, less
           </div>
 
           {/* AI assistant toggle */}
-          <button onClick={() => setAssistantOpen((v) => !v)}
+          <button onClick={() => setAssistantOpen((v) => !v)} className="interactive-icon"
             style={{ width: 36, height: 36, background: assistantOpen ? 'rgba(14,245,194,0.12)' : 'rgba(255,255,255,0.07)', border: `1px solid ${assistantOpen ? 'rgba(14,245,194,0.35)' : 'rgba(255,255,255,0.10)'}`, color: assistantOpen ? '#0ef5c2' : '#8e8e93', borderRadius: 10, display: 'grid', placeItems: 'center', cursor: 'pointer', fontSize: 17, transition: 'all 0.2s', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', boxShadow: assistantOpen ? 'inset 0 1px 0 rgba(14,245,194,0.25)' : 'inset 0 1px 0 rgba(255,255,255,0.08)' }}
           >
             ✦
@@ -627,7 +627,7 @@ export default function LessonViewer({ concept, taskTitle, goal, knowledge, less
         {!loading && !error && (
           <div style={{ padding: '14px 20px 30px', borderTop: '1px solid rgba(255,255,255,0.08)', background: 'rgba(6,6,15,0.90)', backdropFilter: 'blur(28px) saturate(200%)', WebkitBackdropFilter: 'blur(28px) saturate(200%)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)' }}>
             <div style={{ maxWidth: 600, margin: '0 auto', display: 'flex', gap: 12 }}>
-              <button onClick={handleBack} disabled={current === 0 && !showQuiz}
+              <button onClick={handleBack} disabled={current === 0 && !showQuiz} className="interactive-secondary"
                 style={{ padding: '14px 26px', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 16, color: current === 0 && !showQuiz ? '#3a3a3c' : '#8e8e93', fontSize: 15, fontWeight: 600, cursor: current === 0 && !showQuiz ? 'default' : 'pointer', fontFamily: "'DM Sans', sans-serif", transition: 'all 0.2s', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08)' }}
                 onMouseEnter={(e) => { if (current > 0 || showQuiz) { e.currentTarget.style.color = '#f5f5f7'; e.currentTarget.style.background = 'rgba(255,255,255,0.12)' } }}
                 onMouseLeave={(e) => { e.currentTarget.style.color = current === 0 && !showQuiz ? '#3a3a3c' : '#8e8e93'; e.currentTarget.style.background = 'rgba(255,255,255,0.07)' }}
@@ -636,6 +636,7 @@ export default function LessonViewer({ concept, taskTitle, goal, knowledge, less
               </button>
               <button onClick={handleNext}
                 disabled={showQuiz && !quizPassed}
+                className="interactive-cta"
                 style={{ flex: 1, padding: '14px', background: (showQuiz && !quizPassed) ? 'rgba(255,255,255,0.08)' : 'linear-gradient(135deg, #0ef5c2, #00d4ff)', border: 'none', borderRadius: 16, color: (showQuiz && !quizPassed) ? '#636366' : '#06060f', fontSize: 16, fontWeight: 700, cursor: (showQuiz && !quizPassed) ? 'default' : 'pointer', fontFamily: "'DM Sans', sans-serif", boxShadow: (showQuiz && !quizPassed) ? 'none' : '0 0 32px rgba(14,245,194,0.28), inset 0 1px 0 rgba(255,255,255,0.48)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, transition: 'all 0.22s cubic-bezier(0.16,1,0.3,1)' }}
                 onMouseEnter={(e) => { if (!(showQuiz && !quizPassed)) { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 0 44px rgba(14,245,194,0.40), inset 0 1px 0 rgba(255,255,255,0.48)' } }}
                 onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = (showQuiz && !quizPassed) ? 'none' : '0 0 32px rgba(14,245,194,0.28), inset 0 1px 0 rgba(255,255,255,0.48)' }}

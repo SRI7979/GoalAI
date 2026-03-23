@@ -1,21 +1,27 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 
 const font = "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif"
 
+const pseudoRandom = (seed) => {
+  const value = Math.sin(seed * 9973.13) * 10000
+  return value - Math.floor(value)
+}
+
 function Particle({ index, total }) {
   const angle = (index / total) * 360
-  const dist  = 60 + Math.random() * 40
-  const size  = 4 + Math.random() * 4
-  const hue   = 35 + Math.random() * 25 // gold range
-  const delay = Math.random() * 0.15
+  const dist  = 60 + pseudoRandom(index + 1) * 40
+  const size  = 4 + pseudoRandom(index + 11) * 4
+  const hue   = 35 + pseudoRandom(index + 21) * 25
+  const delay = pseudoRandom(index + 31) * 0.15
+  const lightness = 55 + pseudoRandom(index + 41) * 15
 
   return (
     <div style={{
       position:'absolute',
       width:size, height:size,
       borderRadius: index % 3 === 0 ? '50%' : '2px',
-      background:`hsl(${hue}, 100%, ${55 + Math.random()*15}%)`,
+      background:`hsl(${hue}, 100%, ${lightness}%)`,
       left:'50%', top:'50%',
       animation:`chestParticle 0.8s ${delay}s ease-out forwards`,
       '--angle': `${angle}deg`,
@@ -28,13 +34,7 @@ function Particle({ index, total }) {
 
 export default function TreasureChest({ reward, onClaim }) {
   const [phase, setPhase] = useState('intro') // intro → opened → claimed
-  const [particles, setParticles] = useState([])
-
-  useEffect(() => {
-    if (phase === 'opened') {
-      setParticles(Array.from({ length: 16 }, (_, i) => i))
-    }
-  }, [phase])
+  const particles = phase === 'opened' ? Array.from({ length: 16 }, (_, i) => i) : []
 
   if (!reward) return null
 
@@ -70,6 +70,8 @@ export default function TreasureChest({ reward, onClaim }) {
         }
         @keyframes chestLidOpen{
           0%{transform:rotateX(0deg)}
+          58%{transform:rotateX(-102deg)}
+          72%{transform:rotateX(-94deg)}
           100%{transform:rotateX(-120deg)}
         }
         @keyframes chestParticle{
@@ -163,7 +165,7 @@ export default function TreasureChest({ reward, onClaim }) {
         {phase === 'intro' && (
           <div style={{textAlign:'center',animation:'chestBounceIn 0.5s 0.2s cubic-bezier(0.34,1.56,0.64,1) both'}}>
             <div style={{fontSize:20,fontWeight:800,color:'#F1F5F9',marginBottom:8}}>
-              You found a treasure chest!
+              Reward cache unlocked
             </div>
             <button onClick={() => setPhase('opened')} style={{
               padding:'12px 28px',
@@ -176,7 +178,7 @@ export default function TreasureChest({ reward, onClaim }) {
               animation:'chestShimmer 2s linear infinite',
               backgroundImage:'linear-gradient(90deg,#D97706,#F59E0B,#FBBF24,#F59E0B,#D97706)',
             }}>
-              Tap to Open
+              Open reward
             </button>
           </div>
         )}
