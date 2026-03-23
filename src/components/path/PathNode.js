@@ -12,10 +12,10 @@ const BOSS_COLORS = {
 }
 
 const PROJECT_COLORS = {
-  accent: '#C084FC',
-  dark: '#7C3AED',
-  glow: 'rgba(192,132,252,0.55)',
-  strip: 'rgba(192,132,252,0.16)',
+  accent: '#FBBF24',
+  dark: '#B45309',
+  glow: 'rgba(251,191,36,0.48)',
+  strip: 'rgba(251,191,36,0.14)',
 }
 
 function rgba(hex, alpha) {
@@ -89,17 +89,17 @@ function ProgressRing({ progress, accent }) {
 }
 
 function getNodeScale({ current, tone }) {
-  if (current) return 1.32
-  if (tone === 'boss') return 1.16
-  if (tone === 'project') return 1.12
+  if (current) return 1.24
+  if (tone === 'boss') return 1.08
+  if (tone === 'project') return 1.02
   return 1
 }
 
 function getNodeSize({ current, tone }) {
-  if (current) return 94
-  if (tone === 'boss') return 86
-  if (tone === 'project') return 82
-  return 70
+  if (current) return 68
+  if (tone === 'boss') return 60
+  if (tone === 'project') return 56
+  return 56
 }
 
 function getSurface({ state, completed, current, palette }) {
@@ -117,7 +117,7 @@ function getSurface({ state, completed, current, palette }) {
 
 function getShadow({ completed, current, state, palette }) {
   if (completed) {
-    return `0 24px 45px ${rgba(palette.accent, 0.30)}, inset 0 1px 0 rgba(255,255,255,0.30)`
+    return `0 16px 34px ${rgba(palette.accent, 0.28)}, 0 0 24px ${rgba(palette.accent, 0.18)}, inset 0 1px 0 rgba(255,255,255,0.30)`
   }
   if (current) {
     return `0 0 0 1px ${rgba(palette.accent, 0.22)}, 0 22px 48px ${rgba(palette.accent, 0.28)}`
@@ -242,13 +242,13 @@ function PathNodeComponent({
             <motion.div
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
-              className="pointer-events-none absolute -top-11 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-[0.28em] text-slate-950"
+              className="pointer-events-none absolute top-full left-1/2 mt-3 -translate-x-1/2 whitespace-nowrap rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-[0.24em] text-slate-950"
               style={{
                 background: `linear-gradient(135deg, ${palette.accent}, #f8fafc)`,
                 boxShadow: `0 10px 30px ${rgba(palette.accent, 0.26)}`,
               }}
             >
-              Next Up
+              ▶ You Are Here
             </motion.div>
           )}
 
@@ -325,7 +325,7 @@ function PathNodeComponent({
             disabled={isLocked}
             initial={justUnlocked ? { opacity: 0, scale: 0.72, y: 16 } : false}
             animate={{
-              opacity: isLocked ? 0.66 : 1,
+              opacity: isLocked ? 0.4 : 1,
               scale: celebrating
                 ? [scale, scale * 1.18, scale]
                 : justUnlocked
@@ -342,11 +342,11 @@ function PathNodeComponent({
             style={{
               width: size,
               height: size,
-              borderRadius: tone === 'boss' ? 26 : tone === 'project' ? 22 : 999,
+              borderRadius: tone === 'boss' ? 20 : tone === 'project' ? 18 : 999,
               background: getSurface({ state, completed, current, palette }),
               borderColor: completed || current ? palette.accent : 'rgba(255,255,255,0.12)',
               boxShadow: getShadow({ completed, current, state, palette }),
-              filter: isLocked ? 'grayscale(0.35)' : 'none',
+              filter: isLocked ? 'grayscale(0.7)' : 'none',
             }}
           >
             <motion.div
@@ -385,7 +385,7 @@ function PathNodeComponent({
 
             <div
               className="relative z-10 flex items-center justify-center"
-              style={{ color: completed ? '#020617' : isLocked ? 'rgba(255,255,255,0.35)' : palette.accent }}
+              style={{ color: completed ? '#ffffff' : isLocked ? 'rgba(255,255,255,0.35)' : palette.accent }}
             >
               <NodeIcon
                 state={state}
@@ -410,20 +410,20 @@ function PathNodeComponent({
           </motion.button>
 
           <div className="flex flex-col items-center gap-1">
-            <div
-              className="rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em]"
-              style={{
-                background: current
-                  ? `linear-gradient(135deg, ${rgba(palette.accent, 0.24)}, rgba(255,255,255,0.08))`
-                  : completed
+            {!current && (
+              <div
+                className="rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.2em]"
+                style={{
+                  background: completed
                     ? rgba(palette.accent, 0.12)
                     : 'rgba(15,23,42,0.54)',
-                color: current ? palette.accent : completed ? '#cbd5e1' : 'rgba(148,163,184,0.82)',
-                border: `1px solid ${current ? rgba(palette.accent, 0.32) : 'rgba(255,255,255,0.08)'}`,
-              }}
-            >
-              {dayLabel}
-            </div>
+                  color: completed ? '#cbd5e1' : 'rgba(148,163,184,0.82)',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                }}
+              >
+                {dayLabel}
+              </div>
+            )}
 
             <div className="sm:hidden max-w-[150px] text-center">
               <div className="text-[11px] font-bold leading-4 text-slate-100">{mobileLabel}</div>

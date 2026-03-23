@@ -28,13 +28,13 @@ const T = {
 
 // ─── Wave x-positions in 400px coordinate space ───────────────────────────────
 // 5-point wave: left edge → left → center → right → right edge → right → center → left → repeat
-const WAVE_PX = [55, 120, 200, 280, 345, 280, 200, 120]
+const WAVE_PX = [72, 136, 214, 292, 330, 276, 194, 108]
 const getWaveX = (i) => WAVE_PX[i % WAVE_PX.length]
 
 // Map layout constants
-const NODE_ROW_H = 118  // px per node row
-const BOSS_ROW_H = 140  // px for boss/project rows
-const BANNER_H   = 88   // world banner strip height
+const NODE_ROW_H = 108  // px per node row
+const BOSS_ROW_H = 132  // px for boss/project rows
+const BANNER_H   = 100  // world banner strip height
 const COORD_W    = 400  // SVG coordinate width
 
 // XP per task type
@@ -160,17 +160,62 @@ const TASK_STYLE = {
   boss:            { color:'#EC4899', label:'BOSS'     },
 }
 
+function averageWorldQuizAccuracy(nodes = []) {
+  const scores = []
+  nodes.forEach((node) => {
+    ;(node.tasks || []).forEach((task) => {
+      const candidate = [
+        task?.accuracy,
+        task?.score,
+        task?.quizScore,
+        task?.result?.score,
+        task?.metrics?.quizScore,
+      ].find((value) => Number.isFinite(Number(value)))
+      if (candidate !== undefined) scores.push(Number(candidate))
+    })
+  })
+  if (scores.length === 0) return null
+  return scores.reduce((sum, score) => sum + score, 0) / scores.length
+}
+
+function getWorldStarCount(nodes = []) {
+  const avgAccuracy = averageWorldQuizAccuracy(nodes)
+  if (avgAccuracy != null) {
+    if (avgAccuracy >= 90) return 3
+    if (avgAccuracy >= 75) return 2
+    if (avgAccuracy >= 60) return 1
+    return 0
+  }
+
+  const total = nodes.length || 1
+  const completed = nodes.filter((node) => node.status === 'done').length
+  const ratio = completed / total
+  if (ratio >= 1) return 3
+  if (ratio >= 0.66) return 2
+  if (ratio >= 0.33) return 1
+  return 0
+}
+
 // ─── World Banner ─────────────────────────────────────────────────────────────
-function WorldBanner({ world, worldIdx, doneCount, totalCount, height }) {
+function WorldBanner({ world, worldIdx, doneCount, totalCount, starCount, height, top }) {
   const pct     = totalCount > 0 ? doneCount / totalCount : 0
   const allDone = doneCount === totalCount && totalCount > 0
   return (
     <div style={{
-      position:'absolute', left:0, right:0, height,
-      background: world.bg,
+      position:'absolute', left:0, right:0, top, height,
+      background: `linear-gradient(135deg, ${world.bg}, rgba(5,6,8,0.12))`,
       display:'flex', alignItems:'center',
       padding:'0 18px', overflow:'hidden',
     }}>
+      {allDone && (
+        <div style={{
+          position:'absolute', inset:0,
+          background:'linear-gradient(120deg, transparent 15%, rgba(255,215,0,0.22) 40%, transparent 65%)',
+          backgroundSize:'200% 100%',
+          animation:'shimmer 3.6s linear infinite',
+          pointerEvents:'none',
+        }}/>
+      )}
       {/* Left decoration */}
       <div style={{
         width:52, height:52, borderRadius:'50%', flexShrink:0,
@@ -209,10 +254,22 @@ function WorldBanner({ world, worldIdx, doneCount, totalCount, height }) {
 
       {/* Right star cluster */}
       <div style={{ marginLeft:12, textAlign:'center', flexShrink:0 }}>
-        <div style={{ fontSize:20, lineHeight:1, opacity: pct > 0 ? 1 : 0.25 }}>
-          {pct >= 1 ? '⭐' : pct >= 0.5 ? '✨' : '☆'}
+        <div style={{ display:'flex', gap:3, marginBottom:4, justifyContent:'center' }}>
+          {[0, 1, 2].map((index) => (
+            <span
+              key={index}
+              style={{
+                fontSize:16,
+                lineHeight:1,
+                opacity: index < starCount ? 1 : 0.22,
+                filter: index < starCount ? 'drop-shadow(0 0 8px rgba(255,215,0,0.38))' : 'none',
+              }}
+            >
+              ★
+            </span>
+          ))}
         </div>
-        <div style={{ fontSize:9, color: T.textMuted, marginTop:2, fontWeight:600 }}>{Math.round(pct*100)}%</div>
+        <div style={{ fontSize:9, color: T.textMuted, marginTop:2, fontWeight:600 }}>{starCount}/3 stars</div>
       </div>
     </div>
   )
@@ -505,7 +562,7 @@ export default function PathPage() {
   const registerNodeRef = useCallback((id, element) => {
     if (element) nodeRefs.current.set(id, element)
     else nodeRefs.current.delete(id)
-  }, [activeNode])
+  }, [])
 
   // ── Load ───────────────────────────────────────────────────────────────────
   const load = useCallback(async () => {
@@ -685,8 +742,10 @@ export default function PathPage() {
     if (!currentNode?.id) return undefined
     const timer = setTimeout(() => {
       const element = nodeRefs.current.get(currentNode.id)
-      element?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    }, 260)
+      if (!element) return
+      const targetY = window.scrollY + element.getBoundingClientRect().top - ((window.innerHeight / 2) - 80)
+      window.scrollTo({ top: Math.max(0, targetY), behavior: 'smooth' })
+    }, 300)
     return () => clearTimeout(timer)
   }, [currentNode?.id])
 
@@ -1017,7 +1076,9 @@ export default function PathPage() {
                   worldIdx={item.worldIdx}
                   doneCount={doneCount}
                   totalCount={item.nodes.length}
+                  starCount={getWorldStarCount(item.nodes)}
                   height={item.height}
+                  top={item.y}
                 />
               )
             })}

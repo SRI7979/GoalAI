@@ -29,8 +29,9 @@ function PathLineComponent({ segment, celebrating = false }) {
   const lineId = sanitizeId(segment.id)
   const gradientId = `path-gradient-${lineId}`
   const glowId = `path-glow-${lineId}`
-  const isCompleted = segment.fromStatus === 'done'
-  const isCurrentLead = segment.fromStatus === 'active' || segment.toStatus === 'active'
+  const isCompleted = segment.fromStatus === 'done' && (segment.toStatus === 'done' || segment.toStatus === 'active')
+  const isCurrentLead = segment.fromStatus === 'active'
+  const isLocked = !isCompleted && !isCurrentLead
   const highlight = isCompleted || isCurrentLead
   const accent = segment.world?.accent || '#22D3A5'
   const dark = segment.world?.dark || '#0d7a5f'
@@ -56,46 +57,33 @@ function PathLineComponent({ segment, celebrating = false }) {
       <path
         d={pathD}
         fill="none"
-        stroke={highlight ? rgba(accent, 0.16) : 'rgba(255,255,255,0.06)'}
+        stroke={isCompleted ? rgba(accent, 0.18) : isCurrentLead ? rgba(accent, 0.12) : 'rgba(148,163,184,0.16)'}
         strokeWidth={highlight ? 8 : 4}
         strokeLinecap="round"
-        strokeDasharray={highlight ? 'none' : '10 10'}
-        opacity={highlight ? 0.55 : 0.8}
+        strokeDasharray={isLocked ? '10 12' : 'none'}
+        opacity={highlight ? 0.55 : 0.3}
       />
 
       <motion.path
         d={pathD}
         fill="none"
         stroke={`url(#${gradientId})`}
-        strokeWidth={highlight ? (isCompleted ? 5.5 : 4.5) : 3}
+        strokeWidth={isCompleted ? 5 : isCurrentLead ? 4 : 3}
         strokeLinecap="round"
-        strokeDasharray={highlight ? 'none' : '12 14'}
+        strokeDasharray={isCurrentLead ? '10 8' : isLocked ? '12 14' : 'none'}
         style={{ filter: `url(#${glowId})` }}
         initial={false}
         animate={{
-          opacity: highlight ? 1 : 0.2,
-          pathLength: highlight ? 1 : 0.28,
+          opacity: isCompleted ? 1 : isCurrentLead ? 0.95 : 0.3,
+          pathLength: isLocked ? 0.32 : 1,
+          strokeDashoffset: isCurrentLead ? -36 : 0,
         }}
         transition={{
-          duration: celebrating ? 0.9 : 0.65,
-          ease: [0.22, 1, 0.36, 1],
+          duration: isCurrentLead ? 2 : celebrating ? 0.9 : 0.65,
+          ease: isCurrentLead ? 'linear' : [0.22, 1, 0.36, 1],
+          repeat: isCurrentLead ? Infinity : 0,
         }}
       />
-
-      {isCurrentLead && !isCompleted && (
-        <motion.path
-          d={pathD}
-          fill="none"
-          stroke="#ffffff"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeDasharray="0.01 0.18"
-          initial={{ pathOffset: 1 }}
-          animate={{ pathOffset: 0 }}
-          transition={{ duration: 1.6, repeat: Infinity, ease: 'linear' }}
-          opacity="0.9"
-        />
-      )}
 
       {celebrating && (
         <motion.path
