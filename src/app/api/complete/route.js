@@ -11,6 +11,16 @@ import { generateDailyQuests, updateQuestProgress } from '@/lib/quests'
 import { checkAndAwardBadges } from '@/lib/badges'
 import { calculateUnderstandingScore, calculateAdaptiveDifficulty } from '@/lib/learningEngine'
 import { buildAdaptiveProfile, createTaskPerformanceRecord, getAdaptiveAiMode } from '@/lib/adaptiveLearning'
+import {
+  buildCourseCompletionRewards,
+  extractCourseConcepts,
+  extractCourseModuleTitles,
+  filterRowsForCourseWindow,
+  getCourseCompletionGrade,
+  getCourseFinalExamDayNumber,
+  isCourseFinalExamTask,
+} from '@/lib/courseCompletion'
+import { getStoredCourseOutline } from '@/lib/courseOutlineStore'
 
 function extractAccessToken(request) {
   const authHeader = request.headers.get('authorization') || request.headers.get('Authorization')
@@ -21,6 +31,310 @@ function extractAccessToken(request) {
 
 function normalizeTaskId(value) {
   return String(value)
+}
+
+function clamp(value, min, max, fallback = min) {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return fallback
+  return Math.max(min, Math.min(max, numeric))
+}
+
+function formatDate(value) {
+  const parsed = value ? new Date(value) : new Date()
+  if (Number.isNaN(parsed.getTime())) return new Date().toISOString()
+  return parsed.toISOString()
+}
+
+function buildCourseConceptRatings({ moduleTitles = [], conceptNames = [], examScore = 0 }) {
+  const source = moduleTitles.length > 0 ? moduleTitles : conceptNames.slice(0, 5)
+  const baseline = clamp(examScore, 0, 100, 0)
+  return source.slice(0, 5).map((label, index) => {
+    const adjusted = clamp(baseline - (index * 2), 65, 100, baseline)
+    return {
+      concept: label,
+      score: adjusted,
+      feedback: adjusted >= 90
+        ? `You demonstrated strong retention across ${label}.`
+        : adjusted >= 80
+          ? `${label} is solid, with room to tighten speed and precision.`
+          : `${label} is passable, but would benefit from one focused review pass.`,
+    }
+  })
+}
+
+function buildCourseCompletionReview({ goalText, examScore, attemptsUsed, moduleTitles = [], conceptNames = [] }) {
+  const grade = getCourseCompletionGrade(examScore)
+  return {
+    overall_score: examScore,
+    grade,
+    summary: `Completed the full ${goalText} course and passed the comprehensive final exam with a score of ${examScore}% in ${attemptsUsed} attempt${attemptsUsed === 1 ? '' : 's'}.`,
+    strengths: [
+      'Finished the full course sequence instead of dropping off midstream.',
+      `Passed the comprehensive final exam at ${examScore}% coverage.`,
+      moduleTitles.length > 0
+        ? `Closed the loop on ${moduleTitles.length} course module${moduleTitles.length === 1 ? '' : 's'}.`
+        : 'Demonstrated broad retention across the covered concepts.',
+    ],
+    improvements: examScore >= 92
+      ? ['Convert this knowledge into a larger shipped project next.', 'Keep the strongest concepts fresh by applying them in the real world.']
+      : ['Revisit the weakest sections from the final exam before starting the next course.', 'Turn the course concepts into one project so the knowledge sticks.'],
+    concept_ratings: buildCourseConceptRatings({ moduleTitles, conceptNames, examScore }),
+    next_steps: examScore >= 92
+      ? `Use ${goalText} in a capstone-level project or move into a more advanced follow-up course.`
+      : `Do one targeted review pass on the weakest concepts from ${goalText}, then apply them in a project.`,
+    professional_improvement: `A professional would now turn ${goalText} from study knowledge into repeatable execution through real projects, faster decision-making, and cleaner tradeoff reasoning.`,
+  }
+}
+
+function buildCourseCompletionArtifact({
+  userId,
+  goalId,
+  goalText,
+  totalDays,
+  courseOutline,
+  rows,
+  examScore,
+  attemptsUsed,
+  completedAt,
+}) {
+  const moduleTitles = extractCourseModuleTitles(courseOutline, rows)
+  const conceptNames = extractCourseConcepts(courseOutline, rows)
+  const finalExamDay = getCourseFinalExamDayNumber(totalDays)
+  const review = buildCourseCompletionReview({
+    goalText,
+    examScore,
+    attemptsUsed,
+    moduleTitles,
+    conceptNames,
+  })
+  const steps = (moduleTitles.length > 0 ? moduleTitles : rows.map((row) => row?.covered_topics?.[0]).filter(Boolean))
+    .map((title, index) => ({
+      id: `course-step-${index + 1}`,
+      title: title || `Module ${index + 1}`,
+      description: `Completed this section of the ${goalText} course as part of the full learning path.`,
+      concepts: conceptNames.slice(Math.max(0, index * 2), Math.max(0, index * 2) + 3),
+      checkpoint: false,
+      requires_response: true,
+      required_output: 'Completion recorded through the course path and final assessment.',
+      verification_focus: 'Verified through successful progression and the final comprehensive exam.',
+      estimated_minutes: 10,
+    }))
+
+  steps.push({
+    id: 'course-final-exam',
+    title: 'Comprehensive Final Exam',
+    description: `Passed the end-of-course exam with ${examScore}% after ${attemptsUsed} attempt${attemptsUsed === 1 ? '' : 's'}.`,
+    concepts: conceptNames.slice(0, 6),
+    checkpoint: true,
+    requires_response: true,
+    required_output: `Final exam score of ${examScore}% or higher.`,
+    verification_focus: 'Verified through comprehensive assessment performance across the course.',
+    estimated_minutes: 45,
+  })
+
+  const deliverables = [
+    `Completed ${totalDays} planned day${Number(totalDays) === 1 ? '' : 's'} in the course path`,
+    `Passed the comprehensive final exam with a score of ${examScore}%`,
+    moduleTitles.length > 0
+      ? `Closed ${moduleTitles.length} curriculum module${moduleTitles.length === 1 ? '' : 's'}`
+      : `Demonstrated coverage across ${Math.min(conceptNames.length, 12)} core concepts`,
+  ]
+
+  const progress = {
+    steps_completed: steps.map((step) => step.id),
+    deliverables_completed: deliverables.map((_, index) => `deliverable-${index + 1}`),
+    notes: `Completed on ${new Date(completedAt).toLocaleDateString()} with a final exam score of ${examScore}%.`,
+    started_at: formatDate(rows?.[0]?.task_date),
+    completed_at: formatDate(completedAt),
+    verification_status: 'verified',
+    project_brief: {
+      final_deliverable: `Completed course certificate backed by a ${examScore}% comprehensive final exam score`,
+      real_world_context: `Finished the full ${goalText} learning path and demonstrated retention across the course in one comprehensive assessment.`,
+      verification_summary: 'Verified through full-course completion plus a capped final exam with limited attempts.',
+    },
+    authenticity: {
+      score: 96,
+      label: 'Verified',
+      verificationLayers: [
+        { id: 'path', title: 'Course Path', description: 'All planned units were completed.', passed: true, confidence: 'high' },
+        { id: 'exam', title: 'Final Exam', description: 'A comprehensive assessment was passed.', passed: true, confidence: 'high' },
+        { id: 'portfolio', title: 'Portfolio Record', description: 'Completion was recorded as durable proof.', passed: true, confidence: 'high' },
+      ],
+    },
+    course_completion: {
+      goal_text: goalText,
+      total_days: totalDays,
+      final_exam_score: examScore,
+      final_exam_attempts: attemptsUsed,
+      completed_at: formatDate(completedAt),
+      concept_count: conceptNames.length,
+    },
+  }
+
+  return {
+    user_id: userId,
+    goal_id: goalId,
+    title: `Course Complete: ${goalText}`,
+    description: `Finished the full ${goalText} course and passed the comprehensive final exam.`,
+    difficulty: 'advanced',
+    concepts_tested: conceptNames.slice(0, 20),
+    steps,
+    starter_code: null,
+    starter_language: null,
+    deliverables,
+    estimated_minutes: Math.max(45, Number(totalDays) * 10),
+    xp_reward: 0,
+    gem_reward: 0,
+    status: 'reviewed',
+    progress,
+    day_number: finalExamDay,
+    mode: 'course_completion',
+    skill_type: 'general',
+    authenticity_score: 96,
+    ai_review: review,
+  }
+}
+
+async function saveCourseCompletionArtifact({
+  supabase,
+  userId,
+  goalId,
+  goalText,
+  totalDays,
+  courseOutline,
+  rows,
+  examScore,
+  attemptsUsed,
+  completedAt,
+}) {
+  const artifact = buildCourseCompletionArtifact({
+    userId,
+    goalId,
+    goalText,
+    totalDays,
+    courseOutline,
+    rows,
+    examScore,
+    attemptsUsed,
+    completedAt,
+  })
+
+  const finalExamDay = getCourseFinalExamDayNumber(totalDays)
+  const { data: existingArtifact } = await supabase
+    .from('projects')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('goal_id', goalId)
+    .eq('day_number', finalExamDay)
+    .ilike('title', `Course Complete: ${goalText}`)
+    .maybeSingle()
+
+  if (existingArtifact?.id) {
+    const updatePayload = { ...artifact }
+    delete updatePayload.user_id
+    delete updatePayload.goal_id
+    delete updatePayload.day_number
+
+    let { data: updated, error } = await supabase
+      .from('projects')
+      .update(updatePayload)
+      .eq('id', existingArtifact.id)
+      .select()
+      .single()
+
+    if (error) {
+      const minimalPayload = {
+        title: artifact.title,
+        description: artifact.description,
+        difficulty: artifact.difficulty,
+        concepts_tested: artifact.concepts_tested,
+        steps: artifact.steps,
+        starter_code: artifact.starter_code,
+        starter_language: artifact.starter_language,
+        deliverables: artifact.deliverables,
+        estimated_minutes: artifact.estimated_minutes,
+        xp_reward: artifact.xp_reward,
+        gem_reward: artifact.gem_reward,
+        status: artifact.status,
+        progress: artifact.progress,
+        ai_review: artifact.ai_review,
+      }
+      ;({ data: updated, error } = await supabase
+        .from('projects')
+        .update(minimalPayload)
+        .eq('id', existingArtifact.id)
+        .select()
+        .single())
+    }
+
+    if (error) throw new Error(`Failed to update course completion artifact: ${error.message}`)
+    return updated
+  }
+
+  let { data: saved, error } = await supabase
+    .from('projects')
+    .insert(artifact)
+    .select()
+    .single()
+
+  if (error) {
+    const partialArtifact = {
+      user_id: artifact.user_id,
+      goal_id: artifact.goal_id,
+      title: artifact.title,
+      description: artifact.description,
+      difficulty: artifact.difficulty,
+      concepts_tested: artifact.concepts_tested,
+      steps: artifact.steps,
+      starter_code: artifact.starter_code,
+      starter_language: artifact.starter_language,
+      deliverables: artifact.deliverables,
+      estimated_minutes: artifact.estimated_minutes,
+      xp_reward: artifact.xp_reward,
+      gem_reward: artifact.gem_reward,
+      status: artifact.status,
+      progress: artifact.progress,
+      ai_review: artifact.ai_review,
+      day_number: artifact.day_number,
+      mode: artifact.mode,
+      skill_type: artifact.skill_type,
+    }
+    ;({ data: saved, error } = await supabase
+      .from('projects')
+      .insert(partialArtifact)
+      .select()
+      .single())
+  }
+
+  if (error) {
+    const minimalArtifact = {
+      user_id: artifact.user_id,
+      goal_id: artifact.goal_id,
+      title: artifact.title,
+      description: artifact.description,
+      difficulty: artifact.difficulty,
+      concepts_tested: artifact.concepts_tested,
+      steps: artifact.steps,
+      starter_code: artifact.starter_code,
+      starter_language: artifact.starter_language,
+      deliverables: artifact.deliverables,
+      estimated_minutes: artifact.estimated_minutes,
+      xp_reward: artifact.xp_reward,
+      gem_reward: artifact.gem_reward,
+      status: artifact.status,
+      progress: artifact.progress,
+      ai_review: artifact.ai_review,
+      day_number: artifact.day_number,
+    }
+    ;({ data: saved, error } = await supabase
+      .from('projects')
+      .insert(minimalArtifact)
+      .select()
+      .single())
+  }
+
+  if (error) throw new Error(`Failed to save course completion artifact: ${error.message}`)
+  return saved
 }
 
 export async function POST(request) {
@@ -77,6 +391,39 @@ export async function POST(request) {
     }
 
     const alreadyCompleted = Boolean(targetTask.completed)
+    const isCourseFinalExam = isCourseFinalExamTask(targetTask)
+    const existingFinalMeta = targetTask?._courseFinal || {}
+    const examScore = Number.isFinite(accuracy)
+      ? clamp(accuracy, 0, 100, 0)
+      : (Number.isFinite(correctCount) && Number.isFinite(questionCount) && Number(questionCount) > 0
+        ? clamp(Math.round((Number(correctCount) / Number(questionCount)) * 100), 0, 100, 0)
+        : 0)
+    const examMaxAttempts = clamp(existingFinalMeta.maxAttempts, 1, 10, 3)
+    const examPassScore = clamp(existingFinalMeta.passScore, 50, 100, 80)
+    const examAttemptsUsed = alreadyCompleted ? clamp(existingFinalMeta.attemptsUsed, 0, examMaxAttempts, 0) : clamp((existingFinalMeta.attemptsUsed || 0) + 1, 0, examMaxAttempts, 1)
+    const examBestScore = Math.max(clamp(existingFinalMeta.bestScore, 0, 100, 0), examScore)
+    const finalExamPassed = !isCourseFinalExam || alreadyCompleted || examScore >= examPassScore
+    const finalExamFailedOut = Boolean(isCourseFinalExam && !alreadyCompleted && !finalExamPassed && examAttemptsUsed >= examMaxAttempts)
+    const courseFinalMeta = isCourseFinalExam
+      ? {
+          ...existingFinalMeta,
+          maxAttempts: examMaxAttempts,
+          passScore: examPassScore,
+          attemptsUsed: examAttemptsUsed,
+          bestScore: examBestScore,
+          lastScore: examScore,
+          failedOut: finalExamFailedOut,
+          passedAt: finalExamPassed && !alreadyCompleted ? new Date().toISOString() : existingFinalMeta.passedAt || null,
+        }
+      : null
+
+    if (isCourseFinalExam && !alreadyCompleted && (existingFinalMeta.failedOut || (existingFinalMeta.attemptsUsed || 0) >= examMaxAttempts)) {
+      return Response.json({
+        error: 'Final exam attempts exhausted',
+        attemptsUsed: clamp(existingFinalMeta.attemptsUsed, 0, examMaxAttempts, examMaxAttempts),
+        maxAttempts: examMaxAttempts,
+      }, { status: 400 })
+    }
 
     // ── Update tasks array ───────────────────────────────────────────────────
     let adaptiveSnapshot = null
@@ -123,6 +470,7 @@ export async function POST(request) {
         return {
           ...entry,
           completed: shouldBeCompleted ? true : entry.completed,
+          ...(isCourseFinalExam ? { _courseFinal: courseFinalMeta } : {}),
           _adaptive: {
             ...(entry._adaptive || {}),
             ...taskAdaptiveRecord,
@@ -177,6 +525,7 @@ export async function POST(request) {
         return {
           ...t,
           completed: shouldBeCompleted ? true : t.completed,
+          ...(isCourseFinalExam ? { _courseFinal: courseFinalMeta } : {}),
           _adaptive: {
             ...(t._adaptive || {}),
             ...taskAdaptiveRecord,
@@ -189,6 +538,64 @@ export async function POST(request) {
     const tasksCompleted   = updatedTasks.filter((t) => t.completed).length
     const completionStatus = tasksCompleted === updatedTasks.length ? 'completed' : 'in_progress'
     const missionJustCompleted = completionStatus === 'completed' && row.completion_status !== 'completed'
+
+    if (isCourseFinalExam && !alreadyCompleted && !finalExamPassed) {
+      const failedTasks = currentTasks.map((entry) => {
+        if (normalizeTaskId(entry.id) !== normalizeTaskId(taskId)) return entry
+        return {
+          ...entry,
+          completed: false,
+          _courseFinal: courseFinalMeta,
+          _adaptive: {
+            ...(entry._adaptive || {}),
+            ...taskAdaptiveRecord,
+            completedAt: new Date().toISOString(),
+          },
+        }
+      })
+
+      const failedTasksCompleted = failedTasks.filter((task) => task.completed).length
+      const failedCompletionStatus = failedTasksCompleted === failedTasks.length ? 'completed' : 'in_progress'
+      const { error: failUpdateError } = await supabase
+        .from('daily_tasks')
+        .update({
+          tasks: failedTasks,
+          tasks_completed: failedTasksCompleted,
+          completion_status: failedCompletionStatus,
+        })
+        .eq('id', taskRowId)
+
+      if (failUpdateError) {
+        return Response.json(
+          { error: `Failed to update final exam attempt: ${failUpdateError.message}` },
+          { status: 500 },
+        )
+      }
+
+      return Response.json({
+        ok: true,
+        alreadyCompleted: false,
+        finalExamPassed: false,
+        courseCompleted: false,
+        tasksCompleted: failedTasksCompleted,
+        completionStatus: failedCompletionStatus,
+        updatedTasks: failedTasks,
+        finalExam: {
+          score: examScore,
+          passScore: examPassScore,
+          attemptsUsed: examAttemptsUsed,
+          attemptsRemaining: Math.max(0, examMaxAttempts - examAttemptsUsed),
+          maxAttempts: examMaxAttempts,
+          bestScore: examBestScore,
+          failedOut: finalExamFailedOut,
+        },
+        warnings: [
+          finalExamFailedOut
+            ? `Final exam not passed. You used all ${examMaxAttempts} attempts.`
+            : `Final exam not passed. ${Math.max(0, examMaxAttempts - examAttemptsUsed)} attempt${Math.max(0, examMaxAttempts - examAttemptsUsed) === 1 ? '' : 's'} remaining.`,
+        ],
+      })
+    }
 
     if (!alreadyCompleted) {
       const { error: updateError } = await supabase
@@ -217,6 +624,10 @@ export async function POST(request) {
     let xpBoosted       = false
     let progress        = null
     let currentGems     = 0
+    let courseGoalMeta  = null
+    let courseRewardXp  = 0
+    let courseRewardGems = 0
+    let courseCompletion = null
 
     if (missionJustCompleted && !alreadyCompleted) {
       missionBonusXp = XP_MISSION_BONUS
@@ -227,12 +638,23 @@ export async function POST(request) {
       // Read current progress (total_xp may not exist yet — handle gracefully)
       const { data: progressData } = await supabase
         .from('user_progress')
-        .select('total_xp,current_streak,longest_streak,last_activity_date,gems,gems_earned_total,xp_boost_until,last_chest_day,freeze_count')
+        .select('total_xp,current_streak,longest_streak,last_activity_date,gems,gems_earned_total,xp_boost_until,last_chest_day,freeze_count,total_days')
         .eq('user_id', row.user_id)
         .eq('goal_id', row.goal_id)
         .maybeSingle()
 
       progress = progressData
+      if (isCourseFinalExam) {
+        const { data: goalMeta } = await supabase
+          .from('goals')
+          .select('goal_text,constraints')
+          .eq('id', row.goal_id)
+          .maybeSingle()
+        courseGoalMeta = goalMeta
+          ? { ...goalMeta, course_outline: getStoredCourseOutline(goalMeta) }
+          : null
+      }
+
       const existingXp = Number(progress?.total_xp) || 0
 
       // Streak update
@@ -254,6 +676,17 @@ export async function POST(request) {
       xpBoosted = !!(boostUntil && boostUntil > new Date())
       if (xpBoosted && !alreadyCompleted) {
         xpEarned = xpEarned * 2
+      }
+
+      if (isCourseFinalExam && finalExamPassed && !alreadyCompleted) {
+        const rewards = buildCourseCompletionRewards({
+          totalDays: Number(progress?.total_days) || Math.max(1, (Number(row.day_number) || 1) - 1),
+          courseOutline: courseGoalMeta?.course_outline,
+        })
+        courseRewardXp = rewards.xp
+        courseRewardGems = rewards.gems
+        xpEarned += courseRewardXp
+        gemsEarned += courseRewardGems
       }
 
       // Level-up detection
@@ -325,6 +758,7 @@ export async function POST(request) {
     // ── Concept mastery ───────────────────────────────────────────────────────
     let conceptMasteryScore = 0
     try {
+      if (isCourseFinalExam) throw new Error('skip_final_exam_mastery')
       const conceptId = row.concept_id ?? row.covered_topics?.[0] ?? row.day_number
       await updateConceptMastery({
         supabase,
@@ -343,7 +777,7 @@ export async function POST(request) {
         .maybeSingle()
       conceptMasteryScore = masteryRow?.mastery_score || 0
     } catch (e) {
-      warnings.push(`Mastery update skipped: ${e.message}`)
+      if (e?.message !== 'skip_final_exam_mastery') warnings.push(`Mastery update skipped: ${e.message}`)
     }
 
     // ── Understanding score & adaptive difficulty ────────────────────────────
@@ -403,7 +837,7 @@ export async function POST(request) {
       const lastChestDay = Number(progress?.last_chest_day) || 0
       const currentDay   = row.day_number || 0
 
-      if (!alreadyCompleted && isLessonType && lastChestDay < currentDay) {
+      if (!alreadyCompleted && !isCourseFinalExam && isLessonType && lastChestDay < currentDay) {
         let chance = 0.30
         if ((newStreakState?.current || 0) > 7) chance += 0.10
         if (missionJustCompleted) chance += 0.10
@@ -621,6 +1055,54 @@ export async function POST(request) {
       }
     }
 
+    if (isCourseFinalExam && finalExamPassed && !alreadyCompleted) {
+      try {
+        const { data: portfolioRows } = await supabase
+          .from('daily_tasks')
+          .select('day_number,task_date,completion_status,covered_topics,tasks')
+          .eq('goal_id', row.goal_id)
+          .eq('user_id', row.user_id)
+          .order('day_number', { ascending: true })
+
+        const scopedRows = filterRowsForCourseWindow(portfolioRows || [], Number(progress?.total_days) || row.day_number)
+        const portfolioArtifact = await saveCourseCompletionArtifact({
+          supabase,
+          userId: row.user_id,
+          goalId: row.goal_id,
+          goalText: courseGoalMeta?.goal_text || row.covered_topics?.[0] || 'Your Course',
+          totalDays: Number(progress?.total_days) || Math.max(1, (Number(row.day_number) || 1) - 1),
+          courseOutline: courseGoalMeta?.course_outline || null,
+          rows: scopedRows,
+          examScore,
+          attemptsUsed: examAttemptsUsed,
+          completedAt: new Date().toISOString(),
+        })
+
+        courseCompletion = {
+          title: portfolioArtifact?.title || `Course Complete: ${courseGoalMeta?.goal_text || 'Your Course'}`,
+          goalText: courseGoalMeta?.goal_text || 'Your Course',
+          examScore,
+          grade: getCourseCompletionGrade(examScore),
+          attemptsUsed: examAttemptsUsed,
+          rewardXp: courseRewardXp,
+          rewardGems: courseRewardGems,
+          portfolioProjectId: portfolioArtifact?.id || null,
+        }
+      } catch (e) {
+        warnings.push(`Course completion portfolio save skipped: ${e.message}`)
+        courseCompletion = {
+          title: `Course Complete: ${courseGoalMeta?.goal_text || 'Your Course'}`,
+          goalText: courseGoalMeta?.goal_text || 'Your Course',
+          examScore,
+          grade: getCourseCompletionGrade(examScore),
+          attemptsUsed: examAttemptsUsed,
+          rewardXp: courseRewardXp,
+          rewardGems: courseRewardGems,
+          portfolioProjectId: null,
+        }
+      }
+    }
+
     // ── Achievement badge checks ──────────────────────────────────────────────
     let newBadges = []
     try {
@@ -700,6 +1182,17 @@ export async function POST(request) {
       challengeUpdate,
       newBadges,
       nextResult,
+      finalExamPassed: isCourseFinalExam ? finalExamPassed : null,
+      finalExam: isCourseFinalExam ? {
+        score: examScore,
+        passScore: examPassScore,
+        attemptsUsed: examAttemptsUsed,
+        attemptsRemaining: Math.max(0, examMaxAttempts - examAttemptsUsed),
+        maxAttempts: examMaxAttempts,
+        bestScore: examBestScore,
+      } : null,
+      courseCompleted: Boolean(courseCompletion),
+      courseCompletion,
       understandingScore: alreadyCompleted ? 0 : understandingScore,
       adaptiveDifficulty,
       adaptive: adaptiveSnapshot,

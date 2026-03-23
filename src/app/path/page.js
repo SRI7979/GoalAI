@@ -1,55 +1,117 @@
-// Path — Full Gamified Learning Map (Duolingo × Brilliant)
 'use client'
 
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { useRouter } from 'next/navigation'
-import { motion, useScroll, useTransform } from 'framer-motion'
 import { supabase } from '@/lib/supabase'
 import { getLevelProgress } from '@/lib/xp'
 import { trackMapViewed } from '@/lib/analytics'
 import { getDashboardThemeVars, getPathWorlds, getStoredActiveTheme, getStoredOwnedThemes } from '@/lib/appThemes'
+import { buildSkillGraph } from '@/lib/pathGraph'
+import { filterRowsForCourseWindow, getCourseVisibleDayCount } from '@/lib/courseCompletion'
 import IconGlyph from '@/components/IconGlyph'
 import Skeleton from '@/components/Skeleton'
-import PathNode from '@/components/path/PathNode'
-import PathLine from '@/components/path/PathLine'
+import SkillGraphNode from '@/components/path/SkillGraphNode'
+import SkillGraphEdge from '@/components/path/SkillGraphEdge'
 
-// ─── Design Tokens ────────────────────────────────────────────────────────────
 const T = {
-  bg:       'var(--theme-bg)',
-  shell:    'var(--theme-shell)',
-  chrome:   'var(--theme-chrome)',
-  font:     "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif",
-  text:     'var(--theme-text)',
-  textSec:  'var(--theme-text-sec)',
-  textMuted:'var(--theme-text-muted)',
-  border:   'var(--theme-border)',
-  ink:      'var(--theme-ink)',
-  masteryGradient:'linear-gradient(135deg,var(--theme-mastery),var(--theme-mastery-strong))',
-  masteryGradientSoft:'linear-gradient(90deg,var(--theme-mastery),var(--theme-mastery-strong))',
+  bg: 'var(--theme-bg)',
+  shell: 'var(--theme-shell)',
+  chrome: 'var(--theme-chrome)',
+  font: "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif",
+  text: 'var(--theme-text)',
+  textSec: 'var(--theme-text-sec)',
+  textMuted: 'var(--theme-text-muted)',
+  border: 'var(--theme-border)',
+  ink: 'var(--theme-ink)',
+  masteryGradient: 'linear-gradient(135deg,var(--theme-mastery),var(--theme-mastery-strong))',
 }
 
-// ─── Wave x-positions in 400px coordinate space ───────────────────────────────
-// 5-point wave: left edge → left → center → right → right edge → right → center → left → repeat
-const WAVE_PX = [72, 136, 214, 292, 330, 276, 194, 108]
-const getWaveX = (i) => WAVE_PX[i % WAVE_PX.length]
+const CSS = `
+  *,*::before,*::after { box-sizing: border-box; }
+  ::-webkit-scrollbar { width: 0; height: 0; }
+  body { background: var(--theme-bg); }
 
-// Map layout constants
-const NODE_ROW_H = 108  // px per node row
-const BOSS_ROW_H = 132  // px for boss/project rows
-const BANNER_H   = 100  // world banner strip height
-const COORD_W    = 400  // SVG coordinate width
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateY(100%); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes xpRise {
+    0% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+    70% { opacity: 1; transform: translateX(-50%) translateY(-46px) scale(1.18); }
+    100% { opacity: 0; transform: translateX(-50%) translateY(-64px) scale(0.9); }
+  }
+  @keyframes shimmer {
+    0% { background-position: -200% center; }
+    100% { background-position: 200% center; }
+  }
+  @keyframes graphGlow {
+    0%,100% { opacity: 0.55; transform: scale(1); }
+    50% { opacity: 0.9; transform: scale(1.08); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+`
 
-// XP per task type
-const TASK_XP = { concept:20, guided_practice:30, challenge:40, explain:25, quiz:35, reflect:15, boss:200, project:100, lesson:20, video:15, practice:25, exercise:30, review:20, reading:20, flashcard:15, ai_interaction:25, reflection:15, capstone:0 }
-const rowXP   = (tasks) => tasks.reduce((s, t) => s + (TASK_XP[t.type] || 20), 0)
+const TASK_XP = {
+  concept: 20,
+  guided_practice: 30,
+  challenge: 40,
+  explain: 25,
+  quiz: 35,
+  reflect: 15,
+  boss: 200,
+  project: 100,
+  lesson: 20,
+  video: 15,
+  practice: 25,
+  exercise: 30,
+  review: 20,
+  reading: 20,
+  flashcard: 15,
+  ai_interaction: 25,
+  reflection: 15,
+  capstone: 0,
+}
+
+const TASK_STYLE = {
+  lesson:          { color: '#22D3A5', label: 'Lesson', icon: 'book' },
+  video:           { color: '#FBBF24', label: 'Video', icon: 'clapperboard' },
+  practice:        { color: '#60A5FA', label: 'Practice', icon: 'dumbbell' },
+  exercise:        { color: '#A78BFA', label: 'Exercise', icon: 'target' },
+  quiz:            { color: '#F87171', label: 'Quiz', icon: 'clipboard_check' },
+  review:          { color: '#FB923C', label: 'Review', icon: 'repeat' },
+  guided_practice: { color: '#22D3EE', label: 'Practice', icon: 'dumbbell' },
+  challenge:       { color: '#F59E0B', label: 'Challenge', icon: 'challenge' },
+  ai_interaction:  { color: '#818CF8', label: 'Explain', icon: 'message' },
+  reflection:      { color: '#A78BFA', label: 'Reflect', icon: 'brain' },
+  boss:            { color: '#EC4899', label: 'Boss', icon: 'trophy' },
+}
+
+function clamp(value, min, max, fallback = min) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return fallback
+  return Math.max(min, Math.min(max, parsed))
+}
+
+function rowXP(tasks = []) {
+  return tasks.reduce((sum, task) => sum + (TASK_XP[task.type] || 20), 0)
+}
 
 function patchNodeTask(nodes, rowId, taskId) {
   let completedNode = false
   const nextNodes = nodes.map((node) => {
     if (node.id !== rowId) return node
-    const tasks = node.tasks.map((task) => task.id === taskId ? { ...task, completed: true } : task)
+    const tasks = (node.tasks || []).map((task) => task.id === taskId ? { ...task, completed: true } : task)
     const completedTasks = tasks.filter((task) => task.completed).length
-    const isDone = completedTasks === tasks.length && tasks.length > 0
+    const isDone = tasks.length > 0 && completedTasks === tasks.length
     if (isDone) completedNode = true
     return {
       ...node,
@@ -77,467 +139,637 @@ function recomputeNodeStatuses(nodes) {
 function findNextUnlockId(nodes, rowId) {
   const startIndex = nodes.findIndex((node) => node.id === rowId)
   if (startIndex < 0) return null
-  for (let i = startIndex + 1; i < nodes.length; i += 1) {
-    if (!nodes[i].isPlaceholder && nodes[i].status !== 'done') return nodes[i].id
+  for (let index = startIndex + 1; index < nodes.length; index += 1) {
+    if (!nodes[index].isPlaceholder && nodes[index].status !== 'done') return nodes[index].id
   }
   return null
 }
 
-// ─── Keyframes ────────────────────────────────────────────────────────────────
-const CSS = `
-  @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800;900&display=swap');
-  *,*::before,*::after { box-sizing: border-box }
-  ::-webkit-scrollbar { display: none }
-  body { background: var(--theme-bg) }
-
-  @keyframes pulseNode {
-    0%,100% { box-shadow: 0 0 0 0 var(--glow); transform: scale(1); }
-    50%      { box-shadow: 0 0 0 16px transparent; transform: scale(1.04); }
-  }
-  @keyframes bossFloat {
-    0%,100% { transform: translateY(0) scale(1); box-shadow: 0 8px 32px var(--glow); }
-    50%      { transform: translateY(-4px) scale(1.03); box-shadow: 0 16px 48px var(--glow); }
-  }
-  @keyframes starSpin {
-    from { transform: rotate(0deg) }
-    to   { transform: rotate(360deg) }
-  }
-  @keyframes fadeUp {
-    from { opacity:0; transform:translateY(12px) }
-    to   { opacity:1; transform:translateY(0) }
-  }
-  @keyframes slideUp {
-    from { transform:translateY(100%); opacity:0 }
-    to   { transform:translateY(0);    opacity:1 }
-  }
-  @keyframes xpRise {
-    0%   { opacity:1; transform:translateX(-50%) translateY(0) scale(1) }
-    70%  { opacity:1; transform:translateX(-50%) translateY(-52px) scale(1.20) }
-    100% { opacity:0; transform:translateX(-50%) translateY(-72px) scale(0.85) }
-  }
-  @keyframes spin { to { transform:rotate(360deg) } }
-  @keyframes shimmer {
-    0%   { background-position: -200% center }
-    100% { background-position: 200% center }
-  }
-  @keyframes crownBounce {
-    0%,100% { transform: translateY(0) }
-    50%     { transform: translateY(-6px) }
-  }
-  @keyframes streakFlame {
-    0%,100% { text-shadow: 0 0 12px rgba(251,146,60,0.60) }
-    50%     { text-shadow: 0 0 28px rgba(251,146,60,0.95) }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    @keyframes pulseNode  { to {} }
-    @keyframes bossFloat  { to {} }
-    @keyframes fadeUp     { from{opacity:0} to{opacity:1} }
-    @keyframes slideUp    { from{opacity:0} to{opacity:1} }
-    @keyframes xpRise     { to{opacity:0} }
-    @keyframes crownBounce{ to{} }
-    @keyframes streakFlame{ to{} }
-  }
-`
-
-// ─── Icons ────────────────────────────────────────────────────────────────────
-const CheckIco  = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
-const LockIco   = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
-const BoltIco   = ({sz=12}) => <svg width={sz} height={sz} viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-const ClockIco  = ({sz=12}) => <svg width={sz} height={sz} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-const HomeIco   = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-const PathIco   = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-const StatsIco  = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
-
-const TASK_STYLE = {
-  lesson:          { color:'#22D3A5', label:'LESSON'   },
-  video:           { color:'#FBBF24', label:'VIDEO'    },
-  practice:        { color:'#60A5FA', label:'PRACTICE' },
-  exercise:        { color:'#C084FC', label:'EXERCISE' },
-  quiz:            { color:'#F87171', label:'QUIZ'     },
-  review:          { color:'#FB923C', label:'REVIEW'   },
-  guided_practice: { color:'#00d4ff', label:'PRACTICE' },
-  challenge:       { color:'#F59E0B', label:'CHALLENGE'},
-  ai_interaction:  { color:'#818CF8', label:'EXPLAIN'  },
-  reflection:      { color:'#A78BFA', label:'REFLECT'  },
-  boss:            { color:'#EC4899', label:'BOSS'     },
+function formatRelativeLabel(value) {
+  if (!value) return 'No recent session'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'Recent activity'
+  const diffMs = Date.now() - date.getTime()
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+  if (diffDays <= 0) return 'Active today'
+  if (diffDays === 1) return 'Active yesterday'
+  if (diffDays < 7) return `${diffDays} days ago`
+  const diffWeeks = Math.floor(diffDays / 7)
+  if (diffWeeks < 5) return `${diffWeeks} week${diffWeeks === 1 ? '' : 's'} ago`
+  return date.toLocaleDateString()
 }
 
-function averageWorldQuizAccuracy(nodes = []) {
-  const scores = []
-  nodes.forEach((node) => {
-    ;(node.tasks || []).forEach((task) => {
-      const candidate = [
-        task?.accuracy,
-        task?.score,
-        task?.quizScore,
-        task?.result?.score,
-        task?.metrics?.quizScore,
-      ].find((value) => Number.isFinite(Number(value)))
-      if (candidate !== undefined) scores.push(Number(candidate))
-    })
-  })
-  if (scores.length === 0) return null
-  return scores.reduce((sum, score) => sum + score, 0) / scores.length
-}
+function MomentumBadge({ momentum }) {
+  const tone = momentum?.tone || 'steady'
+  const colors = tone === 'ahead'
+    ? { bg: 'rgba(34,197,94,0.14)', border: 'rgba(34,197,94,0.24)', text: '#86EFAC', icon: 'rocket' }
+    : tone === 'behind'
+      ? { bg: 'rgba(249,115,22,0.14)', border: 'rgba(249,115,22,0.24)', text: '#FDBA74', icon: 'alert' }
+      : { bg: 'rgba(59,130,246,0.14)', border: 'rgba(59,130,246,0.24)', text: '#93C5FD', icon: 'activity' }
 
-function getWorldStarCount(nodes = []) {
-  const avgAccuracy = averageWorldQuizAccuracy(nodes)
-  if (avgAccuracy != null) {
-    if (avgAccuracy >= 90) return 3
-    if (avgAccuracy >= 75) return 2
-    if (avgAccuracy >= 60) return 1
-    return 0
-  }
-
-  const total = nodes.length || 1
-  const completed = nodes.filter((node) => node.status === 'done').length
-  const ratio = completed / total
-  if (ratio >= 1) return 3
-  if (ratio >= 0.66) return 2
-  if (ratio >= 0.33) return 1
-  return 0
-}
-
-// ─── World Banner ─────────────────────────────────────────────────────────────
-function WorldBanner({ world, worldIdx, doneCount, totalCount, starCount, height, top }) {
-  const pct     = totalCount > 0 ? doneCount / totalCount : 0
-  const allDone = doneCount === totalCount && totalCount > 0
   return (
-    <div style={{
-      position:'absolute', left:0, right:0, top, height,
-      background: `linear-gradient(135deg, ${world.bg}, rgba(5,6,8,0.12))`,
-      display:'flex', alignItems:'center',
-      padding:'0 18px', overflow:'hidden',
-    }}>
-      {allDone && (
-        <div style={{
-          position:'absolute', inset:0,
-          background:'linear-gradient(120deg, transparent 15%, rgba(255,215,0,0.22) 40%, transparent 65%)',
-          backgroundSize:'200% 100%',
-          animation:'shimmer 3.6s linear infinite',
-          pointerEvents:'none',
-        }}/>
-      )}
-      {/* Left decoration */}
-      <div style={{
-        width:52, height:52, borderRadius:'50%', flexShrink:0,
-        background:`radial-gradient(circle,${world.accent}28,transparent 70%)`,
-        border:`2px solid ${world.accent}35`,
-        display:'flex', alignItems:'center', justifyContent:'center',
-        color:world.accent,
-      }}>
-        <IconGlyph name={world.icon || 'sparkles'} size={24} strokeWidth={2.2}/>
-      </div>
-
-      <div style={{ flex:1, marginLeft:12 }}>
-        <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:5 }}>
-          <span style={{
-            fontSize:9, fontWeight:900, letterSpacing:'1.6px', textTransform:'uppercase',
-            color: world.accent, background:`${world.accent}18`,
-            padding:'2px 8px', borderRadius:9999, border:`1px solid ${world.accent}35`,
-          }}>{world.label}</span>
-          <span style={{ fontSize:13, fontWeight:800, color: allDone ? world.accent : T.text }}>
-            World {worldIdx + 1} · {world.name}
-          </span>
-          {allDone && <IconGlyph name="trophy" size={14} strokeWidth={2.3} color={world.accent}/>}
-        </div>
-        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-          <div style={{ flex:1, height:5, background:'rgba(255,255,255,0.07)', borderRadius:9999, overflow:'hidden' }}>
-            <div style={{
-              height:'100%', width:`${Math.round(pct * 100)}%`,
-              background:`linear-gradient(90deg,${world.accent},${world.dark}80)`,
-              borderRadius:9999, transition:'width 0.6s cubic-bezier(0.16,1,0.3,1)',
-              boxShadow: pct > 0 ? `0 0 10px ${world.glow}` : 'none',
-            }}/>
-          </div>
-          <span style={{ fontSize:11, fontWeight:700, color: allDone ? world.accent : T.textMuted, flexShrink:0 }}>
-            {doneCount}/{totalCount}
-          </span>
-        </div>
-      </div>
-
-      {/* Right star cluster */}
-      <div style={{ marginLeft:12, textAlign:'center', flexShrink:0 }}>
-        <div style={{ display:'flex', gap:3, marginBottom:4, justifyContent:'center' }}>
-          {[0, 1, 2].map((index) => (
-            <span
-              key={index}
-              style={{
-                fontSize:16,
-                lineHeight:1,
-                opacity: index < starCount ? 1 : 0.22,
-                filter: index < starCount ? 'drop-shadow(0 0 8px rgba(255,215,0,0.38))' : 'none',
-              }}
-            >
-              {index < starCount ? '★' : '★'}
-            </span>
-          ))}
-        </div>
-        <div style={{ fontSize:9, color: T.textMuted, marginTop:2, fontWeight:600 }}>{starCount}/3 stars</div>
-      </div>
+    <div
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 8,
+        padding: '8px 12px',
+        borderRadius: 9999,
+        background: colors.bg,
+        border: `1px solid ${colors.border}`,
+        color: colors.text,
+      }}
+    >
+      <IconGlyph name={colors.icon} size={14} strokeWidth={2.3} color={colors.text} />
+      <span style={{ fontSize: 12, fontWeight: 800 }}>{momentum?.label || 'On Track'}</span>
     </div>
   )
 }
 
-function getNodeTone(node) {
-  if (node.isBoss) return 'boss'
-  if (node.isProject) return 'project'
-  return 'normal'
-}
-
-// ─── Bottom Sheet (task detail) ───────────────────────────────────────────────
-function BottomSheet({ node, world, onClose, onComplete, completing }) {
+function DetailSheet({ node, world, onClose, onComplete, completing }) {
   if (!node) return null
-  const isDone    = node.status === 'done'
-  const totalMin  = node.tasks.reduce((s, t) => s + (Number(t.durationMin) || 0), 0)
-  const xp        = rowXP(node.tasks)
+
+  const totalMin = node.tasks?.reduce((sum, task) => sum + (Number(task.durationMin) || 0), 0) || 0
+  const accent = world?.accent || 'var(--theme-primary)'
+  const isLocked = node.status === 'locked'
 
   return (
-    <>
-      <div onClick={onClose} style={{
-        position:'fixed', inset:0, background:'rgba(0,0,0,0.65)', zIndex:900,
-        backdropFilter:'blur(6px)', WebkitBackdropFilter:'blur(6px)',
-      }}/>
-      <div style={{
-        position:'fixed', bottom:0, left:0, right:0, zIndex:901,
-        background:T.shell,
-        border:`1px solid ${world.accent}30`,
-        borderBottom:'none', borderRadius:'26px 26px 0 0',
-        padding:'20px 20px 48px',
-        maxHeight:'85vh', overflowY:'auto',
-        fontFamily:T.font,
-        animation:'slideUp 0.30s cubic-bezier(0.34,1.2,0.64,1)',
-        boxShadow:`0 -8px 60px ${world.glow}`,
-      }}>
-        {/* Handle */}
-        <div style={{ width:40, height:4, background:`${world.accent}40`, borderRadius:9999, margin:'0 auto 20px' }}/>
+    <AnimatePresence>
+      <motion.div
+        key="detail-sheet"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+      >
+        <div
+          onClick={onClose}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(2,6,23,0.72)',
+            backdropFilter: 'blur(8px)',
+            WebkitBackdropFilter: 'blur(8px)',
+            zIndex: 900,
+          }}
+        />
 
-        {/* Header */}
-        <div style={{ marginBottom:18 }}>
-          {/* Type badges */}
-          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10, flexWrap:'wrap' }}>
-            <span style={{
-              fontSize:9, fontWeight:900, letterSpacing:'1.6px', textTransform:'uppercase',
-              color:T.ink, background: node.isBoss ? '#F59E0B' : node.isProject ? '#C084FC' : world.accent,
-              padding:'3px 10px', borderRadius:9999,
-            }}>
-              <span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
-                {node.isBoss && <IconGlyph name="challenge" size={12} strokeWidth={2.3} color={T.ink}/>}
-                {node.isProject && <IconGlyph name="hammer" size={12} strokeWidth={2.3} color={T.ink}/>}
-                {node.isBoss ? 'Boss Challenge' : node.isProject ? 'Build Project' : `Day ${node.dayNumber} Mission`}
-              </span>
-            </span>
-            {isDone && <span style={{ fontSize:9, fontWeight:900, letterSpacing:'1px',
-              color:T.ink, background:'#22D3A5', padding:'3px 10px', borderRadius:9999 }}>
-              Complete
-            </span>}
-          </div>
+        <motion.div
+          initial={{ y: '100%', opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: '100%', opacity: 0 }}
+          transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+          style={{
+            position: 'fixed',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            zIndex: 901,
+            maxHeight: '88vh',
+            overflowY: 'auto',
+            padding: '18px 18px calc(env(safe-area-inset-bottom, 0px) + 18px)',
+            borderRadius: '26px 26px 0 0',
+            background: `linear-gradient(180deg, rgba(5,10,18,0.98), ${T.shell})`,
+            borderTop: `1px solid ${world?.glow || 'rgba(255,255,255,0.12)'}`,
+            boxShadow: `0 -18px 80px ${world?.glow || 'rgba(15,23,42,0.4)'}`,
+            fontFamily: T.font,
+          }}
+        >
+          <div style={{ width: 42, height: 4, borderRadius: 9999, background: 'rgba(255,255,255,0.16)', margin: '0 auto 18px' }} />
 
-          <h2 style={{ fontSize:22, fontWeight:900, color:T.text, letterSpacing:'-0.4px', marginBottom:10, lineHeight:1.2 }}>
-            {node.conceptName}
-          </h2>
-
-          {/* Meta row */}
-          <div style={{ display:'flex', gap:14, flexWrap:'wrap' }}>
-            {totalMin > 0 && (
-              <span style={{ display:'flex', alignItems:'center', gap:5, fontSize:12, color:T.textSec, fontWeight:600 }}>
-                <ClockIco/>~{totalMin} min
-              </span>
-            )}
-            <span style={{ display:'flex', alignItems:'center', gap:5, fontSize:12, color:'#FBBF24', fontWeight:800 }}>
-              <BoltIco/>+{xp} XP
-            </span>
-            <span style={{ fontSize:12, color:T.textMuted, fontWeight:600 }}>
-              {node.tasks.length} task{node.tasks.length !== 1 ? 's' : ''}
-            </span>
-          </div>
-        </div>
-
-        {/* Task list */}
-        <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-          {node.tasks.map((task, i) => {
-            const ts         = TASK_STYLE[task.type] || TASK_STYLE.lesson
-            const isCompleting = completing === task.id
-            return (
-              <div key={task.id || i} style={{
-                background: task.completed ? 'rgba(34,211,165,0.04)' : 'rgba(255,255,255,0.03)',
-                border:`1px solid ${task.completed ? 'rgba(34,211,165,0.18)' : 'rgba(255,255,255,0.08)'}`,
-                borderRadius:18, padding:'13px 15px',
-                opacity: task.completed ? 0.60 : 1, transition:'opacity 0.2s',
-              }}>
-                <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:5 }}>
-                  <span style={{
-                    fontSize:8, fontWeight:900, letterSpacing:'0.8px', textTransform:'uppercase',
-                    color: ts.color, background:`${ts.color}18`,
-                    border:`1px solid ${ts.color}35`, padding:'2px 8px', borderRadius:9999,
-                  }}>{ts.label}</span>
-                  <span style={{ fontSize:11, color:T.textMuted, fontWeight:500 }}>
-                    {task.durationMin || 0}m
+          <div
+            style={{
+              borderRadius: 24,
+              border: `1px solid ${node.weak ? 'rgba(249,115,22,0.24)' : 'rgba(255,255,255,0.08)'}`,
+              background: 'linear-gradient(160deg, rgba(15,23,42,0.9), rgba(5,10,18,0.86))',
+              padding: 18,
+              marginBottom: 14,
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'flex-start', marginBottom: 12 }}>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 900,
+                      letterSpacing: '0.18em',
+                      textTransform: 'uppercase',
+                      padding: '4px 10px',
+                      borderRadius: 9999,
+                      background: node.isCurrent ? `linear-gradient(135deg, ${accent}, #F8FAFC)` : 'rgba(255,255,255,0.06)',
+                      color: node.isCurrent ? '#020617' : accent,
+                    }}
+                  >
+                    {node.isCurrent ? 'Current Focus' : node.status.replace(/_/g, ' ')}
                   </span>
-                  {task.completed && <span style={{ marginLeft:'auto', fontSize:12, fontWeight:800, color:'#22D3A5' }}>✓ Done</span>}
+                  {node.kind === 'project' && (
+                    <span style={{ fontSize: 10, fontWeight: 900, letterSpacing: '0.18em', textTransform: 'uppercase', color: '#FCD34D' }}>
+                      Project Milestone
+                    </span>
+                  )}
                 </div>
-                <div style={{
-                  fontSize:14, fontWeight:700, color: task.completed ? T.textMuted : T.text,
-                  lineHeight:1.3, marginBottom: (!task.completed && task.description) ? 6 : 0,
-                  textDecoration: task.completed ? `line-through rgba(71,85,105,0.8)` : 'none',
-                }}>
-                  {task.title}
+
+                <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: '-0.03em', color: T.text, lineHeight: 1.1, marginBottom: 10 }}>
+                  {node.title}
                 </div>
-                {!task.completed && task.description && (
-                  <p style={{ fontSize:12, color:T.textMuted, lineHeight:1.55, marginBottom:10 }}>
-                    {task.description.length > 110 ? task.description.slice(0, 110) + '…' : task.description}
-                  </p>
-                )}
-                {!task.completed && !isDone && (
-                  <button disabled={Boolean(isCompleting)} onClick={e => onComplete(node.id, task.id, task, e)} style={{
-                    marginTop:6, width:'100%', padding:'10px 14px',
-                    background: isCompleting ? 'rgba(255,255,255,0.04)' : `linear-gradient(135deg,${world.accent},${world.dark}90)`,
-                    border: isCompleting ? '1px solid rgba(255,255,255,0.08)' : 'none',
-                    borderRadius:12, color: isCompleting ? T.textMuted : T.ink,
-                    fontSize:13, fontWeight:900, cursor: isCompleting ? 'default' : 'pointer',
-                    fontFamily:T.font, display:'flex', alignItems:'center', justifyContent:'center', gap:6,
-                    boxShadow: isCompleting ? 'none' : `0 0 24px ${world.glow}`,
-                    transition:'all 0.18s',
-                  }}>
-                    {isCompleting
-                      ? <><div style={{ width:13,height:13,border:'2px solid rgba(255,255,255,0.08)',borderTopColor:world.accent,borderRadius:'50%',animation:'spin 0.65s linear infinite'}}/>Saving…</>
-                      : <><BoltIco sz={13}/>Complete Task</>}
-                  </button>
+                <div style={{ fontSize: 14, color: T.textSec, lineHeight: 1.6, marginBottom: 12 }}>
+                  {node.description}
+                </div>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: 8,
+                    padding: '12px 14px',
+                    borderRadius: 16,
+                    background: 'rgba(255,255,255,0.04)',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                  }}
+                >
+                  <IconGlyph name="lightbulb" size={16} strokeWidth={2.3} color={accent} />
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 900, letterSpacing: '0.16em', textTransform: 'uppercase', color: T.textMuted, marginBottom: 4 }}>
+                      Why This Matters
+                    </div>
+                    <div style={{ fontSize: 13, color: T.textSec, lineHeight: 1.55 }}>{node.whyItMatters}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div
+                style={{
+                  width: 86,
+                  minWidth: 86,
+                  borderRadius: 22,
+                  padding: '14px 10px',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  background: 'rgba(255,255,255,0.04)',
+                  textAlign: 'center',
+                }}
+              >
+                <div style={{ fontSize: 10, fontWeight: 900, letterSpacing: '0.16em', textTransform: 'uppercase', color: T.textMuted, marginBottom: 6 }}>
+                  Mastery
+                </div>
+                <div style={{ fontSize: 30, fontWeight: 900, color: accent, lineHeight: 1 }}>{node.mastery}%</div>
+                <div style={{ fontSize: 11, color: T.textMuted, marginTop: 4 }}>{node.kind === 'future' ? 'Pending' : 'Current read'}</div>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10 }}>
+              {[
+                { label: 'Last activity', value: formatRelativeLabel(node.lastActivity), icon: 'activity' },
+                { label: 'Time invested', value: `${node.timeSpentMin || totalMin || 0} min`, icon: 'timer' },
+                { label: 'Attempts', value: node.attempts ? `${node.attempts} avg` : 'No scored attempts', icon: 'repeat' },
+                { label: 'Help usage', value: `${node.helpRate || 0}%`, icon: 'message_question' },
+              ].map((entry) => (
+                <div
+                  key={entry.label}
+                  style={{
+                    borderRadius: 16,
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    background: 'rgba(255,255,255,0.035)',
+                    padding: '12px 12px',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                    <IconGlyph name={entry.icon} size={14} strokeWidth={2.3} color={T.textMuted} />
+                    <span style={{ fontSize: 11, color: T.textMuted, fontWeight: 700 }}>{entry.label}</span>
+                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: T.text }}>{entry.value}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {isLocked && (
+            <div
+              style={{
+                borderRadius: 20,
+                padding: 16,
+                marginBottom: 14,
+                background: 'rgba(15,23,42,0.86)',
+                border: '1px solid rgba(148,163,184,0.16)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                <IconGlyph name="lock" size={18} strokeWidth={2.3} color="#94A3B8" />
+                <div style={{ fontSize: 15, fontWeight: 800, color: T.text }}>Unlock Requirements</div>
+              </div>
+              <div style={{ fontSize: 13, color: T.textSec, lineHeight: 1.6, marginBottom: 10 }}>
+                This concept stays closed until its prerequisite concepts are stable.
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {(node.unlockConcepts || []).length > 0 ? node.unlockConcepts.map((concept) => (
+                  <span
+                    key={concept}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '9px 12px',
+                      borderRadius: 9999,
+                      border: '1px solid rgba(148,163,184,0.16)',
+                      background: 'rgba(148,163,184,0.08)',
+                      color: '#CBD5E1',
+                      fontSize: 12,
+                      fontWeight: 800,
+                    }}
+                  >
+                    <IconGlyph name="lock" size={12} strokeWidth={2.3} color="#94A3B8" />
+                    {concept}
+                  </span>
+                )) : (
+                  <span style={{ fontSize: 13, color: T.textMuted }}>The path will unlock this automatically when you progress further.</span>
                 )}
               </div>
-            )
-          })}
-        </div>
-      </div>
-    </>
+            </div>
+          )}
+
+          {(node.weak || node.status === 'review_needed') && (
+            <div
+              style={{
+                borderRadius: 20,
+                padding: 16,
+                marginBottom: 14,
+                background: 'rgba(249,115,22,0.08)',
+                border: '1px solid rgba(249,115,22,0.18)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                <IconGlyph name="alert" size={18} strokeWidth={2.3} color="#FDBA74" />
+                <div style={{ fontSize: 15, fontWeight: 800, color: '#FDBA74' }}>Needs Review</div>
+              </div>
+              <div style={{ display: 'grid', gap: 8 }}>
+                {(node.mistakes || []).map((entry) => (
+                  <div key={entry} style={{ fontSize: 13, lineHeight: 1.55, color: '#FED7AA' }}>
+                    {entry}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {(node.tasks || []).length > 0 && !isLocked && (
+            <div
+              style={{
+                borderRadius: 20,
+                padding: 16,
+                background: 'rgba(255,255,255,0.03)',
+                border: '1px solid rgba(255,255,255,0.08)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 900, color: T.text, marginBottom: 4 }}>Recommended work</div>
+                  <div style={{ fontSize: 12, color: T.textMuted }}>
+                    {node.completedTasks || 0}/{node.totalTasks || node.tasks.length} tasks completed
+                  </div>
+                </div>
+                <div style={{ fontSize: 12, fontWeight: 800, color: '#FCD34D' }}>+{rowXP(node.tasks)} XP</div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {node.tasks.map((task, index) => {
+                  const style = TASK_STYLE[task.type] || TASK_STYLE.lesson
+                  const isCompleting = completing === task.id
+                  return (
+                    <div
+                      key={task.id || `${node.id}-${index}`}
+                      style={{
+                        borderRadius: 18,
+                        padding: '14px 14px',
+                        border: `1px solid ${task.completed ? 'rgba(34,211,165,0.18)' : 'rgba(255,255,255,0.08)'}`,
+                        background: task.completed ? 'rgba(34,211,165,0.05)' : 'rgba(255,255,255,0.03)',
+                        opacity: task.completed ? 0.6 : 1,
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            padding: '4px 10px',
+                            borderRadius: 9999,
+                            border: `1px solid ${style.color}35`,
+                            background: `${style.color}18`,
+                            color: style.color,
+                            fontSize: 10,
+                            fontWeight: 900,
+                            letterSpacing: '0.14em',
+                            textTransform: 'uppercase',
+                          }}
+                        >
+                          <IconGlyph name={style.icon} size={12} strokeWidth={2.3} color={style.color} />
+                          {style.label}
+                        </span>
+                        <span style={{ fontSize: 11, color: T.textMuted }}>{task.durationMin || 0} min</span>
+                        {task.completed && <span style={{ fontSize: 11, fontWeight: 800, color: '#34D399' }}>Done</span>}
+                      </div>
+
+                      <div
+                        style={{
+                          fontSize: 14,
+                          fontWeight: 800,
+                          color: task.completed ? T.textMuted : T.text,
+                          lineHeight: 1.35,
+                          textDecoration: task.completed ? 'line-through rgba(100,116,139,0.8)' : 'none',
+                          marginBottom: task.description ? 6 : 0,
+                        }}
+                      >
+                        {task.title}
+                      </div>
+
+                      {task.description && (
+                        <div style={{ fontSize: 12, color: T.textMuted, lineHeight: 1.55, marginBottom: task.completed ? 0 : 10 }}>
+                          {task.description.length > 140 ? `${task.description.slice(0, 140)}…` : task.description}
+                        </div>
+                      )}
+
+                      {!task.completed && (
+                        <button
+                          onClick={(event) => onComplete(node.id, task.id, task, event)}
+                          disabled={Boolean(isCompleting)}
+                          style={{
+                            width: '100%',
+                            minHeight: 44,
+                            borderRadius: 14,
+                            border: isCompleting ? '1px solid rgba(255,255,255,0.08)' : 'none',
+                            background: isCompleting ? 'rgba(255,255,255,0.04)' : `linear-gradient(135deg, ${accent}, ${world?.dark || '#0f766e'})`,
+                            color: isCompleting ? T.textMuted : T.ink,
+                            fontFamily: T.font,
+                            fontSize: 13,
+                            fontWeight: 900,
+                            cursor: isCompleting ? 'default' : 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 8,
+                          }}
+                        >
+                          {isCompleting ? (
+                            <>
+                              <span
+                                style={{
+                                  width: 14,
+                                  height: 14,
+                                  borderRadius: '50%',
+                                  border: `2px solid ${world?.glow || 'rgba(255,255,255,0.16)'}`,
+                                  borderTopColor: accent,
+                                  animation: 'spin 0.7s linear infinite',
+                                }}
+                              />
+                              Saving...
+                            </>
+                          ) : (
+                            <>
+                              <IconGlyph name="bolt" size={14} strokeWidth={2.4} color={T.ink} />
+                              Complete from map
+                            </>
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {(node.tasks || []).length === 0 && !isLocked && (
+            <div
+              style={{
+                borderRadius: 20,
+                padding: 16,
+                background: 'rgba(255,255,255,0.03)',
+                border: '1px solid rgba(255,255,255,0.08)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                <IconGlyph name={node.kind === 'project' ? 'hammer' : 'map'} size={18} strokeWidth={2.3} color={accent} />
+                <div style={{ fontSize: 15, fontWeight: 800, color: T.text }}>
+                  {node.kind === 'project' ? 'Project milestone unlocked' : 'No task bundle attached'}
+                </div>
+              </div>
+              <div style={{ fontSize: 13, color: T.textSec, lineHeight: 1.6 }}>
+                {node.kind === 'project'
+                  ? 'This node marks a proof-of-skill checkpoint. Open it from the dashboard or portfolio flow when you are ready to build.'
+                  : 'This node is here to help you orient the map, but its work lives in another part of the path.'}
+              </div>
+            </div>
+          )}
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
   )
 }
 
-// ─── XP Pop ──────────────────────────────────────────────────────────────────
 function XPPop({ pop, onDone }) {
   useEffect(() => {
-    if (!pop) return
-    const t = setTimeout(onDone, 1400)
-    return () => clearTimeout(t)
-  }, [pop, onDone])
+    if (!pop) return undefined
+    const timer = setTimeout(onDone, 1400)
+    return () => clearTimeout(timer)
+  }, [onDone, pop])
+
   if (!pop) return null
   return (
-    <div style={{
-      position:'fixed', left:pop.x, top:pop.y, zIndex:9999,
-      fontSize:16, fontWeight:900, color:'#FBBF24',
-      fontFamily:T.font, pointerEvents:'none',
-      animation:'xpRise 1.4s ease-out forwards',
-      textShadow:'0 0 18px rgba(251,191,36,0.80)',
-      transform:'translateX(-50%)',
-    }}>+{pop.xp} XP</div>
+    <div
+      style={{
+        position: 'fixed',
+        left: pop.x,
+        top: pop.y,
+        zIndex: 9999,
+        transform: 'translateX(-50%)',
+        fontSize: 16,
+        fontWeight: 900,
+        color: '#FCD34D',
+        textShadow: '0 0 18px rgba(252,211,77,0.7)',
+        fontFamily: T.font,
+        pointerEvents: 'none',
+        animation: 'xpRise 1.4s ease-out forwards',
+      }}
+    >
+      +{pop.xp} XP
+    </div>
   )
 }
 
-// ─── Project Toggle Modal ─────────────────────────────────────────────────────
 function ProjectModal({ onClose, enabled, onToggle }) {
   return (
     <>
-      <div onClick={onClose} style={{
-        position:'fixed', inset:0, background:'rgba(0,0,0,0.70)', zIndex:800,
-        backdropFilter:'blur(8px)', WebkitBackdropFilter:'blur(8px)',
-      }}/>
-      <div style={{
-        position:'fixed', bottom:0, left:0, right:0, zIndex:801,
-        background:T.shell,
-        borderRadius:'26px 26px 0 0', padding:'24px 22px 44px',
-        fontFamily:T.font, animation:'slideUp 0.28s cubic-bezier(0.34,1.2,0.64,1)',
-        border:'1px solid rgba(192,132,252,0.25)', borderBottom:'none',
-        boxShadow:'0 -8px 60px rgba(192,132,252,0.25)',
-      }}>
-        <div style={{ width:40, height:4, background:'rgba(192,132,252,0.40)', borderRadius:9999, margin:'0 auto 22px'}}/>
+      <div
+        onClick={onClose}
+        style={{
+          position: 'fixed',
+          inset: 0,
+          zIndex: 800,
+          background: 'rgba(2,6,23,0.72)',
+          backdropFilter: 'blur(10px)',
+          WebkitBackdropFilter: 'blur(10px)',
+        }}
+      />
 
-        <div style={{ textAlign:'center', marginBottom:22 }}>
-          <div style={{
-            width:72,height:72,margin:'0 auto 10px',borderRadius:22,
-            display:'flex',alignItems:'center',justifyContent:'center',
-            background:'rgba(192,132,252,0.10)',color:'var(--theme-mastery)',
-            border:'1px solid rgba(192,132,252,0.25)',
-          }}>
-            <IconGlyph name="hammer" size={30} strokeWidth={2.3}/>
+      <motion.div
+        initial={{ y: '100%', opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        exit={{ y: '100%', opacity: 0 }}
+        transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+        style={{
+          position: 'fixed',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          zIndex: 801,
+          padding: '20px 20px calc(env(safe-area-inset-bottom, 0px) + 20px)',
+          borderRadius: '26px 26px 0 0',
+          borderTop: '1px solid rgba(192,132,252,0.25)',
+          background: `linear-gradient(180deg, rgba(8,12,20,0.98), ${T.shell})`,
+          fontFamily: T.font,
+          boxShadow: '0 -18px 80px rgba(79,70,229,0.22)',
+        }}
+      >
+        <div style={{ width: 42, height: 4, borderRadius: 9999, background: 'rgba(255,255,255,0.16)', margin: '0 auto 18px' }} />
+        <div style={{ textAlign: 'center', marginBottom: 20 }}>
+          <div
+            style={{
+              width: 74,
+              height: 74,
+              margin: '0 auto 12px',
+              borderRadius: 22,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: 'rgba(129,140,248,0.12)',
+              border: '1px solid rgba(129,140,248,0.22)',
+              color: 'var(--theme-mastery)',
+            }}
+          >
+            <IconGlyph name="hammer" size={30} strokeWidth={2.3} />
           </div>
-          <div style={{ fontSize:22, fontWeight:900, color:T.text, marginBottom:8 }}>Hands-on Projects</div>
-          <div style={{ fontSize:14, color:T.textSec, lineHeight:1.55, maxWidth:320, margin:'0 auto' }}>
-            Add build challenges every 5 days. Apply what you learn by creating real things.
-            <br/><br/>
-            Projects appear as <strong style={{color:'var(--theme-mastery)'}}>boss battles</strong> on your map — complete them to unlock special XP rewards.
+          <div style={{ fontSize: 24, fontWeight: 900, color: T.text, marginBottom: 8 }}>Project Nodes</div>
+          <div style={{ fontSize: 14, color: T.textSec, lineHeight: 1.6, maxWidth: 360, margin: '0 auto' }}>
+            Add milestone projects directly onto the map so the path shows both knowledge dependencies and proof-of-skill checkpoints.
           </div>
         </div>
 
-        {/* Benefits */}
-        {[
-          { icon:'bolt', text:'+50 bonus XP per project completed' },
-          { icon:'brain', text:'Solidify learning through application' },
-          { icon:'trophy', text:'Earn unique "Builder" achievement badges' },
-        ].map((row, i) => (
-          <div key={i} style={{
-            display:'flex', alignItems:'center', gap:12,
-            background:'rgba(192,132,252,0.06)', border:'1px solid rgba(192,132,252,0.14)',
-            borderRadius:14, padding:'11px 14px', marginBottom:8,
-          }}>
-            <IconGlyph name={row.icon} size={18} strokeWidth={2.3} color="var(--theme-mastery)"/>
-            <span style={{ fontSize:13, fontWeight:600, color:T.textSec }}>{row.text}</span>
-          </div>
-        ))}
+        <div style={{ display: 'grid', gap: 10, marginBottom: 20 }}>
+          {[
+            'Insert build checkpoints every five concepts',
+            'Surface project milestones in the graph and the next-action engine',
+            'Keep proof-of-skill work visible alongside mastery progress',
+          ].map((entry) => (
+            <div
+              key={entry}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                borderRadius: 16,
+                padding: '12px 14px',
+                background: 'rgba(255,255,255,0.04)',
+                border: '1px solid rgba(255,255,255,0.08)',
+              }}
+            >
+              <IconGlyph name="check_circle" size={18} strokeWidth={2.3} color="var(--theme-mastery)" />
+              <span style={{ fontSize: 13, color: T.textSec, fontWeight: 700 }}>{entry}</span>
+            </div>
+          ))}
+        </div>
 
-        <div style={{ display:'flex', gap:10, marginTop:20 }}>
-          <button onClick={onClose} style={{
-            flex:1, padding:'13px', background:'rgba(255,255,255,0.05)',
-            border:'1px solid rgba(255,255,255,0.10)', borderRadius:14,
-            color:T.textSec, fontWeight:700, fontSize:14, cursor:'pointer', fontFamily:T.font,
-          }}>Keep linear</button>
-          <button onClick={() => { onToggle(!enabled); onClose() }} style={{
-            flex:2, padding:'13px',
-            background: enabled
-              ? 'rgba(239,68,68,0.10)' : T.masteryGradient,
-            border: enabled ? '1px solid rgba(239,68,68,0.25)' : 'none',
-            borderRadius:14,
-            color: enabled ? '#F87171' : T.ink,
-            fontWeight:900, fontSize:14, cursor:'pointer', fontFamily:T.font,
-            boxShadow: enabled ? 'none' : '0 0 28px rgba(192,132,252,0.50)',
-          }}>
-            <span style={{ display:'inline-flex', alignItems:'center', gap:8, justifyContent:'center' }}>
-              {!enabled && <IconGlyph name="hammer" size={15} strokeWidth={2.3} color={T.ink}/>}
-              {enabled ? 'Remove Projects' : 'Add Projects to Map'}
-            </span>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button
+            onClick={onClose}
+            style={{
+              flex: 1,
+              minHeight: 44,
+              borderRadius: 14,
+              border: '1px solid rgba(255,255,255,0.10)',
+              background: 'rgba(255,255,255,0.04)',
+              color: T.textSec,
+              fontFamily: T.font,
+              fontSize: 14,
+              fontWeight: 800,
+              cursor: 'pointer',
+            }}
+          >
+            Close
+          </button>
+          <button
+            onClick={() => {
+              onToggle(!enabled)
+              onClose()
+            }}
+            style={{
+              flex: 2,
+              minHeight: 44,
+              borderRadius: 14,
+              border: enabled ? '1px solid rgba(248,113,113,0.22)' : 'none',
+              background: enabled ? 'rgba(248,113,113,0.08)' : T.masteryGradient,
+              color: enabled ? '#FCA5A5' : T.ink,
+              fontFamily: T.font,
+              fontSize: 14,
+              fontWeight: 900,
+              cursor: 'pointer',
+            }}
+          >
+            {enabled ? 'Hide Project Nodes' : 'Show Project Nodes'}
           </button>
         </div>
-      </div>
+      </motion.div>
     </>
   )
 }
 
-// ─── Tab Bar ──────────────────────────────────────────────────────────────────
 function TabBar({ onNav }) {
+  const items = [
+    { key: 'home', label: 'Today', icon: 'goal' },
+    { key: 'path', label: 'Map', icon: 'map' },
+    { key: 'stats', label: 'Stats', icon: 'bar_chart' },
+  ]
+
   return (
-    <div style={{
-      position:'fixed', bottom:0, left:0, right:0, zIndex:500,
-      background:T.chrome,
-      borderTop:`1px solid ${T.border}`,
-      backdropFilter:'blur(28px)', WebkitBackdropFilter:'blur(28px)',
-      display:'flex', justifyContent:'space-around', alignItems:'center',
-      padding:'10px 0 max(env(safe-area-inset-bottom),10px)',
-      fontFamily:T.font,
-    }}>
-      {[
-        { key:'home',  Icon:HomeIco,  label:'Today' },
-        { key:'path',  Icon:PathIco,  label:'Map'   },
-        { key:'stats', Icon:StatsIco, label:'Stats' },
-      ].map(({ key, Icon, label }) => {
-        const isActive = key === 'path'
+    <div
+      style={{
+        position: 'fixed',
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 500,
+        display: 'flex',
+        justifyContent: 'space-around',
+        alignItems: 'center',
+        padding: '10px 0 calc(env(safe-area-inset-bottom, 0px) + 10px)',
+        background: T.chrome,
+        borderTop: `1px solid ${T.border}`,
+        backdropFilter: 'blur(28px)',
+        WebkitBackdropFilter: 'blur(28px)',
+        fontFamily: T.font,
+      }}
+    >
+      {items.map((item) => {
+        const active = item.key === 'path'
         return (
-          <button key={key} onClick={() => onNav(key)} style={{
-            display:'flex', flexDirection:'column', alignItems:'center', gap:3,
-            background:'none', border:'none', cursor:'pointer', padding:'4px 20px',
-            color: isActive ? 'var(--theme-primary)' : T.textMuted,
-            opacity: isActive ? 1 : 0.65, fontFamily:T.font,
-          }}>
-            <Icon/>
-            <span style={{ fontSize:10, fontWeight:700, letterSpacing:'0.3px' }}>{label}</span>
+          <button
+            key={item.key}
+            onClick={() => onNav(item.key)}
+            style={{
+              minWidth: 64,
+              minHeight: 44,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 4,
+              background: 'none',
+              border: 'none',
+              color: active ? 'var(--theme-primary)' : T.textMuted,
+              opacity: active ? 1 : 0.72,
+              fontFamily: T.font,
+              cursor: 'pointer',
+            }}
+          >
+            <IconGlyph name={item.icon} size={20} strokeWidth={2.2} color={active ? 'var(--theme-primary)' : T.textMuted} />
+            <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.03em' }}>{item.label}</span>
           </button>
         )
       })}
@@ -545,30 +777,26 @@ function TabBar({ onNav }) {
   )
 }
 
-// ─── Main ─────────────────────────────────────────────────────────────────────
 export default function PathPage() {
   const router = useRouter()
+  const prefersReducedMotion = useReducedMotion()
 
-  const [loading,      setLoading]      = useState(true)
-  const [error,        setError]        = useState('')
-  const [goal,         setGoal]         = useState(null)
-  const [allNodes,     setAllNodes]     = useState([])   // flat list of all day nodes
-  const [progress,     setProgress]     = useState({ xp:0, streak:0, totalDays:0 })
-  const [activeNode,   setActiveNode]   = useState(null) // selected for bottom sheet
-  const [completing,   setCompleting]   = useState(null)
-  const [xpPop,        setXpPop]        = useState(null)
-  const [projects,     setProjects]     = useState(false)
-  const [showProjModal,setShowProjModal]= useState(false)
-  const [activeTheme,  setActiveTheme]  = useState(() => getStoredActiveTheme(getStoredOwnedThemes()))
-  const [celebratingNodeId, setCelebratingNodeId] = useState(null)
-  const [justUnlockedNodeId, setJustUnlockedNodeId] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [goal, setGoal] = useState(null)
+  const [allNodes, setAllNodes] = useState([])
+  const [masteryRows, setMasteryRows] = useState([])
+  const [progress, setProgress] = useState({ xp: 0, streak: 0, totalDays: 0 })
+  const [activeNodeId, setActiveNodeId] = useState(null)
+  const [completing, setCompleting] = useState(null)
+  const [xpPop, setXpPop] = useState(null)
+  const [projects, setProjects] = useState(false)
+  const [showProjModal, setShowProjModal] = useState(false)
+  const [activeTheme, setActiveTheme] = useState(() => getStoredActiveTheme(getStoredOwnedThemes()))
+  const [zoom, setZoom] = useState(1)
 
-  const nodeRefs = useRef(new Map())
+  const graphViewportRef = useRef(null)
   const transitionTimersRef = useRef([])
-  const { scrollY } = useScroll()
-  const orbDrift = useTransform(scrollY, [0, 2400], [0, -140])
-  const orbDriftFar = useTransform(scrollY, [0, 2400], [0, -80])
-  const overlayDrift = useTransform(scrollY, [0, 2400], [0, -32])
 
   const themeVars = useMemo(() => getDashboardThemeVars(activeTheme), [activeTheme])
   const pageThemeStyle = useMemo(() => ({
@@ -577,647 +805,1150 @@ export default function PathPage() {
   }), [themeVars])
   const worlds = useMemo(() => getPathWorlds(activeTheme), [activeTheme])
 
-  const registerNodeRef = useCallback((id, element) => {
-    if (element) nodeRefs.current.set(id, element)
-    else nodeRefs.current.delete(id)
-  }, [])
-
-  // ── Load ───────────────────────────────────────────────────────────────────
   const load = useCallback(async () => {
-    setLoading(true); setError('')
+    setLoading(true)
+    setError('')
+
     const { data: authData } = await supabase.auth.getUser()
-    const me = authData?.user
-    if (!me) { router.push('/login'); return }
+    const user = authData?.user
+    if (!user) {
+      router.push('/login')
+      return
+    }
 
-    const { data: activeGoal } = await supabase.from('goals').select('*').eq('user_id', me.id).eq('status', 'active')
-      .order('created_at', { ascending: false }).limit(1).maybeSingle()
+    const { data: activeGoal } = await supabase
+      .from('goals')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('status', 'active')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
 
-    if (!activeGoal) { setLoading(false); return }
+    if (!activeGoal) {
+      setGoal(null)
+      setLoading(false)
+      return
+    }
+
     setGoal(activeGoal)
 
-    const { data: prog } = await supabase.from('user_progress').select('total_xp,current_streak,total_days')
-      .eq('user_id', me.id).eq('goal_id', activeGoal.id).maybeSingle()
+    const [{ data: prog }, { data: rows, error: rowsErr }, { data: mastery }] = await Promise.all([
+      supabase
+        .from('user_progress')
+        .select('total_xp,current_streak,total_days')
+        .eq('user_id', user.id)
+        .eq('goal_id', activeGoal.id)
+        .maybeSingle(),
+      supabase
+        .from('daily_tasks')
+        .select('*')
+        .eq('goal_id', activeGoal.id)
+        .eq('user_id', user.id)
+        .order('day_number', { ascending: true }),
+      supabase
+        .from('concept_mastery')
+        .select('concept_id,mastery_score,last_review,review_interval')
+        .eq('user_id', user.id)
+        .eq('goal_id', activeGoal.id),
+    ])
 
-    const { data: rows, error: rowsErr } = await supabase
-      .from('daily_tasks').select('*')
-      .eq('goal_id', activeGoal.id).eq('user_id', me.id)
-      .order('day_number', { ascending: true })
-    if (rowsErr) { setError(rowsErr.message); setLoading(false); return }
+    if (rowsErr) {
+      setError(rowsErr.message)
+      setLoading(false)
+      return
+    }
 
-    const taskRows  = rows || []
-    const totalDays = prog?.total_days || Number(activeGoal.days) || Math.max(taskRows.length, 7)
-
+    const taskRows = filterRowsForCourseWindow(rows || [], Number(prog?.total_days) || 0)
+    const totalDays = getCourseVisibleDayCount(
+      prog?.total_days || Number(activeGoal.days) || 0,
+      taskRows,
+    ) || Math.max(taskRows.length, 7)
     let foundActive = false
-    // Build real nodes from task rows
-    const realNodes = taskRows.map(row => {
-      const tasks     = Array.isArray(row.tasks) ? row.tasks : []
-      const completed = tasks.filter(t => t.completed).length
-      const isDone    = row.completion_status === 'completed' || (tasks.length > 0 && completed === tasks.length)
-      let status
-      if      (isDone)       { status = 'done'   }
-      else if (!foundActive) { status = 'active'; foundActive = true }
-      else                   { status = 'locked' }
+
+    const realNodes = taskRows.map((row) => {
+      const tasks = Array.isArray(row.tasks) ? row.tasks : []
+      const completed = tasks.filter((task) => task.completed).length
+      const isDone = row.completion_status === 'completed' || (tasks.length > 0 && completed === tasks.length)
+      let status = 'locked'
+      if (isDone) status = 'done'
+      else if (!foundActive) {
+        status = 'active'
+        foundActive = true
+      }
 
       return {
-        id:             row.id,
-        dayNumber:      row.day_number,
-        conceptName:    row.covered_topics?.[0] || `Day ${row.day_number}`,
+        id: row.id,
+        dayNumber: row.day_number,
+        conceptName: row.covered_topics?.[0] || `Day ${row.day_number}`,
         tasks,
-        totalTasks:     tasks.length,
+        totalTasks: tasks.length,
         completedTasks: completed,
         status,
-        isBoss:         row.day_number % 7 === 0,
-        isProject:      false,
-        isPlaceholder:  false,
-        totalMinutes:   row.total_minutes || 30,
+        isBoss: row.day_number % 7 === 0,
+        isProject: false,
+        isPlaceholder: false,
+        totalMinutes: row.total_minutes || 30,
       }
     })
 
-    // Build placeholder nodes for days not yet generated
-    const maxGenerated = taskRows.length > 0 ? Math.max(...taskRows.map(r => r.day_number)) : 0
+    const maxGenerated = taskRows.length > 0 ? Math.max(...taskRows.map((row) => row.day_number)) : 0
     const placeholders = []
-    for (let d = maxGenerated + 1; d <= totalDays; d++) {
+    for (let day = maxGenerated + 1; day <= totalDays; day += 1) {
       placeholders.push({
-        id:            `placeholder-${d}`,
-        dayNumber:     d,
-        conceptName:   'Coming soon…',
-        tasks:         [],
-        totalTasks:    0,
-        completedTasks:0,
-        status:        'locked',
-        isBoss:        d % 7 === 0,
-        isProject:     false,
+        id: `placeholder-${day}`,
+        dayNumber: day,
+        conceptName: `Future Concept ${day}`,
+        tasks: [],
+        totalTasks: 0,
+        completedTasks: 0,
+        status: 'locked',
+        isBoss: day % 7 === 0,
+        isProject: false,
         isPlaceholder: true,
-        totalMinutes:  30,
+        totalMinutes: 30,
       })
     }
 
     setAllNodes([...realNodes, ...placeholders])
+    setMasteryRows(mastery || [])
     setProgress({ xp: prog?.total_xp || 0, streak: prog?.current_streak || 0, totalDays })
 
-    // Analytics
-    const completedDays = realNodes.filter(n => n.status === 'done').length
-    trackMapViewed({ userId: me.id, goalId: activeGoal.id, completedDays, totalDays })
+    trackMapViewed({
+      userId: user.id,
+      goalId: activeGoal.id,
+      completedDays: realNodes.filter((node) => node.status === 'done').length,
+      totalDays,
+    })
 
     setLoading(false)
   }, [router])
 
   useEffect(() => {
-    const timer = setTimeout(() => { load() }, 0)
+    const timer = setTimeout(() => load(), 0)
     return () => clearTimeout(timer)
   }, [load])
 
-  // ── Inject project nodes when toggle is on ─────────────────────────────────
-  const displayNodes = useMemo(() => {
-    if (!projects) return allNodes
-    // Insert project nodes every 5 real (non-placeholder) days
-    const result = []
-    let projCount = 0
-    for (let i = 0; i < allNodes.length; i++) {
-      const n = allNodes[i]
-      result.push(n)
-      if (!n.isPlaceholder && !n.isBoss && (i + 1) % 5 === 0) {
-        projCount++
-        result.push({
-          id:            `project-${projCount}`,
-          dayNumber:     null,
-          conceptName:   `Build Project ${projCount}`,
-          tasks:         [],
-          totalTasks:    0,
-          completedTasks:0,
-          status:        n.status === 'done' ? 'active' : 'locked',
-          isBoss:        false,
-          isProject:     true,
-          isPlaceholder: n.status !== 'done',
-          totalMinutes:  60,
-        })
-      }
-    }
-    return result
-  }, [allNodes, projects])
-
-  // ── Build world groups ─────────────────────────────────────────────────────
-  const worldGroups = useMemo(() => {
-    const groups = []
-    for (let i = 0; i < displayNodes.length; i += 7) {
-      const chunk    = displayNodes.slice(i, i + 7)
-      const themeIdx = Math.floor(i / 7) % worlds.length
-      groups.push({ world: worlds[themeIdx], nodes: chunk })
-    }
-    return groups
-  }, [displayNodes, worlds])
-
-  // ── Compute absolute y positions for every node ────────────────────────────
-  const { layoutItems, totalMapHeight } = useMemo(() => {
-    const items = []   // { type:'banner'|'node', ...props, y, height }
-    let y = 0
-
-    worldGroups.forEach((g, gi) => {
-      // Banner
-      items.push({ type:'banner', world:g.world, worldIdx:gi, nodes:g.nodes, y, height:BANNER_H })
-      y += BANNER_H
-
-      // Nodes
-      g.nodes.forEach((node, ni) => {
-        const globalIdx = gi * 7 + ni
-        const x    = getWaveX(globalIdx)
-        const h    = (node.isBoss || node.isProject) ? BOSS_ROW_H : NODE_ROW_H
-        items.push({ type:'node', node, world:g.world, x, y: y + h / 2, height:h, status:node.status })
-        y += h
-      })
-
-      y += 16 // inter-world gap
-    })
-
-    return { layoutItems: items, totalMapHeight: y + 40 }
-  }, [worldGroups])
-
-  // Separate node items for SVG path
-  const nodeItems = useMemo(() => layoutItems.filter(i => i.type === 'node'), [layoutItems])
-  const currentNode = useMemo(
-    () => displayNodes.find((node) => node.status === 'active') || null,
-    [displayNodes],
-  )
-  const pathSegments = useMemo(() => nodeItems.slice(1).map((cur, index) => {
-    const prev = nodeItems[index]
-    return {
-      id: `${prev.node.id}-${cur.node.id}`,
-      fromId: prev.node.id,
-      toId: cur.node.id,
-      fromStatus: prev.node.status,
-      toStatus: cur.node.status,
-      x1: prev.x,
-      y1: prev.y,
-      x2: cur.x,
-      y2: cur.y,
-      mx: (prev.x + cur.x) / 2,
-      my: (prev.y + cur.y) / 2,
-      world: cur.world,
-    }
-  }), [nodeItems])
-
   useEffect(() => {
-    if (!currentNode?.id) return undefined
-    const timer = setTimeout(() => {
-      const element = nodeRefs.current.get(currentNode.id)
-      if (!element) return
-      const targetY = window.scrollY + element.getBoundingClientRect().top - ((window.innerHeight / 2) - 80)
-      window.scrollTo({ top: Math.max(0, targetY), behavior: 'smooth' })
-    }, 300)
-    return () => clearTimeout(timer)
-  }, [currentNode?.id])
+    const handleStorage = () => {
+      setActiveTheme(getStoredActiveTheme(getStoredOwnedThemes()))
+    }
+    window.addEventListener('storage', handleStorage)
+    window.addEventListener('pathai-theme-changed', handleStorage)
+    return () => {
+      window.removeEventListener('storage', handleStorage)
+      window.removeEventListener('pathai-theme-changed', handleStorage)
+    }
+  }, [])
 
   useEffect(() => () => {
     transitionTimersRef.current.forEach((timerId) => clearTimeout(timerId))
     transitionTimersRef.current = []
-  }, [activeNode])
+  }, [])
 
-  // ── Task completion ────────────────────────────────────────────────────────
+  const displayNodes = useMemo(() => {
+    if (!projects) return allNodes
+
+    const result = []
+    let projectCount = 0
+    let realCount = 0
+
+    allNodes.forEach((node) => {
+      result.push(node)
+      if (!node.isPlaceholder && !node.isProject) {
+        realCount += 1
+        if (realCount % 5 === 0) {
+          projectCount += 1
+          result.push({
+            id: `project-${projectCount}`,
+            dayNumber: null,
+            conceptName: `Project Milestone ${projectCount}`,
+            tasks: [],
+            totalTasks: 0,
+            completedTasks: 0,
+            status: 'locked',
+            isBoss: false,
+            isProject: true,
+            isPlaceholder: false,
+            totalMinutes: 60,
+          })
+        }
+      }
+    })
+
+    return result
+  }, [allNodes, projects])
+
+  const graph = useMemo(() => buildSkillGraph({
+    nodes: displayNodes,
+    masteryRows,
+    goalText: goal?.goal_text || '',
+    worlds,
+  }), [displayNodes, masteryRows, goal?.goal_text, worlds])
+
+  const resolvedActiveNodeId = useMemo(
+    () => graph.graphNodes.some((node) => node.id === activeNodeId) ? activeNodeId : null,
+    [activeNodeId, graph.graphNodes],
+  )
+
+  const activeNode = useMemo(
+    () => graph.graphNodes.find((node) => node.id === resolvedActiveNodeId) || null,
+    [graph.graphNodes, resolvedActiveNodeId],
+  )
+
+  const level = useMemo(() => getLevelProgress(progress.xp), [progress.xp])
+  const completionPct = graph.graphNodes.length > 0
+    ? Math.round((graph.graphNodes.filter((node) => ['mastered', 'review_needed'].includes(node.status)).length / graph.graphNodes.length) * 100)
+    : 0
+
+  const centerNodeInViewport = useCallback((nodeId, behavior = 'smooth') => {
+    const viewport = graphViewportRef.current
+    const node = graph.graphNodes.find((entry) => entry.id === nodeId)
+    if (!viewport || !node) return
+
+    const targetLeft = (node.position.x * zoom) - (viewport.clientWidth / 2)
+    const targetTop = (node.position.y * zoom) - (viewport.clientHeight / 2) - 40
+
+    viewport.scrollTo({
+      left: Math.max(0, targetLeft),
+      top: Math.max(0, targetTop),
+      behavior,
+    })
+  }, [graph.graphNodes, zoom])
+
+  useEffect(() => {
+    if (!graph.currentFocus?.id) return undefined
+    const timer = setTimeout(() => {
+      centerNodeInViewport(graph.currentFocus.id, prefersReducedMotion ? 'auto' : 'smooth')
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [centerNodeInViewport, graph.currentFocus?.id, prefersReducedMotion])
+
   const handleComplete = useCallback(async (rowId, taskId, task, event) => {
     setCompleting(taskId)
+
     if (event) {
-      const rect  = event.currentTarget.getBoundingClientRect()
-      const xpAmt = TASK_XP[task.type] || 20
-      setXpPop({ x: rect.left + rect.width / 2, y: rect.top - 10, xp: xpAmt })
+      const rect = event.currentTarget.getBoundingClientRect()
+      setXpPop({
+        x: rect.left + (rect.width / 2),
+        y: rect.top - 10,
+        xp: TASK_XP[task.type] || 20,
+      })
     }
 
-    // Compute patch result synchronously to avoid reading mutable vars set inside updater
     let completedNode = false
     let nextUnlockId = null
-    setAllNodes((prev) => {
-      const patched = patchNodeTask(prev, rowId, taskId)
+
+    setAllNodes((previous) => {
+      const patched = patchNodeTask(previous, rowId, taskId)
       completedNode = patched.completedNode
       nextUnlockId = patched.completedNode ? findNextUnlockId(patched.nextNodes, rowId) : null
       return patched.completedNode ? patched.nextNodes : recomputeNodeStatuses(patched.nextNodes)
     })
 
-    setActiveNode((prev) => {
-      if (!prev || prev.id !== rowId) return prev
-      const updatedTasks = prev.tasks.map((entry) => entry.id === taskId ? { ...entry, completed: true } : entry)
-      const doneCount = updatedTasks.filter((entry) => entry.completed).length
-      const nodeDone = doneCount === updatedTasks.length && updatedTasks.length > 0
-      return {
-        ...prev,
-        tasks: updatedTasks,
-        completedTasks: doneCount,
-        status: nodeDone ? 'done' : prev.status,
-      }
-    })
-
-    // Note: completedNode/nextUnlockId are set synchronously by React 18's updater
     if (completedNode) {
-      setCelebratingNodeId(rowId)
-      setJustUnlockedNodeId(null)
-
       const unlockTimer = setTimeout(() => {
-        setAllNodes((prev) => recomputeNodeStatuses(prev))
-        if (nextUnlockId) setJustUnlockedNodeId(nextUnlockId)
+        setAllNodes((previous) => recomputeNodeStatuses(previous))
+        if (nextUnlockId) centerNodeInViewport(nextUnlockId, prefersReducedMotion ? 'auto' : 'smooth')
       }, 550)
-
-      const clearCelebrateTimer = setTimeout(() => {
-        setCelebratingNodeId(null)
-      }, 1200)
-
-      const clearUnlockTimer = setTimeout(() => {
-        setJustUnlockedNodeId(null)
-      }, 1800)
-
-      transitionTimersRef.current.push(unlockTimer, clearCelebrateTimer, clearUnlockTimer)
+      transitionTimersRef.current.push(unlockTimer)
     }
 
     try {
       const { data: { session } } = await supabase.auth.getSession()
       const token = session?.access_token || null
+      const currentSelectedNode = graph.graphNodes.find((node) => node.id === rowId)
+
       await fetch('/api/complete', {
-        method:'POST',
-        headers:{ 'Content-Type':'application/json', ...(token ? { Authorization:`Bearer ${token}` } : {}) },
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({
           taskRowId: rowId,
           taskId,
-          completedTaskIds: (activeNode?.id === rowId ? activeNode.tasks : [])
+          completedTaskIds: (currentSelectedNode?.tasks || [])
             .filter((entry) => entry.completed)
             .map((entry) => entry.id),
         }),
       })
-    } catch { /* optimistic stays */ }
-    setCompleting(null)
-  }, [activeNode])
+    } catch {
+      // Keep the optimistic update and rely on the dashboard refresh flow to reconcile later.
+    }
 
-  // ── Nav ────────────────────────────────────────────────────────────────────
+    setCompleting(null)
+  }, [centerNodeInViewport, graph.graphNodes, prefersReducedMotion])
+
   const handleNav = useCallback((tab) => {
-    if (tab === 'home')  router.push('/dashboard')
+    if (tab === 'home') router.push('/dashboard')
     if (tab === 'stats') router.push('/stats')
   }, [router])
 
-  // ── Derived ────────────────────────────────────────────────────────────────
-  const lvl            = useMemo(() => getLevelProgress(progress.xp), [progress.xp])
-  const totalNodes     = displayNodes.length
-  const completedNodes = displayNodes.filter((node) => node.status === 'done').length
-  const completionPct  = totalNodes > 0 ? Math.round((completedNodes / totalNodes) * 100) : 0
-  const activeSheetWorld = useMemo(() => {
-    if (!activeNode) return worlds[0]
-    const gi = worldGroups.findIndex(g => g.nodes.some(n => n.id === activeNode.id))
-    return gi >= 0 ? worldGroups[gi].world : worlds[0]
-  }, [activeNode, worldGroups, worlds])
+  const handlePrimaryAction = () => {
+    if (!graph.nextAction?.nodeId) return
+    setActiveNodeId(graph.nextAction.nodeId)
+    centerNodeInViewport(graph.nextAction.nodeId, prefersReducedMotion ? 'auto' : 'smooth')
+  }
 
-  // ─────────────────────────────────────────────────────────────────────────
+  const zoomIn = useCallback(() => setZoom((value) => clamp((value + 0.12).toFixed(2), 0.82, 1.4, 1)), [])
+  const zoomOut = useCallback(() => setZoom((value) => clamp((value - 0.12).toFixed(2), 0.82, 1.4, 1)), [])
+  const resetZoom = useCallback(() => setZoom(1), [])
+
+  const activeSheetWorld = activeNode?.regionIndex != null
+    ? worlds[activeNode.regionIndex % worlds.length] || worlds[0]
+    : worlds[0]
+
   return (
     <div style={themeVars}>
       <style>{CSS}</style>
 
-      <div style={{ ...pageThemeStyle, minHeight:'100vh', fontFamily:T.font, paddingBottom:80 }}>
+      <div style={{ ...pageThemeStyle, minHeight: '100vh', paddingBottom: 92, fontFamily: T.font }}>
+        <div
+          style={{
+            position: 'sticky',
+            top: 0,
+            zIndex: 200,
+            background: T.chrome,
+            borderBottom: `1px solid ${T.border}`,
+            backdropFilter: 'blur(28px)',
+            WebkitBackdropFilter: 'blur(28px)',
+            paddingTop: 'env(safe-area-inset-top, 0px)',
+          }}
+        >
+          <div
+            style={{
+              maxWidth: 1180,
+              margin: '0 auto',
+              padding: '12px 16px 14px',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+              <div
+                style={{
+                  width: 38,
+                  height: 38,
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: T.masteryGradient,
+                  color: '#fff',
+                  fontSize: 15,
+                  fontWeight: 900,
+                  boxShadow: '0 0 18px rgba(129,140,248,0.3)',
+                  flexShrink: 0,
+                }}
+              >
+                {level.level}
+              </div>
 
-        {/* ── Sticky top bar ──────────────────────────────────────────── */}
-        <div style={{
-          position:'sticky', top:0, zIndex:200,
-          background:T.chrome,
-          borderBottom:`1px solid ${T.border}`,
-          backdropFilter:'blur(28px)', WebkitBackdropFilter:'blur(28px)',
-        }}>
-          <div style={{ maxWidth:700, margin:'0 auto', padding:'12px 18px' }}>
-            <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:9 }}>
-              {/* Level badge */}
-              <div style={{
-                width:36, height:36, borderRadius:'50%', flexShrink:0,
-                background:T.masteryGradient,
-                display:'flex', alignItems:'center', justifyContent:'center',
-                fontWeight:900, fontSize:15, color:'#fff',
-                boxShadow:'0 0 18px rgba(192,132,252,0.45)',
-              }}>{lvl.level}</div>
-              <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ fontSize:12, fontWeight:800, color:T.text, marginBottom:1 }}>
-                  {lvl.title}
-                  {goal && <span style={{ fontWeight:500, color:T.textMuted }}> · {goal.goal_text}</span>}
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
+                  <span style={{ fontSize: 13, fontWeight: 900, color: T.text, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {goal?.goal_text || 'Learning Path'}
+                  </span>
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '4px 10px',
+                      borderRadius: 9999,
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      background: 'rgba(255,255,255,0.05)',
+                      color: T.textMuted,
+                      fontSize: 10,
+                      fontWeight: 900,
+                      letterSpacing: '0.14em',
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    <IconGlyph name={graph.skillConfig?.icon || 'map'} size={12} strokeWidth={2.3} color={T.textMuted} />
+                    {graph.skillConfig?.label || 'Path'}
+                  </span>
                 </div>
-                <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                  <div style={{ flex:1, height:4, background:'rgba(255,255,255,0.06)', borderRadius:9999, overflow:'hidden' }}>
-                    <div style={{
-                      height:'100%', width:`${Math.round(lvl.pct * 100)}%`,
-                      background:T.masteryGradientSoft, borderRadius:9999,
-                      transition:'width 0.5s',
-                    }}/>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ flex: 1, height: 6, borderRadius: 9999, background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
+                    <div
+                      style={{
+                        height: '100%',
+                        width: `${Math.round(level.pct * 100)}%`,
+                        borderRadius: 9999,
+                        background: 'linear-gradient(90deg,var(--theme-mastery),var(--theme-secondary),var(--theme-primary))',
+                        backgroundSize: '200% 100%',
+                        animation: level.pct > 0 ? 'shimmer 3s linear infinite' : 'none',
+                      }}
+                    />
                   </div>
-                  <span style={{ fontSize:10, color:T.textMuted, fontWeight:600, flexShrink:0 }}>
-                    {lvl.xpInLevel}/{lvl.xpForLevel} XP
+                  <span style={{ fontSize: 10, fontWeight: 700, color: T.textMuted, flexShrink: 0 }}>
+                    {level.xpInLevel}/{level.xpForLevel} XP
                   </span>
                 </div>
               </div>
-              {/* Streak pill */}
-              {progress.streak > 0 && (
-                <div style={{
-                  display:'flex', alignItems:'center', gap:5,
-                  padding:'5px 11px',
-                  background:'rgba(251,146,60,0.12)', border:'1px solid rgba(251,146,60,0.28)',
-                  borderRadius:9999, fontSize:13, fontWeight:900, color:'#FB923C', flexShrink:0,
-                  animation:'streakFlame 2.5s ease-in-out infinite',
-                }}>
-                  <IconGlyph name="flame" size={14} strokeWidth={2.3} color="#FB923C"/>
-                  {progress.streak}
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+                <div
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '7px 11px',
+                    minHeight: 44,
+                    borderRadius: 9999,
+                    border: '1px solid rgba(34,211,165,0.18)',
+                    background: 'rgba(34,211,165,0.08)',
+                    color: 'var(--theme-primary)',
+                  }}
+                >
+                  <IconGlyph name="repeat" size={14} strokeWidth={2.3} color="var(--theme-primary)" />
+                  <span style={{ fontSize: 12, fontWeight: 800 }}>{completionPct}%</span>
                 </div>
-              )}
-            </div>
 
-            {/* Overall path progress bar */}
-            <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-              <div style={{ flex:1, height:6, background:'rgba(255,255,255,0.06)', borderRadius:9999, overflow:'hidden' }}>
-                <div style={{
-                  height:'100%',
-                  width: totalNodes > 0 ? `${Math.round(completedNodes / totalNodes * 100)}%` : '0%',
-                  background:'linear-gradient(90deg,var(--theme-primary),var(--theme-secondary),var(--theme-mastery))',
-                  borderRadius:9999, transition:'width 0.6s cubic-bezier(0.16,1,0.3,1)',
-                  backgroundSize:'200% 100%',
-                  animation: completedNodes > 0 ? 'shimmer 3s linear infinite' : 'none',
-                }}/>
+                <div
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '7px 11px',
+                    minHeight: 44,
+                    borderRadius: 9999,
+                    border: '1px solid rgba(251,146,60,0.2)',
+                    background: 'rgba(251,146,60,0.08)',
+                    color: '#FB923C',
+                  }}
+                >
+                  <IconGlyph name="flame" size={14} strokeWidth={2.3} color="#FB923C" />
+                  <span style={{ fontSize: 12, fontWeight: 800 }}>{progress.streak || 0}</span>
+                </div>
               </div>
-              <span style={{ fontSize:10, fontWeight:700, color:T.textMuted, flexShrink:0 }}>
-                {completedNodes}/{totalNodes} days
-              </span>
-              {/* Project toggle button */}
-              <button onClick={() => setShowProjModal(true)} style={{
-                padding:'4px 10px', borderRadius:9999, fontFamily:T.font,
-                background: projects ? 'rgba(192,132,252,0.15)' : 'rgba(255,255,255,0.05)',
-                border:`1px solid ${projects ? 'rgba(192,132,252,0.40)' : 'rgba(255,255,255,0.10)'}`,
-                color: projects ? 'var(--theme-mastery)' : T.textMuted,
-                fontSize:10, fontWeight:800, cursor:'pointer', flexShrink:0,
-                display:'flex', alignItems:'center', gap:4,
-              }}>
-                <IconGlyph name="hammer" size={12} strokeWidth={2.3} color={projects ? 'var(--theme-mastery)' : T.textMuted}/>
-                {projects ? 'Projects ON' : 'Add Projects'}
-              </button>
             </div>
-
-            {currentNode && (
-              <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap', marginTop:12 }}>
-                <span style={{
-                  fontSize:9, fontWeight:900, letterSpacing:'1.4px', textTransform:'uppercase',
-                  color:T.ink, background:'linear-gradient(135deg,var(--theme-primary),#f8fafc)',
-                  padding:'3px 10px', borderRadius:9999,
-                  boxShadow:'0 10px 24px rgba(34,211,165,0.18)',
-                }}>
-                  Current focus
-                </span>
-                <span style={{ fontSize:12, fontWeight:800, color:T.text }}>
-                  {currentNode.isBoss ? 'Boss Battle' : currentNode.isProject ? 'Project Build' : `Day ${currentNode.dayNumber}`}
-                </span>
-                <span style={{ fontSize:12, color:T.textSec, fontWeight:600 }}>
-                  {currentNode.conceptName}
-                </span>
-                <span style={{ fontSize:11, color:T.textMuted, fontWeight:700 }}>
-                  {completionPct}% complete
-                </span>
-              </div>
-            )}
           </div>
         </div>
 
-        {/* ── Loading ──────────────────────────────────────────────────── */}
         {loading && (
-          <div style={{ maxWidth:500, margin:'32px auto', padding:'0 20px', display:'flex', flexDirection:'column', gap:18 }}>
-            {[0,1,2,3].map(i => (
-              <div key={i} style={{ display:'flex', alignItems:'center', gap:16 }}>
-                <Skeleton width={64} height={64} borderRadius="50%" style={{ flexShrink:0 }}/>
-                <div style={{ flex:1 }}>
-                  <Skeleton height={12} borderRadius={6} width="65%" style={{ marginBottom: 6 }}/>
-                  <Skeleton height={9} borderRadius={6} width="40%"/>
+          <div style={{ maxWidth: 1180, margin: '0 auto', padding: '22px 16px', display: 'grid', gap: 16 }}>
+            <div style={{ borderRadius: 28, border: `1px solid ${T.border}`, padding: 22, background: 'rgba(255,255,255,0.03)' }}>
+              <Skeleton height={16} width="18%" borderRadius={8} style={{ marginBottom: 12 }} />
+              <Skeleton height={34} width="46%" borderRadius={10} style={{ marginBottom: 10 }} />
+              <Skeleton height={12} width="72%" borderRadius={8} style={{ marginBottom: 18 }} />
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10 }}>
+                {[0, 1, 2, 3].map((entry) => (
+                  <Skeleton key={entry} height={86} borderRadius={18} />
+                ))}
+              </div>
+            </div>
+
+            <div style={{ borderRadius: 28, border: `1px solid ${T.border}`, padding: 20, background: 'rgba(255,255,255,0.03)' }}>
+              <Skeleton height={14} width="24%" borderRadius={8} style={{ marginBottom: 14 }} />
+              <div style={{ height: '62vh', borderRadius: 24, background: 'rgba(255,255,255,0.02)', border: `1px solid ${T.border}`, padding: 18 }}>
+                {[0, 1, 2].map((entry) => (
+                  <div key={entry} style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 28 }}>
+                    <Skeleton width={64} height={64} borderRadius="50%" />
+                    <div style={{ flex: 1 }}>
+                      <Skeleton height={12} width="38%" borderRadius={8} style={{ marginBottom: 8 }} />
+                      <Skeleton height={10} width="20%" borderRadius={8} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {!loading && error && (
+          <div style={{ maxWidth: 760, margin: '0 auto', padding: '64px 20px' }}>
+            <div
+              style={{
+                borderRadius: 26,
+                border: '1px solid rgba(248,113,113,0.18)',
+                background: 'rgba(127,29,29,0.14)',
+                padding: 26,
+                textAlign: 'center',
+              }}
+            >
+              <div
+                style={{
+                  width: 68,
+                  height: 68,
+                  margin: '0 auto 16px',
+                  borderRadius: 22,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: 'rgba(248,113,113,0.12)',
+                  border: '1px solid rgba(248,113,113,0.18)',
+                }}
+              >
+                <IconGlyph name="alert" size={28} strokeWidth={2.3} color="#FCA5A5" />
+              </div>
+              <div style={{ fontSize: 22, fontWeight: 900, color: T.text, marginBottom: 8 }}>Path unavailable</div>
+              <div style={{ fontSize: 14, color: T.textSec, lineHeight: 1.6, marginBottom: 18 }}>
+                Something went wrong while loading your learning graph.
+              </div>
+              <div style={{ fontSize: 13, color: '#FCA5A5', marginBottom: 18 }}>{error}</div>
+              <button
+                onClick={load}
+                style={{
+                  minHeight: 44,
+                  padding: '0 20px',
+                  borderRadius: 14,
+                  border: 'none',
+                  background: 'linear-gradient(135deg,var(--theme-primary),var(--theme-secondary))',
+                  color: T.ink,
+                  fontFamily: T.font,
+                  fontSize: 14,
+                  fontWeight: 900,
+                  cursor: 'pointer',
+                }}
+              >
+                Retry
+              </button>
+            </div>
+          </div>
+        )}
+
+        {!loading && !error && allNodes.length === 0 && (
+          <div style={{ maxWidth: 760, margin: '0 auto', padding: '68px 20px' }}>
+            <div
+              style={{
+                borderRadius: 28,
+                border: `1px solid ${T.border}`,
+                background: 'rgba(255,255,255,0.03)',
+                padding: 28,
+                textAlign: 'center',
+              }}
+            >
+              <div
+                style={{
+                  width: 74,
+                  height: 74,
+                  margin: '0 auto 16px',
+                  borderRadius: 24,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: 'rgba(255,255,255,0.04)',
+                  border: `1px solid ${T.border}`,
+                }}
+              >
+                <IconGlyph name="map" size={30} strokeWidth={2.2} color={T.textSec} />
+              </div>
+              <div style={{ fontSize: 24, fontWeight: 900, color: T.text, marginBottom: 10 }}>No learning graph yet</div>
+              <div style={{ fontSize: 14, color: T.textMuted, lineHeight: 1.6, marginBottom: 20 }}>
+                Finish onboarding and your first concepts will appear here with recommended next actions.
+              </div>
+              <button
+                onClick={() => router.push('/onboarding')}
+                style={{
+                  minHeight: 44,
+                  padding: '0 22px',
+                  borderRadius: 14,
+                  border: 'none',
+                  background: 'linear-gradient(135deg,var(--theme-primary),var(--theme-secondary))',
+                  color: T.ink,
+                  fontFamily: T.font,
+                  fontSize: 14,
+                  fontWeight: 900,
+                  cursor: 'pointer',
+                }}
+              >
+                Start path setup
+              </button>
+            </div>
+          </div>
+        )}
+
+        {!loading && !error && allNodes.length > 0 && (
+          <div style={{ maxWidth: 1180, margin: '0 auto', padding: '20px 16px 0', display: 'grid', gap: 16 }}>
+            <motion.div
+              initial={{ opacity: 0, y: 18 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+              style={{
+                borderRadius: 30,
+                border: `1px solid ${T.border}`,
+                background: 'linear-gradient(145deg, rgba(7,13,22,0.96), rgba(4,8,14,0.92))',
+                padding: 22,
+                boxShadow: '0 24px 80px rgba(2,6,23,0.28)',
+                overflow: 'hidden',
+                position: 'relative',
+              }}
+            >
+              <div
+                style={{
+                  position: 'absolute',
+                  right: -80,
+                  top: -60,
+                  width: 240,
+                  height: 240,
+                  borderRadius: '50%',
+                  background: `radial-gradient(circle, ${worlds[0]?.glow || 'rgba(34,211,165,0.18)'} 0%, transparent 68%)`,
+                  filter: 'blur(12px)',
+                  animation: prefersReducedMotion ? 'none' : 'graphGlow 6s ease-in-out infinite',
+                  pointerEvents: 'none',
+                }}
+              />
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 18 }}>
+                <div style={{ minWidth: 0 }}>
+                  <div
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '6px 12px',
+                      borderRadius: 9999,
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      background: 'rgba(255,255,255,0.04)',
+                      color: 'var(--theme-primary)',
+                      fontSize: 11,
+                      fontWeight: 900,
+                      letterSpacing: '0.16em',
+                      textTransform: 'uppercase',
+                      marginBottom: 14,
+                    }}
+                  >
+                    <IconGlyph name="compass" size={14} strokeWidth={2.3} color="var(--theme-primary)" />
+                    Adaptive Skill Map
+                  </div>
+
+                  <div style={{ fontSize: 34, fontWeight: 900, letterSpacing: '-0.04em', color: T.text, lineHeight: 1.02, marginBottom: 10 }}>
+                    {graph.currentFocus?.title || 'Path ready'}
+                  </div>
+
+                  <div style={{ fontSize: 15, color: T.textSec, lineHeight: 1.7, maxWidth: 640, marginBottom: 16 }}>
+                    {graph.nextAction?.reason || 'The graph continuously adapts based on mastery, weak signals, and upcoming proof-of-skill checkpoints.'}
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
+                    <MomentumBadge momentum={graph.momentum} />
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        padding: '8px 12px',
+                        borderRadius: 9999,
+                        border: '1px solid rgba(129,140,248,0.18)',
+                        background: 'rgba(129,140,248,0.08)',
+                        color: 'var(--theme-mastery)',
+                        fontSize: 12,
+                        fontWeight: 800,
+                      }}
+                    >
+                      <IconGlyph name="badge" size={14} strokeWidth={2.3} color="var(--theme-mastery)" />
+                      {graph.identityLabel}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10 }}>
+                    {[
+                      {
+                        label: 'Current concept',
+                        value: graph.currentFocus?.title || 'Waiting',
+                        icon: 'target',
+                      },
+                      {
+                        label: 'Immediate goal',
+                        value: graph.nextUnlock?.title || graph.regions.find((region) => region.completedCount < region.totalCount)?.title || 'Keep building',
+                        icon: 'goal',
+                      },
+                      {
+                        label: 'Weak areas',
+                        value: `${graph.weakNodes.length} flagged`,
+                        icon: 'alert',
+                      },
+                      {
+                        label: 'Path completion',
+                        value: `${completionPct}%`,
+                        icon: 'chart',
+                      },
+                    ].map((card) => (
+                      <div
+                        key={card.label}
+                        style={{
+                          borderRadius: 18,
+                          border: '1px solid rgba(255,255,255,0.08)',
+                          background: 'rgba(255,255,255,0.035)',
+                          padding: '14px 14px',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                          <IconGlyph name={card.icon} size={15} strokeWidth={2.3} color={T.textMuted} />
+                          <span style={{ fontSize: 11, color: T.textMuted, fontWeight: 700 }}>{card.label}</span>
+                        </div>
+                        <div style={{ fontSize: 14, fontWeight: 800, color: T.text, lineHeight: 1.35 }}>{card.value}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    borderRadius: 24,
+                    border: `1px solid ${worlds[0]?.accent ? `${worlds[0].accent}22` : 'rgba(255,255,255,0.08)'}`,
+                    background: 'linear-gradient(160deg, rgba(10,16,28,0.92), rgba(6,10,18,0.9))',
+                    padding: 18,
+                    alignSelf: 'stretch',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 16,
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 900, letterSpacing: '0.16em', textTransform: 'uppercase', color: T.textMuted, marginBottom: 8 }}>
+                      Next action
+                    </div>
+                    <div style={{ fontSize: 24, fontWeight: 900, color: T.text, lineHeight: 1.1, marginBottom: 8 }}>
+                      {graph.nextAction?.label || 'Continue Learning'}
+                    </div>
+                    <div style={{ fontSize: 14, color: T.textSec, lineHeight: 1.65 }}>
+                      {graph.currentFocus?.whyItMatters || 'Each node explains why it matters before you commit effort.'}
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={handlePrimaryAction}
+                    disabled={!graph.nextAction?.nodeId}
+                    style={{
+                      minHeight: 46,
+                      width: '100%',
+                      borderRadius: 16,
+                      border: 'none',
+                      background: graph.nextAction?.nodeId
+                        ? 'linear-gradient(135deg,var(--theme-primary),var(--theme-secondary))'
+                        : 'rgba(255,255,255,0.05)',
+                      color: graph.nextAction?.nodeId ? T.ink : T.textMuted,
+                      fontFamily: T.font,
+                      fontSize: 14,
+                      fontWeight: 900,
+                      cursor: graph.nextAction?.nodeId ? 'pointer' : 'default',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 8,
+                    }}
+                  >
+                    <IconGlyph
+                      name={graph.nextAction?.icon || 'rocket'}
+                      size={15}
+                      strokeWidth={2.4}
+                      color={graph.nextAction?.nodeId ? T.ink : T.textMuted}
+                    />
+                    {graph.nextAction?.label || 'Continue Learning'}
+                  </button>
+
+                  <div
+                    style={{
+                      borderRadius: 18,
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      background: 'rgba(255,255,255,0.03)',
+                      padding: 14,
+                    }}
+                  >
+                    <div style={{ fontSize: 11, fontWeight: 900, letterSpacing: '0.14em', textTransform: 'uppercase', color: T.textMuted, marginBottom: 8 }}>
+                      Recommendation basis
+                    </div>
+                    <div style={{ display: 'grid', gap: 8 }}>
+                      {[
+                        graph.currentFocus?.status === 'review_needed' ? 'Weak concepts are being prioritized to stabilize the graph.' : 'The next node is chosen by prerequisites, mastery, and momentum.',
+                        graph.weakNodes.length > 0 ? `${graph.weakNodes[0].title} is currently the biggest weakness signal.` : 'No urgent weak concept is blocking you right now.',
+                        graph.nextUnlock?.title ? `${graph.nextUnlock.title} is the next major unlock after this region.` : 'More of the graph will reveal itself as you progress.',
+                      ].map((line) => (
+                        <div key={line} style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                          <IconGlyph name="sparkles" size={14} strokeWidth={2.3} color="var(--theme-primary)" />
+                          <span style={{ fontSize: 12, color: T.textSec, lineHeight: 1.6 }}>{line}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
-            ))}
-          </div>
-        )}
-
-        {/* ── Error ────────────────────────────────────────────────────── */}
-        {!loading && error && (
-          <div style={{ textAlign:'center', padding:40 }}>
-            <div style={{ color:'#F87171', fontSize:14, marginBottom: 14 }}>{error}</div>
-            <button
-              onClick={() => window.location.reload()}
-              style={{
-                padding:'12px 20px',
-                borderRadius:14,
-                border:'1px solid rgba(255,255,255,0.10)',
-                background:'rgba(255,255,255,0.04)',
-                color:T.text,
-                fontSize:13,
-                fontWeight:700,
-                cursor:'pointer',
-                fontFamily:T.font,
-              }}
-            >
-              Retry
-            </button>
-          </div>
-        )}
-
-        {/* ── Empty state ───────────────────────────────────────────────── */}
-        {!loading && !error && allNodes.length === 0 && (
-          <div style={{ textAlign:'center', padding:'60px 24px' }}>
-            <div style={{
-              width:72,height:72,margin:'0 auto 16px',borderRadius:24,
-              display:'flex',alignItems:'center',justifyContent:'center',
-              background:'rgba(255,255,255,0.04)',border:`1px solid ${T.border}`,color:T.textSec,
-            }}>
-              <IconGlyph name="map" size={30} strokeWidth={2.2}/>
-            </div>
-            <div style={{ fontSize:18, fontWeight:800, color:T.text, marginBottom:8 }}>Your map is empty</div>
-            <div style={{ fontSize:14, color:T.textMuted, marginBottom:24, lineHeight:1.6 }}>
-              Complete onboarding to generate your learning path
-            </div>
-            <button onClick={() => router.push('/onboarding')} style={{
-              padding:'14px 32px',
-              background:'linear-gradient(135deg,var(--theme-primary),var(--theme-secondary))',
-              border:'none', borderRadius:14, color:T.ink,
-              fontSize:15, fontWeight:900, cursor:'pointer', fontFamily:T.font,
-              boxShadow:'0 0 32px rgba(34,211,165,0.40)',
-            }}>Get Started →</button>
-          </div>
-        )}
-
-        {/* ── Map ────────────────────────────────────────────────────────── */}
-        {!loading && !error && allNodes.length > 0 && (
-          <div style={{ position:'relative', height:totalMapHeight, overflow:'hidden' }}>
-            <motion.div
-              aria-hidden="true"
-              style={{
-                y: orbDrift,
-                position:'absolute',
-                inset:0,
-                zIndex:0,
-                pointerEvents:'none',
-              }}
-            >
-              <div style={{
-                position:'absolute', top:120, left:'8%',
-                width:240, height:240, borderRadius:'50%',
-                background:'radial-gradient(circle, rgba(34,211,165,0.18) 0%, transparent 70%)',
-                filter:'blur(8px)',
-              }}/>
-              <div style={{
-                position:'absolute', top:640, right:'10%',
-                width:320, height:320, borderRadius:'50%',
-                background:'radial-gradient(circle, rgba(96,165,250,0.16) 0%, transparent 72%)',
-                filter:'blur(14px)',
-              }}/>
             </motion.div>
 
             <motion.div
-              aria-hidden="true"
+              initial={{ opacity: 0, y: 18 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.38, delay: 0.05, ease: [0.22, 1, 0.36, 1] }}
               style={{
-                y: orbDriftFar,
-                position:'absolute',
-                inset:0,
-                zIndex:0,
-                pointerEvents:'none',
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                gap: 12,
               }}
             >
-              <div style={{
-                position:'absolute', top:360, left:'58%',
-                width:280, height:280, borderRadius:'50%',
-                background:'radial-gradient(circle, rgba(192,132,252,0.16) 0%, transparent 68%)',
-                filter:'blur(18px)',
-              }}/>
-              <div style={{
-                position:'absolute', top:980, left:'16%',
-                width:220, height:220, borderRadius:'50%',
-                background:'radial-gradient(circle, rgba(251,191,36,0.14) 0%, transparent 70%)',
-                filter:'blur(14px)',
-              }}/>
-            </motion.div>
-
-            <motion.div
-              aria-hidden="true"
-              style={{
-                y: overlayDrift,
-                position:'absolute',
-                inset:0,
-                zIndex:1,
-                pointerEvents:'none',
-                opacity:0.22,
-                backgroundImage:'radial-gradient(rgba(255,255,255,0.16) 0.7px, transparent 0.7px)',
-                backgroundSize:'18px 18px',
-                mixBlendMode:'soft-light',
-              }}
-            />
-
-            {/* World backgrounds */}
-            {layoutItems.filter((item) => item.type === 'banner').map((item, idx) => (
-              <div key={idx} style={{
-                position:'absolute', left:0, right:0, top:item.y,
-                height: (() => {
-                  const nextBanner = layoutItems.filter((entry) => entry.type === 'banner')[idx + 1]
-                  return nextBanner ? nextBanner.y - item.y : totalMapHeight - item.y
-                })(),
-                background: item.world.bg,
-                zIndex:0,
-              }}/>
-            ))}
-
-            {/* World banners */}
-            {layoutItems.filter((item) => item.type === 'banner').map((item, idx) => {
-              const doneCount = item.nodes.filter((node) => node.status === 'done').length
-              return (
-                <WorldBanner
-                  key={idx}
-                  world={item.world}
-                  worldIdx={item.worldIdx}
-                  doneCount={doneCount}
-                  totalCount={item.nodes.length}
-                  starCount={getWorldStarCount(item.nodes)}
-                  height={item.height}
-                  top={item.y}
-                />
-              )
-            })}
-
-            <svg
-              style={{ position:'absolute', left:0, top:0, width:'100%', height:totalMapHeight, pointerEvents:'none', zIndex:2 }}
-              viewBox={`0 0 ${COORD_W} ${totalMapHeight}`}
-              preserveAspectRatio="none"
-            >
-              {pathSegments.map((segment) => (
-                <PathLine
-                  key={segment.id}
-                  segment={segment}
-                  celebrating={celebratingNodeId === segment.fromId}
-                />
+              {graph.regions.map((region) => (
+                <div
+                  key={region.id}
+                  style={{
+                    borderRadius: 22,
+                    border: `1px solid ${region.world?.accent ? `${region.world.accent}20` : 'rgba(255,255,255,0.08)'}`,
+                    background: `linear-gradient(145deg, ${region.world?.bg || 'rgba(255,255,255,0.03)'}, rgba(7,13,22,0.9))`,
+                    padding: 16,
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 12 }}>
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 900, letterSpacing: '0.16em', textTransform: 'uppercase', color: region.world?.accent || 'var(--theme-primary)', marginBottom: 4 }}>
+                        {region.title}
+                      </div>
+                      <div style={{ fontSize: 16, fontWeight: 900, color: T.text, lineHeight: 1.2 }}>{region.subtitle}</div>
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 900, color: region.completedCount === region.totalCount ? '#FCD34D' : T.textSec }}>
+                      {region.completedCount}/{region.totalCount}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 4, marginBottom: 12 }}>
+                    {[0, 1, 2].map((index) => (
+                      <div
+                        key={`${region.id}-${index}`}
+                        style={{
+                          width: 22,
+                          height: 22,
+                          borderRadius: '50%',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          background: index < region.starCount ? 'rgba(250,204,21,0.16)' : 'rgba(255,255,255,0.04)',
+                          border: `1px solid ${index < region.starCount ? 'rgba(250,204,21,0.32)' : 'rgba(255,255,255,0.08)'}`,
+                        }}
+                      >
+                        <IconGlyph name="sparkles" size={12} strokeWidth={2.3} color={index < region.starCount ? '#FACC15' : T.textMuted} />
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ height: 6, borderRadius: 9999, background: 'rgba(255,255,255,0.06)', overflow: 'hidden', marginBottom: 8 }}>
+                    <div
+                      style={{
+                        height: '100%',
+                        width: `${Math.round(region.completionRatio * 100)}%`,
+                        background: `linear-gradient(90deg, ${region.world?.accent || 'var(--theme-primary)'}, ${region.world?.dark || 'var(--theme-secondary)'})`,
+                        borderRadius: 9999,
+                      }}
+                    />
+                  </div>
+                  <div style={{ fontSize: 12, color: T.textMuted, lineHeight: 1.5 }}>{region.description}</div>
+                </div>
               ))}
-            </svg>
+            </motion.div>
 
-            {nodeItems.map((item) => {
-              const node = item.node
-              const xPct = (item.x / COORD_W) * 100
-              const nodeState = node.isBoss || node.isProject
-                ? 'boss'
-                : node.status === 'done'
-                  ? 'completed'
-                  : node.status === 'active'
-                    ? 'current'
-                    : 'locked'
+            <motion.div
+              initial={{ opacity: 0, y: 18 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.42, delay: 0.1, ease: [0.22, 1, 0.36, 1] }}
+              style={{
+                borderRadius: 30,
+                border: `1px solid ${T.border}`,
+                background: 'linear-gradient(160deg, rgba(7,12,20,0.98), rgba(4,8,14,0.96))',
+                padding: 18,
+                boxShadow: '0 26px 80px rgba(2,6,23,0.3)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 900, letterSpacing: '0.18em', textTransform: 'uppercase', color: T.textMuted, marginBottom: 6 }}>
+                    Skill graph
+                  </div>
+                  <div style={{ fontSize: 24, fontWeight: 900, color: T.text, lineHeight: 1.1 }}>Where you are, what is weak, and what unlocks next</div>
+                </div>
 
-              return (
-                <PathNode
-                  key={node.id}
-                  state={nodeState}
-                  status={node.status}
-                  tone={getNodeTone(node)}
-                  label={node.conceptName}
-                  xp={rowXP(node.tasks)}
-                  position={{ x: xPct, y: item.y }}
-                  dayLabel={node.isBoss ? 'Boss Battle' : node.isProject ? 'Project Build' : `Day ${node.dayNumber}`}
-                  progress={node.totalTasks > 0 ? node.completedTasks / node.totalTasks : 0}
-                  world={item.world}
-                  placeholder={node.isPlaceholder}
-                  current={node.status === 'active'}
-                  completed={node.status === 'done'}
-                  celebrating={celebratingNodeId === node.id}
-                  justUnlocked={justUnlockedNodeId === node.id}
-                  side={item.x < COORD_W / 2 ? 'right' : 'left'}
-                  onTap={() => setActiveNode(node)}
-                  nodeRef={(element) => registerNodeRef(node.id, element)}
-                />
-              )
-            })}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  {[
+                    { label: 'Mastered', color: '#34D399' },
+                    { label: 'Current', color: 'var(--theme-primary)' },
+                    { label: 'Review', color: '#F97316' },
+                    { label: 'Locked', color: '#64748B' },
+                  ].map((entry) => (
+                    <span
+                      key={entry.label}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        padding: '6px 10px',
+                        borderRadius: 9999,
+                        border: '1px solid rgba(255,255,255,0.08)',
+                        background: 'rgba(255,255,255,0.03)',
+                        color: T.textSec,
+                        fontSize: 11,
+                        fontWeight: 800,
+                      }}
+                    >
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: entry.color, boxShadow: `0 0 12px ${entry.color}` }} />
+                      {entry.label}
+                    </span>
+                  ))}
 
-            <div style={{
-              position:'absolute', bottom:20, left:'50%', transform:'translateX(-50%)',
-              padding:'12px 22px',
-              background:'linear-gradient(135deg, rgba(15,23,42,0.78), rgba(15,23,42,0.52))',
-              border:'1px solid rgba(255,255,255,0.10)',
-              borderRadius:16, textAlign:'center', zIndex:5, whiteSpace:'nowrap',
-              boxShadow:'0 18px 34px rgba(2,6,23,0.28)',
-              backdropFilter:'blur(16px)', WebkitBackdropFilter:'blur(16px)',
-            }}>
-              <span style={{ fontSize:13, fontWeight:700, color:T.textMuted, display:'inline-flex', alignItems:'center', gap:8 }}>
-                <IconGlyph name="sparkles" size={14} strokeWidth={2.2} color={T.textMuted}/>
-                Complete missions to light the path ahead
-              </span>
-            </div>
+                  <div
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      borderRadius: 9999,
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      background: 'rgba(255,255,255,0.03)',
+                      padding: '4px',
+                    }}
+                  >
+                    <button
+                      onClick={zoomOut}
+                      style={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: '50%',
+                        border: 'none',
+                        background: 'rgba(255,255,255,0.04)',
+                        color: T.text,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <IconGlyph name="minus" size={16} strokeWidth={2.3} />
+                    </button>
+                    <span style={{ minWidth: 48, textAlign: 'center', color: T.textSec, fontSize: 12, fontWeight: 800 }}>
+                      {Math.round(zoom * 100)}%
+                    </span>
+                    <button
+                      onClick={zoomIn}
+                      style={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: '50%',
+                        border: 'none',
+                        background: 'rgba(255,255,255,0.04)',
+                        color: T.text,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <IconGlyph name="plus" size={16} strokeWidth={2.3} />
+                    </button>
+                    <button
+                      onClick={resetZoom}
+                      style={{
+                        minHeight: 36,
+                        padding: '0 10px',
+                        borderRadius: 9999,
+                        border: 'none',
+                        background: 'rgba(255,255,255,0.04)',
+                        color: T.textSec,
+                        cursor: 'pointer',
+                        fontFamily: T.font,
+                        fontSize: 11,
+                        fontWeight: 800,
+                      }}
+                    >
+                      Reset
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div
+                ref={graphViewportRef}
+                style={{
+                  height: 'min(72vh, 760px)',
+                  overflow: 'auto',
+                  borderRadius: 24,
+                  border: `1px solid ${T.border}`,
+                  background: 'linear-gradient(180deg, rgba(4,8,14,0.98), rgba(5,10,18,0.95))',
+                  position: 'relative',
+                  WebkitOverflowScrolling: 'touch',
+                }}
+              >
+                <div style={{ width: graph.canvasWidth * zoom, height: graph.canvasHeight * zoom, position: 'relative' }}>
+                  <div
+                    style={{
+                      position: 'absolute',
+                      left: 0,
+                      top: 0,
+                      width: graph.canvasWidth,
+                      height: graph.canvasHeight,
+                      transform: `scale(${zoom})`,
+                      transformOrigin: 'top left',
+                    }}
+                  >
+                    <div
+                      style={{
+                        position: 'absolute',
+                        inset: 0,
+                        opacity: 0.32,
+                        backgroundImage: 'radial-gradient(rgba(255,255,255,0.14) 0.7px, transparent 0.7px)',
+                        backgroundSize: '18px 18px',
+                        pointerEvents: 'none',
+                      }}
+                    />
+
+                    {graph.regions.map((region) => (
+                      <div
+                        key={region.id}
+                        style={{
+                          position: 'absolute',
+                          left: 44,
+                          right: 44,
+                          top: region.top,
+                          height: 78,
+                          borderRadius: 24,
+                          border: `1px solid ${region.world?.accent ? `${region.world.accent}22` : 'rgba(255,255,255,0.08)'}`,
+                          background: `linear-gradient(135deg, ${region.world?.bg || 'rgba(255,255,255,0.03)'}, rgba(7,12,20,0.9))`,
+                          padding: '14px 16px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: 14,
+                        }}
+                      >
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                            <span style={{ fontSize: 11, fontWeight: 900, letterSpacing: '0.16em', textTransform: 'uppercase', color: region.world?.accent || 'var(--theme-primary)' }}>
+                              {region.title}
+                            </span>
+                            <span style={{ fontSize: 11, color: T.textMuted }}>
+                              {region.completedCount}/{region.totalCount}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: 17, fontWeight: 900, color: T.text, lineHeight: 1.2, marginBottom: 4 }}>{region.subtitle}</div>
+                          <div style={{ fontSize: 12, color: T.textMuted, lineHeight: 1.5 }}>{region.description}</div>
+                        </div>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
+                          <div style={{ display: 'flex', gap: 4 }}>
+                            {[0, 1, 2].map((index) => (
+                              <div
+                                key={`${region.id}-${index}-spark`}
+                                style={{
+                                  width: 20,
+                                  height: 20,
+                                  borderRadius: '50%',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  background: index < region.starCount ? 'rgba(250,204,21,0.16)' : 'rgba(255,255,255,0.04)',
+                                  border: `1px solid ${index < region.starCount ? 'rgba(250,204,21,0.32)' : 'rgba(255,255,255,0.08)'}`,
+                                }}
+                              >
+                                <IconGlyph name="sparkles" size={11} strokeWidth={2.3} color={index < region.starCount ? '#FACC15' : T.textMuted} />
+                              </div>
+                            ))}
+                          </div>
+                          <div style={{ width: 120, height: 6, borderRadius: 9999, background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
+                            <div
+                              style={{
+                                height: '100%',
+                                width: `${Math.round(region.completionRatio * 100)}%`,
+                                borderRadius: 9999,
+                                background: `linear-gradient(90deg, ${region.world?.accent || 'var(--theme-primary)'}, ${region.world?.dark || 'var(--theme-secondary)'})`,
+                              }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+
+                    <svg
+                      width={graph.canvasWidth}
+                      height={graph.canvasHeight}
+                      viewBox={`0 0 ${graph.canvasWidth} ${graph.canvasHeight}`}
+                      style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}
+                    >
+                      {graph.edges.map((edge) => (
+                        <SkillGraphEdge
+                          key={edge.id}
+                          edge={edge}
+                          accent={worlds[edge.regionIndex % worlds.length]?.accent || 'var(--theme-primary)'}
+                          active={worlds[edge.regionIndex % worlds.length]?.dark || 'var(--theme-secondary)'}
+                        />
+                      ))}
+                    </svg>
+
+                    {graph.graphNodes.map((node) => (
+                      <SkillGraphNode
+                        key={node.id}
+                        node={node}
+                        world={worlds[node.regionIndex % worlds.length] || worlds[0]}
+                        onTap={(selectedNode) => setActiveNodeId(selectedNode.id)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginTop: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  {(graph.weakNodes || []).slice(0, 3).map((node) => (
+                    <button
+                      key={node.id}
+                      onClick={() => {
+                        setActiveNodeId(node.id)
+                        centerNodeInViewport(node.id, prefersReducedMotion ? 'auto' : 'smooth')
+                      }}
+                      style={{
+                        minHeight: 40,
+                        padding: '0 12px',
+                        borderRadius: 9999,
+                        border: '1px solid rgba(249,115,22,0.18)',
+                        background: 'rgba(249,115,22,0.08)',
+                        color: '#FDBA74',
+                        fontFamily: T.font,
+                        fontSize: 12,
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 8,
+                      }}
+                    >
+                      <IconGlyph name="alert" size={13} strokeWidth={2.3} color="#FDBA74" />
+                      {node.title}
+                    </button>
+                  ))}
+                </div>
+
+                <button
+                  onClick={() => setShowProjModal(true)}
+                  style={{
+                    minHeight: 40,
+                    padding: '0 14px',
+                    borderRadius: 9999,
+                    border: `1px solid ${projects ? 'rgba(129,140,248,0.24)' : 'rgba(255,255,255,0.10)'}`,
+                    background: projects ? 'rgba(129,140,248,0.12)' : 'rgba(255,255,255,0.04)',
+                    color: projects ? 'var(--theme-mastery)' : T.textSec,
+                    fontFamily: T.font,
+                    fontSize: 12,
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 8,
+                  }}
+                >
+                  <IconGlyph name="hammer" size={14} strokeWidth={2.3} color={projects ? 'var(--theme-mastery)' : T.textSec} />
+                  {projects ? 'Project nodes on' : 'Show project nodes'}
+                </button>
+              </div>
+            </motion.div>
           </div>
         )}
       </div>
 
-      {/* ── Bottom sheet ─────────────────────────────────────────────────── */}
-      <BottomSheet
+      <DetailSheet
         node={activeNode}
         world={activeSheetWorld}
-        onClose={() => setActiveNode(null)}
+        onClose={() => setActiveNodeId(null)}
         onComplete={handleComplete}
         completing={completing}
       />
 
-      {/* ── XP Pop ───────────────────────────────────────────────────────── */}
-      <XPPop pop={xpPop} onDone={() => setXpPop(null)}/>
+      <XPPop pop={xpPop} onDone={() => setXpPop(null)} />
 
-      {/* ── Project Modal ─────────────────────────────────────────────────── */}
       {showProjModal && (
         <ProjectModal
           enabled={projects}
-          onToggle={setProjects}
           onClose={() => setShowProjModal(false)}
+          onToggle={setProjects}
         />
       )}
 
-      {/* ── Tab bar ────────────────────────────────────────────────────────── */}
-      <TabBar onNav={handleNav}/>
+      <TabBar onNav={handleNav} />
     </div>
   )
 }

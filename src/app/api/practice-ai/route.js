@@ -1,3 +1,4 @@
+import { getOpenAIModel } from '@/lib/openaiModels'
 import { getSupabaseServerClient } from '@/lib/supabaseServer'
 import { AI_INTERACTION_TYPES, getBossConfig } from '@/lib/learningEngine'
 
@@ -17,7 +18,7 @@ async function callOpenAI(prompt, options = {}) {
       Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
     },
     body: JSON.stringify({
-      model: 'gpt-4o-mini',
+      model: getOpenAIModel('practiceAi'),
       messages: [{ role: 'user', content: prompt }],
       temperature,
       max_tokens: maxTokens,

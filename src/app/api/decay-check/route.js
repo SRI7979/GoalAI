@@ -1,3 +1,4 @@
+import { buildInventoryCountsFromTransactions, getTrackedInventoryReasons } from '@/lib/shopInventory'
 import { getSupabaseServerClient } from '@/lib/supabaseServer'
 
 const DECAY_THRESHOLD_DAYS = 7
@@ -55,7 +56,53 @@ export async function POST(request) {
     // Sort by most decayed first
     decaying.sort((a, b) => b.decayPct - a.decayPct)
 
-    return Response.json({ decaying, healthy })
+    let shieldConsumed = false
+    let shieldedConceptId = null
+    let reviewShieldRemaining = null
+
+    if (decaying.length > 0) {
+      try {
+        const inventoryReasons = getTrackedInventoryReasons()
+        const { data: inventoryRows } = await supabase
+          .from('gem_transactions')
+          .select('reason')
+          .eq('user_id', userId)
+          .eq('goal_id', goalId)
+          .in('reason', inventoryReasons)
+
+        const inventoryCounts = buildInventoryCountsFromTransactions(inventoryRows || [])
+        if ((inventoryCounts.reviewShield || 0) > 0) {
+          const topDecaying = decaying[0]
+          const shieldedAt = new Date().toISOString()
+
+          await supabase
+            .from('concept_mastery')
+            .update({ last_review: shieldedAt })
+            .eq('user_id', userId)
+            .eq('goal_id', goalId)
+            .eq('concept_id', topDecaying.conceptId)
+
+          await supabase.from('gem_transactions').insert({
+            user_id: userId,
+            goal_id: goalId,
+            amount: 0,
+            reason: 'use_reviewShield',
+          })
+
+          shieldConsumed = true
+          shieldedConceptId = topDecaying.conceptId
+          reviewShieldRemaining = Math.max(0, inventoryCounts.reviewShield - 1)
+          decaying.shift()
+          healthy += 1
+        } else {
+          reviewShieldRemaining = inventoryCounts.reviewShield || 0
+        }
+      } catch {
+        // Non-blocking: decay alert still works even if shield sync fails
+      }
+    }
+
+    return Response.json({ decaying, healthy, shieldConsumed, shieldedConceptId, reviewShieldRemaining })
   } catch (err) {
     return Response.json({ error: err.message }, { status: 500 })
   }

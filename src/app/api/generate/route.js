@@ -1,13 +1,15 @@
 import { getSupabaseServerClient } from '@/lib/supabaseServer'
 import {
-  buildDailyTasks,
   buildExploreDayTask,
+  buildGoalPlanDayFromSequenceItem,
   generateCourseOutline,
   generateExploreConcepts,
   initializeUserProgress,
   saveDailyTasks,
   updateGoalStatus,
 } from '@/lib/learningPlan'
+import { buildPathOutlineTracker } from '@/lib/pathOutline.js'
+import { persistCourseOutline } from '@/lib/courseOutlineStore'
 
 function extractAccessToken(request) {
   const authHeader = request.headers.get('authorization') || request.headers.get('Authorization')
@@ -28,7 +30,7 @@ export async function POST(request) {
     const accessToken = extractAccessToken(request) || body?.accessToken || null
     supabase = getSupabaseServerClient({ accessToken })
 
-    const { goalId, userId, goal, days, weekdayMins, weekendMins, knowledge, mode = 'goal', startingXp = 0 } = body
+    const { goalId, userId, goal, days, weekdayMins, weekendMins, knowledge, mode = 'goal' } = body
     parsedGoalId = goalId
 
     if (!goalId || !userId || !goal) {
@@ -56,6 +58,7 @@ export async function POST(request) {
     }
 
     let dailyPlan = []
+    let sequenceDayCount = mode === 'explore' ? 0 : Number(days) || 0
 
     if (mode === 'explore') {
       // ── Explore Mode ──────────────────────────────────────────────────────────
@@ -95,25 +98,35 @@ export async function POST(request) {
         openaiApiKey: process.env.OPENAI_API_KEY,
       })
 
-      // Generate only day 1 now; remaining days are generated on-demand
-      // as user completes each day (via generateNextTasksIfNeeded in /api/complete)
-      dailyPlan = await buildDailyTasks(
-        goal,
-        courseOutline.concepts,
-        Number(weekdayMins),
-        Number(weekendMins),
-        1,
-        1,
-        { knowledge, openaiApiKey: process.env.OPENAI_API_KEY, mode: 'goal' },
-      )
+      const tracker = buildPathOutlineTracker({
+        courseOutline,
+        rows: [],
+        goalText: goal,
+      })
+      sequenceDayCount = tracker.plannedDayCount || Number(days) || 0
+      const firstItem = tracker.sequenceItems.find((item) => item.id === tracker.currentItemId) || tracker.sequenceItems[0]
+      if (!firstItem) {
+        throw new Error('Could not determine the first course item')
+      }
 
-      // Store course outline on the goal for future task generation context
-      try {
-        await supabase
-          .from('goals')
-          .update({ course_outline: courseOutline })
-          .eq('id', goalId)
-      } catch { /* non-critical — outline is advisory */ }
+      dailyPlan = [await buildGoalPlanDayFromSequenceItem({
+        goalRow: {
+          goal_text: goal,
+          weekday_mins: Number(weekdayMins),
+          weekend_mins: Number(weekendMins),
+        },
+        item: firstItem,
+        knowledge,
+        openaiApiKey: process.env.OPENAI_API_KEY,
+        adaptiveProfile: null,
+        existingRows: [],
+      })]
+
+      await persistCourseOutline({
+        supabase,
+        goalId,
+        courseOutline,
+      })
     }
 
     const insertedTaskRows = await saveDailyTasks({ supabase, goalId, userId, dailyPlan })
@@ -123,22 +136,10 @@ export async function POST(request) {
       supabase,
       userId,
       goalId,
-      totalDays: mode === 'explore' ? 0 : Number(days), // 0 = unlimited for explore
+      totalDays: sequenceDayCount,
       mode,
     })
     progressInitialized = true
-
-    if (Number(startingXp) > 0) {
-      const { error: xpError } = await supabase
-        .from('user_progress')
-        .update({ total_xp: Number(startingXp) })
-        .eq('user_id', userId)
-        .eq('goal_id', goalId)
-
-      if (xpError) {
-        throw new Error(`Failed to initialize onboarding XP: ${xpError.message}`)
-      }
-    }
 
     await updateGoalStatus({ supabase, goalId, mode })
 
@@ -146,7 +147,7 @@ export async function POST(request) {
       success: true,
       mode,
       daysGenerated: dailyPlan.length,
-      totalDays: mode === 'explore' ? null : Number(days),
+      totalDays: mode === 'explore' ? null : sequenceDayCount,
     })
   } catch (error) {
     // Rollback on failure

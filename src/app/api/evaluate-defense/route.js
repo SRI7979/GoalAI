@@ -1,3 +1,4 @@
+import { getOpenAIModel } from '@/lib/openaiModels'
 import { getSupabaseServerClient } from '@/lib/supabaseServer'
 import {
   buildStepStatus,
@@ -92,7 +93,7 @@ export async function POST(request) {
         Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: getOpenAIModel('evaluateDefense'),
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.2,
         max_tokens: 700,

@@ -79,9 +79,6 @@ export default function DemoPage() {
   const [completed, setCompleted] = useState(false)
 
   const handleComplete = useCallback(() => {
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem('pathai.demo_xp_pending', '30')
-    }
     setCompleted(true)
   }, [])
 

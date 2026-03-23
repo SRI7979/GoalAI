@@ -8,30 +8,51 @@ import { supabase } from '@/lib/supabase'
 import { getLevelProgress, LEVEL_TITLES } from '@/lib/xp'
 import { streakStatusLabel } from '@/lib/streak'
 import { trackStatsViewed } from '@/lib/analytics'
+import { buildPathOutlineTracker } from '@/lib/pathOutline.js'
+import { hydrateGoalCourseOutline } from '@/lib/courseOutlineStore'
+import {
+  getDashboardThemeVars,
+  getStoredActiveTheme,
+  getStoredOwnedThemes,
+  setStoredOwnedThemes,
+} from '@/lib/appThemes'
+import { getClaimedModuleRewardIds } from '@/lib/shopInventory'
 import BadgeShowcase from '@/components/BadgeShowcase'
 import IconGlyph from '@/components/IconGlyph'
 import Skeleton from '@/components/Skeleton'
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const T = {
-  bg:          '#06060f',
-  surface:     'rgba(255,255,255,0.04)',
-  border:      'rgba(255,255,255,0.08)',
-  teal:        '#0ef5c2',
-  tealDim:     'rgba(14,245,194,0.08)',
-  tealBorder:  'rgba(14,245,194,0.22)',
-  blue:        '#00d4ff',
-  flame:       '#FF6B35',
-  flameDim:    'rgba(255,107,53,0.10)',
-  flameBorder: 'rgba(255,107,53,0.28)',
-  amber:       '#FBBF24',
-  mastery:     '#818CF8',
-  masteryDim:  'rgba(129,140,248,0.10)',
-  masteryBdr:  'rgba(129,140,248,0.28)',
-  text:        '#F1F5F9',
-  textSec:     '#94A3B8',
-  textMuted:   '#475569',
+  bg:          'var(--theme-bg)',
+  chrome:      'var(--theme-chrome)',
+  surface:     'var(--theme-surface)',
+  border:      'var(--theme-border)',
+  teal:        'var(--theme-primary)',
+  tealDim:     'var(--theme-primary-dim)',
+  tealBorder:  'var(--theme-primary-border)',
+  blue:        'var(--theme-secondary)',
+  flame:       'var(--theme-warm)',
+  flameDim:    'var(--theme-warm-dim)',
+  flameBorder: 'var(--theme-warm-border)',
+  amber:       'var(--theme-highlight)',
+  mastery:     'var(--theme-mastery)',
+  masteryDim:  'var(--theme-mastery-dim)',
+  masteryBdr:  'var(--theme-mastery-border)',
+  text:        'var(--theme-text)',
+  textSec:     'var(--theme-text-sec)',
+  textMuted:   'var(--theme-text-muted)',
   font:        "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif",
+}
+
+const THEME_REASON_TO_ID = {
+  shop_themeOcean: 'themeOcean',
+  shop_themeSunset: 'themeSunset',
+  shop_themeForest: 'themeForest',
+  shop_themeMidnight: 'themeMidnight',
+  shop_themeRose: 'themeRose',
+  shop_themeAurora: 'themeAurora',
+  shop_themeEmber: 'themeEmber',
+  shop_themeMonolith: 'themeMonolith',
 }
 
 const KEYFRAMES = `
@@ -503,7 +524,15 @@ export default function StatsPage() {
   const [progress,   setProgress]   = useState(null)
   const [masteries,  setMasteries]  = useState([])
   const [goal,       setGoal]       = useState(null)
+  const [activeTheme, setActiveTheme] = useState(() => getStoredActiveTheme(getStoredOwnedThemes()))
+  const [claimedModuleRewardIds, setClaimedModuleRewardIds] = useState([])
   const [earnedBadgeIds, setEarnedBadgeIds] = useState(new Set())
+
+  const themeVars = useMemo(() => getDashboardThemeVars(activeTheme), [activeTheme])
+  const pageThemeStyle = useMemo(() => ({
+    ...themeVars,
+    background:'radial-gradient(circle at top, var(--theme-page-glow), transparent 34%), var(--theme-bg)',
+  }), [themeVars])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -515,29 +544,42 @@ export default function StatsPage() {
       .from('goals').select('*').eq('user_id', me.id).eq('status','active')
       .order('created_at', { ascending:false }).limit(1).maybeSingle()
     if (!activeGoal) { setLoading(false); return }
-    setGoal(activeGoal)
+    const hydratedGoal = hydrateGoalCourseOutline(activeGoal)
+    setGoal(hydratedGoal)
 
-    const [{ data: taskRows }, { data: prog }, { data: mast }, { data: badges }] = await Promise.all([
+    const [{ data: taskRows }, { data: prog }, { data: mast }, { data: badges }, { data: txRows }] = await Promise.all([
       supabase.from('daily_tasks').select('*')
-        .eq('goal_id', activeGoal.id).eq('user_id', me.id)
+        .eq('goal_id', hydratedGoal.id).eq('user_id', me.id)
         .order('day_number', { ascending:true }),
       supabase.from('user_progress').select('*')
-        .eq('goal_id', activeGoal.id).eq('user_id', me.id).maybeSingle(),
+        .eq('goal_id', hydratedGoal.id).eq('user_id', me.id).maybeSingle(),
       supabase.from('concept_mastery').select('*')
-        .eq('goal_id', activeGoal.id).eq('user_id', me.id)
+        .eq('goal_id', hydratedGoal.id).eq('user_id', me.id)
         .order('mastery_score', { ascending:false }),
       supabase.from('achievements').select('badge_id')
         .eq('user_id', me.id),
+      supabase.from('gem_transactions').select('reason')
+        .eq('goal_id', hydratedGoal.id).eq('user_id', me.id),
     ])
 
     setRows(taskRows || [])
     setProgress(prog || null)
     setMasteries(mast || [])
     setEarnedBadgeIds(new Set((badges || []).map(b => b.badge_id)))
+    setClaimedModuleRewardIds(getClaimedModuleRewardIds(txRows || []))
+
+    const serverOwnedThemes = Array.from(new Set(
+      (txRows || [])
+        .map((row) => THEME_REASON_TO_ID[row.reason])
+        .filter(Boolean),
+    ))
+    const mergedOwnedThemes = Array.from(new Set([...getStoredOwnedThemes(), ...serverOwnedThemes]))
+    setStoredOwnedThemes(mergedOwnedThemes)
+    setActiveTheme(getStoredActiveTheme(mergedOwnedThemes))
 
     trackStatsViewed({
       userId: me.id,
-      goalId: activeGoal.id,
+      goalId: hydratedGoal.id,
       streakValue: prog?.current_streak || 0,
       xpBalance:   prog?.total_xp || 0,
     })
@@ -585,6 +627,13 @@ export default function StatsPage() {
       totalDays, studyMinsTotal, weekMins, grade }
   }, [rows, progress])
 
+  const tracker = useMemo(() => buildPathOutlineTracker({
+    courseOutline: goal?.course_outline,
+    rows,
+    goalText: goal?.goal_text || '',
+    claimedModuleRewardIds,
+  }), [goal?.course_outline, goal?.goal_text, rows, claimedModuleRewardIds])
+
   // ── Nav ────────────────────────────────────────────────────────────────────
   const handleNav = useCallback((tab) => {
     if (tab === 'home') router.push('/dashboard')
@@ -595,7 +644,8 @@ export default function StatsPage() {
     <>
       <style>{KEYFRAMES}</style>
       <div style={{
-        minHeight:'100vh', background:T.bg,
+        ...pageThemeStyle,
+        minHeight:'100vh',
         fontFamily:T.font, color:T.text,
         paddingBottom:90,
       }}>
@@ -603,8 +653,8 @@ export default function StatsPage() {
         {/* ── Header ─────────────────────────────────────────────────────── */}
         <div style={{
           position:'sticky', top:0, zIndex:200,
-          background:'rgba(6,6,15,0.88)',
-          borderBottom:'1px solid rgba(255,255,255,0.07)',
+          background:T.chrome,
+          borderBottom:`1px solid ${T.border}`,
           backdropFilter:'blur(28px)', WebkitBackdropFilter:'blur(28px)',
           padding:'16px 20px',
         }}>
@@ -615,6 +665,11 @@ export default function StatsPage() {
             </div>
             <div style={{ fontSize:22, fontWeight:900, color:T.text, letterSpacing:'-0.5px' }}>
               Your stats
+            </div>
+            <div style={{ fontSize:12, color:T.textSec, marginTop:6, lineHeight:1.5 }}>
+              {tracker.latestIdentityLabel
+                ? `${tracker.latestIdentityLabel} · ${tracker.sealedModules} module seal${tracker.sealedModules === 1 ? '' : 's'} earned`
+                : 'Master modules to earn an identity title and seal collection'}
             </div>
           </div>
         </div>
@@ -652,6 +707,63 @@ export default function StatsPage() {
             </div>
           ) : (
             <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+
+              <div style={{
+                background: tracker.latestIdentityLabel
+                  ? 'linear-gradient(145deg, rgba(251,191,36,0.12), rgba(255,255,255,0.04))'
+                  : 'linear-gradient(145deg, rgba(129,140,248,0.10), rgba(255,255,255,0.03))',
+                border:`1px solid ${tracker.latestIdentityLabel ? 'rgba(251,191,36,0.24)' : T.masteryBdr}`,
+                borderRadius:20,
+                padding:'18px 16px',
+                backdropFilter:'blur(16px)',
+                WebkitBackdropFilter:'blur(16px)',
+                animation:'fadeUp 0.40s 0.03s both',
+              }}>
+                <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:14}}>
+                  <div style={{minWidth:0}}>
+                    <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10}}>
+                      <div style={{
+                        width:34,height:34,borderRadius:12,flexShrink:0,
+                        display:'flex',alignItems:'center',justifyContent:'center',
+                        background:tracker.latestIdentityLabel ? 'rgba(251,191,36,0.14)' : 'rgba(129,140,248,0.14)',
+                        border:`1px solid ${tracker.latestIdentityLabel ? 'rgba(251,191,36,0.24)' : T.masteryBdr}`,
+                        color:tracker.latestIdentityLabel ? T.amber : T.mastery,
+                      }}>
+                        <IconGlyph name="badge" size={16} strokeWidth={2.3} color={tracker.latestIdentityLabel ? T.amber : T.mastery}/>
+                      </div>
+                      <div style={{fontSize:11,fontWeight:900,color:T.textMuted,letterSpacing:'0.12em',textTransform:'uppercase'}}>
+                        Path Identity
+                      </div>
+                    </div>
+                    <div style={{fontSize:22,fontWeight:900,color:T.text,letterSpacing:'-0.6px',lineHeight:1.15,marginBottom:8}}>
+                      {tracker.latestIdentityLabel || 'Identity in progress'}
+                    </div>
+                    <div style={{fontSize:13,color:T.textSec,lineHeight:1.6}}>
+                      {tracker.latestIdentityLabel
+                        ? `Earned through module mastery, not purchases. Current frontier: ${tracker.breadcrumb.moduleTitle || goal.goal_text || 'your active path'}.`
+                        : 'Clear full modules, score well across quizzes and challenges, and your first earned title will appear here.'}
+                    </div>
+                  </div>
+                  <div style={{
+                    minWidth:112,
+                    borderRadius:18,
+                    border:`1px solid ${T.border}`,
+                    background:'rgba(255,255,255,0.04)',
+                    padding:'14px 12px',
+                    textAlign:'center',
+                  }}>
+                    <div style={{fontSize:10,fontWeight:900,color:T.textMuted,letterSpacing:'0.12em',textTransform:'uppercase',marginBottom:6}}>
+                      Module seals
+                    </div>
+                    <div style={{fontSize:28,fontWeight:900,color:tracker.sealedModules > 0 ? T.amber : T.text,lineHeight:1}}>
+                      {tracker.sealedModules}
+                    </div>
+                    <div style={{fontSize:11,color:T.textMuted,marginTop:5}}>
+                      of {tracker.totalModules}
+                    </div>
+                  </div>
+                </div>
+              </div>
 
               {/* Level ring */}
               <LevelRing
@@ -758,7 +870,14 @@ export default function StatsPage() {
                   backdropFilter:'blur(16px)', WebkitBackdropFilter:'blur(16px)',
                   animation:'fadeUp 0.40s 0.25s both',
                 }}>
-                  <span style={{ fontSize:24 }}>⏱</span>
+                  <div style={{
+                    width:38,height:38,borderRadius:14,flexShrink:0,
+                    display:'flex',alignItems:'center',justifyContent:'center',
+                    background:T.masteryDim,border:`1px solid ${T.masteryBdr}`,
+                    color:T.mastery,
+                  }}>
+                    <IconGlyph name="timer" size={18} strokeWidth={2.3} color={T.mastery}/>
+                  </div>
                   <div>
                     <div style={{ fontSize:20, fontWeight:900, color:T.mastery }}>
                       {stats.studyMinsTotal >= 60

@@ -106,14 +106,14 @@ export default function PortfolioPage() {
         <div style={{ padding: '16px 18px', borderRadius: 18, background: T.card, border: `1px solid ${T.border}`, marginBottom: 24 }}>
           <div style={{ fontSize: 12, fontWeight: 800, color: T.textMuted, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '1px' }}>Proof of Skill Resume</div>
           <div style={{ fontSize: 13, lineHeight: 1.7, color: '#b0b0b8' }}>
-            This portfolio highlights project-based proof of ability, not course completion. Each entry is scored by AI review, weighted by authenticity, and framed around what was built in the real world.
+            This portfolio highlights verified proof of ability: shipped projects, completed courses, and final assessments. Each entry is framed around what was completed, how it was verified, and what skill it proves.
           </div>
         </div>
 
         {/* Stats grid */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 24 }}>
           {[
-            { value: totalCompleted, label: 'Projects', color: T.teal },
+            { value: totalCompleted, label: 'Entries', color: T.teal },
             { value: avgScore ?? '—', label: 'Avg Score', color: T.gold },
             { value: allConcepts.length, label: 'Skills', color: T.purple },
             { value: avgAuth ? `${avgAuth}%` : '—', label: 'Auth', color: T.green },
@@ -144,13 +144,13 @@ export default function PortfolioPage() {
         ) : projects.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '48px 24px', borderRadius: 20, background: T.card, border: `1px solid ${T.border}` }}>
             <div style={{ fontSize: 48, marginBottom: 12 }}>🧭</div>
-            <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 8 }}>No projects yet</div>
-            <div style={{ fontSize: 13, color: T.textMuted, lineHeight: 1.6, marginBottom: 20 }}>Complete your first milestone project to start building your portfolio!</div>
+            <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 8 }}>No proof entries yet</div>
+            <div style={{ fontSize: 13, color: T.textMuted, lineHeight: 1.6, marginBottom: 20 }}>Complete a milestone project or finish a full course to start building your portfolio.</div>
             <button onClick={() => router.push('/dashboard')} style={{ padding: '12px 24px', borderRadius: 14, border: 'none', background: T.teal, color: '#000', fontSize: 14, fontWeight: 800, cursor: 'pointer', fontFamily: font }}>Go to Dashboard</button>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div style={{ fontSize: 12, fontWeight: 800, color: T.textMuted, textTransform: 'uppercase', letterSpacing: '1px' }}>Completed Projects</div>
+            <div style={{ fontSize: 12, fontWeight: 800, color: T.textMuted, textTransform: 'uppercase', letterSpacing: '1px' }}>Completed Proof</div>
             {projects.map((p, i) => {
               const dc = DIFFICULTY_COLORS[p.difficulty] || T.teal
               const hasReview = !!p.ai_review

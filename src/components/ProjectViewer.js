@@ -217,6 +217,16 @@ function buildArtifactPayload(step, responseValue, checklistSet, reflectionValue
   return String(responseValue || '').trim()
 }
 
+async function readJsonResponse(res) {
+  const raw = await res.text()
+  if (!raw) return {}
+  try {
+    return JSON.parse(raw)
+  } catch {
+    throw new Error(raw.slice(0, 160) || 'Unexpected response from server')
+  }
+}
+
 // ─── Step Timer ──────────────────────────────────────────────────────────
 function useStepTimer() {
   const startTimes = useRef({})
@@ -536,7 +546,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({ goalId, goal, conceptsCovered, difficulty: 'beginner', dayNumber, mode }),
       })
-      const data = await res.json()
+      const data = await readJsonResponse(res)
       if (!res.ok) throw new Error(data?.error || 'Failed to generate project')
       applyProjectRecord(data)
     } catch (err) {
@@ -559,7 +569,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({ projectId: project.id, stepId, mode: mode || 'explain', userMessage: customMessage || null }),
       })
-      const data = await res.json()
+      const data = await readJsonResponse(res)
       if (data.reply) {
         setAiMessages(prev => ({
           ...prev,
@@ -582,7 +592,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({ projectId: project.id, stepId, accessToken: token, ...body }),
       })
-      const data = await res.json()
+      const data = await readJsonResponse(res)
       if (!res.ok) throw new Error(data?.error || 'Verification failed')
       const refreshed = await refreshProject(project.id)
       return { data, refreshed }
@@ -683,7 +693,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({ projectId: project.id, stepId, action: 'generate' }),
       })
-      const data = await res.json()
+      const data = await readJsonResponse(res)
       if (data.questions) {
         setCheckpoints(prev => ({ ...prev, [stepId]: { questions: data.questions, answers: {}, results: {}, show: true } }))
       }
@@ -702,7 +712,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({ projectId: project.id, stepId, action: 'evaluate', question, answer, expectedKeywords }),
       })
-      const data = await res.json()
+      const data = await readJsonResponse(res)
       setCheckpoints(prev => {
         const cp = { ...prev[stepId] }
         cp.results = { ...cp.results, [questionId]: data }
@@ -729,7 +739,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({ projectId: project.id }),
       })
-      const data = await res.json()
+      const data = await readJsonResponse(res)
       if (data.review) {
         setReview(data.review)
         await refreshProject(project.id)
@@ -754,7 +764,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
           responseSubmissions: project?.progress?.response_submissions,
         }),
       })
-      const data = await res.json()
+      const data = await readJsonResponse(res)
       setAuthenticityScore(data.score)
       setAuthenticityResult(data)
       if (data.score >= AUTH_BONUS_THRESHOLD) {

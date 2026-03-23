@@ -16,7 +16,6 @@ import GuidedPracticeView from '@/components/GuidedPracticeView'
 import ReflectionView from '@/components/ReflectionView'
 import BossChallengeView from '@/components/BossChallengeView'
 import AIInteractionView from '@/components/AIInteractionView'
-import MissionComplete from '@/components/MissionComplete'
 import HeartBar from '@/components/HeartBar'
 import NoHeartsOverlay from '@/components/NoHeartsOverlay'
 import GemShop from '@/components/GemShop'
@@ -28,6 +27,12 @@ import StreakFlame from '@/components/StreakFlame'
 import BadgeShowcase from '@/components/BadgeShowcase'
 import { getLevelProgress, xpForTask, missionXpReward, computeTotalXpFromRows } from '@/lib/xp'
 import { track, EVENTS } from '@/lib/analytics'
+import { buildPathOutlineTracker, courseOutlineNeedsRecovery } from '@/lib/pathOutline.js'
+import { hydrateGoalCourseOutline } from '@/lib/courseOutlineStore'
+import {
+  filterRowsForCourseWindow,
+  isCourseFinalExamTask,
+} from '@/lib/courseCompletion'
 import {
   APP_THEMES,
   getDashboardThemeVars,
@@ -36,6 +41,10 @@ import {
   setStoredActiveTheme,
   setStoredOwnedThemes,
 } from '@/lib/appThemes'
+import {
+  buildInventoryCountsFromTransactions,
+  getClaimedModuleRewardIds,
+} from '@/lib/shopInventory'
 import { getStoredMaxHearts, setStoredMaxHearts } from '@/lib/shopStorage'
 import { HEARTS_BASE, HEARTS_MAX_CAP } from '@/lib/tokens'
 
@@ -79,6 +88,9 @@ const THEME_REASON_TO_ID = {
   shop_themeForest: 'themeForest',
   shop_themeMidnight: 'themeMidnight',
   shop_themeRose: 'themeRose',
+  shop_themeAurora: 'themeAurora',
+  shop_themeEmber: 'themeEmber',
+  shop_themeMonolith: 'themeMonolith',
 }
 
 const THEME_TRANSACTION_REASONS = Object.keys(THEME_REASON_TO_ID)
@@ -110,6 +122,11 @@ const KEYFRAMES = `
   @keyframes gemFloat{0%{opacity:1;transform:translateY(0)}100%{opacity:0;transform:translateY(-36px)}}
   @keyframes nextDayProgress{0%{transform:translateX(-120%)}100%{transform:translateX(240%)}}
   @keyframes missionBorderSpin{to{transform:rotate(360deg)}}
+  @keyframes confettiFall {
+    0% { opacity: 0; transform: translateY(-18px) rotate(0deg); }
+    12% { opacity: 1; }
+    100% { opacity: 0; transform: translateY(110vh) rotate(540deg); }
+  }
   @property --chal-angle{syntax:'<angle>';initial-value:0deg;inherits:false}
   @keyframes chalBorderSpin{to{--chal-angle:360deg}}
   @keyframes questShimmer{0%{background-position:200% center}100%{background-position:-200% center}}
@@ -303,6 +320,136 @@ function LevelUpBanner({ data, onDismiss }) {
   )
 }
 
+function CourseCompleteOverlay({ data, onDismiss, onOpenPortfolio }) {
+  useEffect(() => {
+    if (!data) return undefined
+    const timer = setTimeout(() => onDismiss(), 9000)
+    return () => clearTimeout(timer)
+  }, [data, onDismiss])
+
+  if (!data) return null
+
+  return (
+    <div style={{
+      position:'fixed', inset:0, zIndex:9950,
+      background:'rgba(5,6,8,0.78)',
+      backdropFilter:'blur(22px)', WebkitBackdropFilter:'blur(22px)',
+      display:'flex', alignItems:'center', justifyContent:'center',
+      padding:'24px',
+    }}>
+      {[...Array(22)].map((_, index) => (
+        <div key={index} style={{
+          position:'absolute',
+          left:`${8 + ((index * 13) % 84)}%`,
+          top:`${-8 + ((index * 7) % 24)}%`,
+          width:6 + (index % 4),
+          height:10 + (index % 5),
+          borderRadius:index % 3 === 0 ? 9999 : 4,
+          background:[T.teal, T.blue, T.mastery, T.amber][index % 4],
+          animation:`confettiFall ${1.8 + ((index % 5) * 0.18)}s ${(index % 6) * 0.06}s ease-in both`,
+          opacity:0.95,
+          transform:`rotate(${index * 17}deg)`,
+          pointerEvents:'none',
+        }}/>
+      ))}
+
+      <div style={{
+        width:'100%', maxWidth:540,
+        borderRadius:28,
+        border:`1px solid ${T.tealBorder}`,
+        background:'linear-gradient(150deg, rgba(14,245,194,0.12), rgba(255,255,255,0.04))',
+        boxShadow:'0 30px 90px rgba(0,0,0,0.38), inset 0 1px 0 rgba(255,255,255,0.10)',
+        padding:'28px 24px',
+        position:'relative',
+        overflow:'hidden',
+      }}>
+        <div style={{
+          position:'absolute', inset:'auto -80px -100px auto',
+          width:220, height:220, borderRadius:'50%',
+          background:'radial-gradient(circle, rgba(14,245,194,0.18) 0%, transparent 72%)',
+          filter:'blur(10px)',
+        }}/>
+
+        <div style={{display:'inline-flex',alignItems:'center',gap:8,padding:'7px 12px',borderRadius:9999,background:'rgba(14,245,194,0.10)',border:`1px solid ${T.tealBorder}`,marginBottom:14}}>
+          <IconGlyph name="award" size={14} strokeWidth={2.4} color={T.teal}/>
+          <span style={{fontSize:10,fontWeight:900,letterSpacing:'0.16em',textTransform:'uppercase',color:T.teal}}>Course Complete</span>
+        </div>
+
+        <div style={{fontSize:30,fontWeight:900,color:T.text,letterSpacing:'-0.05em',lineHeight:1.05,marginBottom:10}}>
+          {data.goalText}
+        </div>
+        <div style={{fontSize:14,color:T.textSec,lineHeight:1.7,marginBottom:18}}>
+          You finished the full course and cleared the comprehensive final exam. This completion is now saved in your portfolio.
+        </div>
+
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(132px,1fr))',gap:10,marginBottom:18}}>
+          {[
+            { label:'Final exam', value:`${data.examScore}%`, icon:'check_circle', tone:T.teal },
+            { label:'Grade', value:data.grade, icon:'badge', tone:T.amber },
+            { label:'Reward', value:`+${data.rewardXp} XP`, icon:'sparkles', tone:T.mastery },
+            { label:'Gems', value:`+${data.rewardGems}`, icon:'diamond', tone:T.blue },
+          ].map((stat) => (
+            <div key={stat.label} style={{borderRadius:18,border:`1px solid ${T.border}`,background:'rgba(255,255,255,0.04)',padding:'14px 12px'}}>
+              <div style={{display:'flex',alignItems:'center',gap:7,marginBottom:8}}>
+                <IconGlyph name={stat.icon} size={14} strokeWidth={2.3} color={stat.tone}/>
+                <span style={{fontSize:11,color:T.textMuted,fontWeight:700}}>{stat.label}</span>
+              </div>
+              <div style={{fontSize:18,fontWeight:900,color:stat.tone}}>{stat.value}</div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap'}}>
+          <div style={{fontSize:12,color:T.textMuted}}>
+            Final exam passed in {data.attemptsUsed} attempt{data.attemptsUsed === 1 ? '' : 's'}
+          </div>
+          <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
+            <button onClick={onDismiss} className="interactive-secondary" style={{
+              padding:'12px 16px', borderRadius:16, border:`1px solid ${T.border}`, background:'rgba(255,255,255,0.05)',
+              color:T.textSec, fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:T.font,
+            }}>
+              Close
+            </button>
+            <button onClick={onOpenPortfolio} className="interactive-primary" style={{
+              padding:'12px 16px', borderRadius:16, border:'none', background:T.primaryGradient, color:T.ink,
+              fontSize:14, fontWeight:900, cursor:'pointer', fontFamily:T.font,
+              boxShadow:'0 18px 40px rgba(14,245,194,0.18)',
+            }}>
+              View Portfolio
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function MissionConfettiBurst({ active }) {
+  if (!active) return null
+
+  return (
+    <div style={{ position:'fixed', inset:0, zIndex:9940, pointerEvents:'none', overflow:'hidden' }}>
+      {[...Array(24)].map((_, index) => (
+        <div
+          key={index}
+          style={{
+            position:'absolute',
+            left:`${6 + ((index * 17) % 88)}%`,
+            top:`${-6 + ((index * 5) % 18)}%`,
+            width:6 + (index % 5),
+            height:10 + (index % 4),
+            borderRadius:index % 3 === 0 ? 9999 : 4,
+            background:[T.teal, T.blue, T.mastery, T.amber][index % 4],
+            animation:`confettiFall ${1.6 + ((index % 4) * 0.18)}s ${(index % 6) * 0.05}s ease-in both`,
+            opacity:0.92,
+            transform:`rotate(${index * 19}deg)`,
+          }}
+        />
+      ))}
+    </div>
+  )
+}
+
 // ─── XP Level Bar ──────────────────────────────────────────────────────────────
 function XPLevelBar({ level, title, xpInLevel, xpForLevel, pct, animating }) {
   return (
@@ -454,6 +601,553 @@ function MissionHeroCard({ todayRow, tasks, dayNumber }) {
   )
 }
 
+function PathStatusPill({ status, compact = false }) {
+  const tone = status === 'completed'
+    ? { color:T.teal, bg:'rgba(14,245,194,0.10)', border:T.tealBorder, label:'Completed' }
+    : status === 'current'
+      ? { color:T.ink, bg:T.primaryGradient, border:'transparent', label:'Current' }
+      : status === 'up_next' || status === 'upcoming'
+        ? { color:T.blue, bg:'rgba(0,212,255,0.10)', border:'rgba(0,212,255,0.24)', label:'Up next' }
+        : { color:T.textMuted, bg:'rgba(255,255,255,0.04)', border:T.border, label:'Locked' }
+
+  return (
+    <span style={{
+      display:'inline-flex', alignItems:'center', justifyContent:'center',
+      minHeight:compact ? 24 : 28,
+      padding:compact ? '0 8px' : '0 10px',
+      borderRadius:9999,
+      background:tone.bg,
+      border:`1px solid ${tone.border}`,
+      color:tone.color,
+      fontSize:compact ? 10 : 11,
+      fontWeight:900,
+      letterSpacing:'0.10em',
+      textTransform:'uppercase',
+      whiteSpace:'nowrap',
+    }}>
+      {tone.label}
+    </span>
+  )
+}
+
+function MasteryStars({ count = 0 }) {
+  return (
+    <div style={{display:'inline-flex',alignItems:'center',gap:4}}>
+      {[0,1,2].map((index) => (
+        <IconGlyph
+          key={index}
+          name="sparkles"
+          size={12}
+          strokeWidth={2.3}
+          color={index < count ? T.amber : 'rgba(255,255,255,0.16)'}
+        />
+      ))}
+    </div>
+  )
+}
+
+function PathTrackerSummary({ tracker }) {
+  const breadcrumb = tracker.breadcrumb.moduleTitle
+    ? `${tracker.breadcrumb.moduleTitle} / ${tracker.breadcrumb.unitTitle || 'Current unit'} / ${tracker.breadcrumb.subUnitTitle || 'Current concept'}`
+    : 'Your curriculum tracker will appear as soon as your outline is ready.'
+
+  return (
+    <div style={{maxWidth:720,margin:'0 auto',padding:'0 20px'}}>
+      <div style={{
+        position:'relative',
+        borderRadius:26,
+        border:`1px solid ${T.border}`,
+        background:'linear-gradient(145deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03))',
+        padding:'22px 20px',
+        backdropFilter:'blur(24px)', WebkitBackdropFilter:'blur(24px)',
+        boxShadow:'inset 0 1px 0 rgba(255,255,255,0.10),0 16px 40px rgba(0,0,0,0.24)',
+        overflow:'hidden',
+      }}>
+        <div style={{
+          position:'absolute', right:-60, top:-70, width:180, height:180, borderRadius:'50%',
+          background:'radial-gradient(circle, rgba(14,245,194,0.18) 0%, transparent 72%)',
+          filter:'blur(12px)', pointerEvents:'none',
+        }}/>
+
+        <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:16,marginBottom:18,position:'relative'}}>
+          <div style={{minWidth:0,flex:1}}>
+            <div style={{display:'inline-flex',alignItems:'center',gap:8,marginBottom:10,
+              padding:'6px 12px',borderRadius:9999,background:'rgba(14,245,194,0.08)',border:`1px solid ${T.tealBorder}`}}>
+              <IconGlyph name="map" size={14} strokeWidth={2.3} color={T.teal}/>
+              <span style={{fontSize:10,fontWeight:900,letterSpacing:'0.16em',textTransform:'uppercase',color:T.teal}}>
+                Curriculum Tracker
+              </span>
+            </div>
+            <div style={{fontSize:28,fontWeight:900,color:T.text,letterSpacing:'-0.05em',lineHeight:1.05,marginBottom:10}}>
+              {tracker.overallPercent}% complete
+            </div>
+            <div style={{fontSize:13,color:T.textSec,lineHeight:1.65,marginBottom:12}}>
+              {breadcrumb}
+            </div>
+            <div className="progress-track" style={{height:8,background:'rgba(255,255,255,0.06)',borderRadius:9999,overflow:'hidden',maxWidth:420}}>
+              <div className="progress-fill" style={{
+                height:'100%',
+                width:`${tracker.overallPercent}%`,
+                background:T.primaryGradientSoft,
+                borderRadius:9999,
+                transition:'width 0.45s cubic-bezier(0.16,1,0.3,1)',
+                boxShadow:'0 0 16px rgba(14,245,194,0.24)',
+              }}/>
+            </div>
+          </div>
+
+          <div style={{
+            minWidth:120,
+            borderRadius:22,
+            border:`1px solid ${T.border}`,
+            background:'rgba(255,255,255,0.04)',
+            padding:'14px 12px',
+            textAlign:'center',
+          }}>
+            <div style={{fontSize:10,fontWeight:900,letterSpacing:'0.16em',textTransform:'uppercase',color:T.textMuted,marginBottom:8}}>
+              Modules
+            </div>
+            <div style={{fontSize:30,fontWeight:900,color:T.teal,lineHeight:1}}>
+              {tracker.completedModules}/{tracker.totalModules}
+            </div>
+            <div style={{fontSize:11,color:T.textMuted,marginTop:4}}>completed</div>
+          </div>
+        </div>
+
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(150px, 1fr))',gap:10,position:'relative'}}>
+          {[
+            {
+              label:'Current module',
+              value:tracker.breadcrumb.moduleTitle || 'Waiting on outline',
+              icon:'layers',
+              tone:T.text,
+            },
+            {
+              label:'Current focus',
+              value:tracker.breadcrumb.unitTitle || 'No active unit',
+              icon:'goal',
+              tone:T.text,
+            },
+            {
+              label:'Current sub-unit',
+              value:tracker.breadcrumb.subUnitTitle || 'No active sub-unit',
+              icon:'sparkles',
+              tone:T.textSec,
+            },
+            {
+              label:'Next up',
+              value:tracker.nextUpLabel || 'Keep going',
+              icon:'rocket',
+              tone:T.teal,
+            },
+            {
+              label:'Identity',
+              value:tracker.latestIdentityLabel || 'Seals unlock profile titles',
+              icon:'badge',
+              tone:tracker.latestIdentityLabel ? T.amber : T.textMuted,
+            },
+          ].map((entry) => (
+            <div key={entry.label} style={{
+              borderRadius:16,border:`1px solid ${T.border}`,background:'rgba(255,255,255,0.03)',
+              padding:'12px 12px',
+            }}>
+              <div style={{display:'flex',alignItems:'center',gap:7,marginBottom:8}}>
+                <IconGlyph name={entry.icon} size={14} strokeWidth={2.3} color={T.textMuted}/>
+                <span style={{fontSize:11,color:T.textMuted,fontWeight:700}}>{entry.label}</span>
+              </div>
+              <div style={{fontSize:13,fontWeight:800,color:entry.tone,lineHeight:1.35}}>
+                {entry.value}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{display:'flex',alignItems:'center',gap:12,flexWrap:'wrap',marginTop:14,position:'relative'}}>
+          <span style={{fontSize:12,fontWeight:700,color:T.textMuted}}>
+            Weighted progress {tracker.overallCompletedWeight}/{tracker.overallTotalWeight}
+          </span>
+          <span style={{fontSize:12,fontWeight:700,color:T.textMuted}}>
+            {tracker.sealedModules} module seal{tracker.sealedModules === 1 ? '' : 's'} earned
+          </span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function PathSubUnitRow({ subUnit }) {
+  const tone = subUnit.status === 'completed'
+    ? { color:T.teal, bg:'rgba(14,245,194,0.10)', border:T.tealBorder, icon:'check_circle' }
+    : subUnit.status === 'current'
+      ? { color:T.ink, bg:T.primaryGradient, border:'transparent', icon:'goal' }
+      : subUnit.status === 'up_next'
+        ? { color:T.blue, bg:'rgba(0,212,255,0.10)', border:'rgba(0,212,255,0.22)', icon:'sparkles' }
+        : { color:T.textMuted, bg:'rgba(255,255,255,0.04)', border:T.border, icon:'lock' }
+
+  return (
+    <div style={{
+      display:'flex',alignItems:'center',gap:10,
+      padding:'10px 12px',
+      borderRadius:14,
+      background:subUnit.status === 'completed' ? 'rgba(14,245,194,0.05)' : 'rgba(255,255,255,0.025)',
+      border:`1px solid ${subUnit.status === 'completed' ? 'rgba(14,245,194,0.12)' : 'rgba(255,255,255,0.06)'}`,
+    }}>
+      <div style={{
+        width:24,height:24,borderRadius:'50%',flexShrink:0,
+        display:'flex',alignItems:'center',justifyContent:'center',
+        background:tone.bg,border:`1px solid ${tone.border}`,
+      }}>
+        <IconGlyph name={tone.icon} size={12} strokeWidth={2.4} color={tone.color}/>
+      </div>
+      <div style={{flex:1,minWidth:0,fontSize:13,fontWeight:700,color:subUnit.status === 'locked' ? T.textMuted : T.text,
+        lineHeight:1.35}}>
+        {subUnit.title}
+      </div>
+      {subUnit.status === 'current' && (
+        <span style={{fontSize:10,fontWeight:900,color:T.ink,background:T.teal,padding:'2px 8px',borderRadius:9999,whiteSpace:'nowrap'}}>
+          Current
+        </span>
+      )}
+      {subUnit.status === 'up_next' && (
+        <span style={{fontSize:10,fontWeight:900,color:T.blue,background:'rgba(0,212,255,0.10)',padding:'2px 8px',borderRadius:9999,whiteSpace:'nowrap'}}>
+          Next
+        </span>
+      )}
+    </div>
+  )
+}
+
+function PathProjectCard({ item }) {
+  const isFinalExam = item.type === 'final_exam'
+  const projectLabel = isFinalExam
+    ? 'Final Exam'
+    : item.kind === 'full_project'
+      ? 'Milestone Project'
+      : 'Mini Project'
+  return (
+    <div style={{
+      position:'relative',
+      borderRadius:20,
+      border:`1px solid ${item.status === 'completed' ? 'rgba(167,139,250,0.26)' : item.status === 'current' ? 'rgba(167,139,250,0.40)' : item.status === 'up_next' ? 'rgba(167,139,250,0.28)' : 'rgba(167,139,250,0.18)'}`,
+      background:item.status === 'current'
+        ? 'linear-gradient(145deg, rgba(167,139,250,0.14), rgba(14,245,194,0.06))'
+        : 'linear-gradient(145deg, rgba(167,139,250,0.08), rgba(255,255,255,0.03))',
+      padding:'16px 16px',
+      boxShadow:item.status === 'current' ? '0 12px 26px rgba(167,139,250,0.12)' : 'none',
+      opacity:item.status === 'locked' ? 0.84 : 1,
+    }}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,marginBottom:12}}>
+        <div style={{display:'flex',alignItems:'center',gap:10,minWidth:0}}>
+          <div style={{
+            width:40,height:40,borderRadius:14,flexShrink:0,
+            display:'flex',alignItems:'center',justifyContent:'center',
+            background:'rgba(167,139,250,0.14)',border:'1px solid rgba(167,139,250,0.24)',
+            color:T.mastery,
+          }}>
+            <IconGlyph name={isFinalExam ? 'award' : 'hammer'} size={18} strokeWidth={2.3}/>
+          </div>
+          <div style={{minWidth:0}}>
+            <div style={{fontSize:10,fontWeight:900,letterSpacing:'0.16em',textTransform:'uppercase',color:T.mastery,marginBottom:4}}>
+              {projectLabel}
+            </div>
+            <div style={{fontSize:14,fontWeight:800,color:T.text,lineHeight:1.3}}>
+              {item.title}
+            </div>
+            <div style={{fontSize:12,color:T.textMuted,marginTop:4}}>
+              {item.milestoneLabel}
+            </div>
+          </div>
+        </div>
+        <PathStatusPill status={item.status} compact/>
+      </div>
+
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,flexWrap:'wrap'}}>
+        <span style={{fontSize:12,color:T.textSec,lineHeight:1.5}}>
+          {item.generated
+            ? isFinalExam
+              ? item.completed
+                ? `Passed with a best score of ${item.bestScore || item.passScore || 80}%.`
+                : `Pass with ${item.passScore || 80}% or better. ${Math.max(0, (item.maxAttempts || 3) - (item.attemptsUsed || 0))} attempt${Math.max(0, (item.maxAttempts || 3) - (item.attemptsUsed || 0)) === 1 ? '' : 's'} remaining.`
+              : `${item.impactLabel} ${item.kind === 'mini_project' ? 'This day is only the project.' : 'This is a full dedicated project day.'}`
+            : isFinalExam
+              ? 'This exam appears once the full course body is complete.'
+              : 'This dedicated project day appears in your course sequence and unlocks when the module is complete.'}
+        </span>
+        {(item.status === 'current' || item.status === 'up_next') && (
+          <span style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:11,fontWeight:800,color:T.mastery}}>
+            <IconGlyph name={item.status === 'current' ? 'rocket' : 'sparkles'} size={13} strokeWidth={2.3} color={T.mastery}/>
+            {item.status === 'current'
+              ? (isFinalExam ? 'Current finish line' : 'Current milestone')
+              : (isFinalExam ? 'Finish line ahead' : 'Next milestone')}
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function PathUnitCard({ item, expanded, onToggle }) {
+  const current = item.status === 'current'
+  const upcoming = item.status === 'up_next'
+  const locked = item.status === 'locked'
+
+  return (
+    <div style={{
+      borderRadius:20,
+      border:`1px solid ${current ? T.tealBorder : item.status === 'completed' ? 'rgba(14,245,194,0.16)' : T.border}`,
+      background: current
+        ? 'linear-gradient(145deg, rgba(14,245,194,0.08), rgba(0,212,255,0.05))'
+        : item.status === 'completed'
+          ? 'linear-gradient(145deg, rgba(14,245,194,0.05), rgba(255,255,255,0.03))'
+          : 'linear-gradient(145deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02))',
+      overflow:'hidden',
+      boxShadow: current ? '0 12px 28px rgba(14,245,194,0.10)' : 'none',
+      opacity: locked ? 0.76 : 1,
+    }}>
+      <button onClick={onToggle} className="interactive-secondary" style={{
+        width:'100%', background:'none', border:'none', textAlign:'left',
+        padding:'16px 16px', cursor:'pointer', fontFamily:T.font,
+        display:'flex', alignItems:'center', gap:12,
+      }}>
+        <div style={{
+          width:42,height:42,borderRadius:16,flexShrink:0,
+          display:'flex',alignItems:'center',justifyContent:'center',
+          background:item.status === 'completed'
+            ? T.primaryGradient
+            : current ? 'rgba(14,245,194,0.12)'
+            : upcoming ? 'rgba(0,212,255,0.10)'
+            : 'rgba(255,255,255,0.05)',
+          color:item.status === 'completed' ? T.ink : current ? T.teal : upcoming ? T.blue : T.textMuted,
+          border:`1px solid ${current ? T.tealBorder : upcoming ? 'rgba(0,212,255,0.18)' : 'rgba(255,255,255,0.06)'}`,
+          animation:current ? 'pulseActive 2.5s ease-in-out infinite' : 'none',
+        }}>
+          {item.status === 'completed'
+            ? <IconGlyph name="check" size={16} strokeWidth={2.7} color={T.ink}/>
+            : <span style={{fontSize:14,fontWeight:900}}>{item.dayNumber}</span>}
+        </div>
+
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6,flexWrap:'wrap'}}>
+            <div style={{fontSize:15,fontWeight:800,color:locked ? T.textSec : T.text,lineHeight:1.25,minWidth:0}}>
+              {item.title}
+            </div>
+            {item.hasAdjacentProject && (
+              <span style={{
+                display:'inline-flex',alignItems:'center',gap:5,
+                padding:'3px 8px',borderRadius:9999,
+                background:'rgba(167,139,250,0.10)',border:'1px solid rgba(167,139,250,0.18)',
+                color:T.mastery,fontSize:10,fontWeight:900,letterSpacing:'0.08em',textTransform:'uppercase',
+              }}>
+                <IconGlyph name="hammer" size={11} strokeWidth={2.3} color={T.mastery}/>
+                Project
+              </span>
+            )}
+          </div>
+          <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:8}}>
+            <PathStatusPill status={item.status} compact/>
+            <span style={{fontSize:12,fontWeight:700,color:item.status === 'completed' ? T.teal : T.textSec}}>
+              {item.completionPercent}% complete
+            </span>
+            <span style={{display:'inline-flex',alignItems:'center',gap:5,fontSize:12,color:T.textMuted}}>
+              <ClockIcon/>~{item.estimatedMinutes} min
+            </span>
+          </div>
+          <div className="progress-track" style={{height:6,background:'rgba(255,255,255,0.06)',borderRadius:9999,overflow:'hidden'}}>
+            <div className="progress-fill" style={{
+              height:'100%',width:`${item.completionPercent}%`,
+              background:item.status === 'completed'
+                ? T.primaryGradientSoft
+                : item.status === 'current'
+                  ? T.primaryGradientSoft
+                  : 'linear-gradient(90deg, rgba(0,212,255,0.70), rgba(129,140,248,0.70))',
+              borderRadius:9999,transition:'width 0.45s cubic-bezier(0.16,1,0.3,1)',
+            }}/>
+          </div>
+        </div>
+
+        <div style={{
+          width:30,height:30,borderRadius:'50%',flexShrink:0,
+          display:'flex',alignItems:'center',justifyContent:'center',
+          background:'rgba(255,255,255,0.04)',border:`1px solid ${T.border}`,
+          color:T.textMuted,
+          transform:expanded ? 'rotate(90deg)' : 'rotate(0deg)',
+          transition:'transform 0.18s cubic-bezier(0.16,1,0.3,1)',
+        }}>
+          <ArrowRight sz={13}/>
+        </div>
+      </button>
+
+      {expanded && (
+        <div style={{padding:'0 16px 16px'}}>
+          <div style={{
+            borderRadius:18,border:`1px solid ${T.border}`,background:'rgba(255,255,255,0.03)',
+            padding:'14px 14px',
+          }}>
+            <div style={{fontSize:11,fontWeight:900,letterSpacing:'0.12em',textTransform:'uppercase',color:T.textMuted,marginBottom:8}}>
+              Why this matters
+            </div>
+            <div style={{fontSize:13,color:T.textSec,lineHeight:1.6,marginBottom:12}}>
+              {item.whyItMatters}
+            </div>
+
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(140px,1fr))',gap:10,marginBottom:12}}>
+              <div style={{padding:'10px 12px',borderRadius:14,background:'rgba(255,255,255,0.03)',border:`1px solid ${T.border}`}}>
+                <div style={{fontSize:10,fontWeight:800,color:T.textMuted,letterSpacing:'0.10em',textTransform:'uppercase',marginBottom:5}}>
+                  Progress
+                </div>
+                <div style={{fontSize:13,fontWeight:800,color:T.text}}>
+                  {item.completedTasks}/{Math.max(item.totalTasks, 0)} learning tasks
+                </div>
+              </div>
+              <div style={{padding:'10px 12px',borderRadius:14,background:'rgba(255,255,255,0.03)',border:`1px solid ${T.border}`}}>
+                <div style={{fontSize:10,fontWeight:800,color:T.textMuted,letterSpacing:'0.10em',textTransform:'uppercase',marginBottom:5}}>
+                  Completion context
+                </div>
+                <div style={{fontSize:13,fontWeight:700,color:T.textSec,lineHeight:1.4}}>
+                  {item.completionContext}
+                </div>
+              </div>
+            </div>
+
+            <div style={{fontSize:11,fontWeight:900,letterSpacing:'0.12em',textTransform:'uppercase',color:T.textMuted,marginBottom:10}}>
+              Sub-units
+            </div>
+            <div style={{display:'grid',gap:8}}>
+              {item.subUnits.map((subUnit) => (
+                <PathSubUnitRow key={`${item.id}-${subUnit.id}`} subUnit={subUnit}/>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function PathModuleCard({ module, expanded, onToggle, expandedUnits, onToggleUnit, index }) {
+  return (
+    <StaggerBlock index={index}>
+      <div style={{
+        borderRadius:24,
+        border:`1px solid ${module.status === 'current' ? T.tealBorder : module.status === 'completed' ? 'rgba(14,245,194,0.18)' : T.border}`,
+        background: module.status === 'current'
+          ? 'linear-gradient(145deg, rgba(14,245,194,0.08), rgba(255,255,255,0.02))'
+          : 'linear-gradient(145deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02))',
+        overflow:'hidden',
+        boxShadow: module.status === 'current' ? '0 16px 34px rgba(14,245,194,0.08)' : '0 10px 28px rgba(0,0,0,0.20)',
+        opacity: module.status === 'upcoming' ? 0.92 : 1,
+      }}>
+        <button onClick={onToggle} className="interactive-secondary" style={{
+          width:'100%', background:'none', border:'none', textAlign:'left',
+          padding:'18px 18px', cursor:'pointer', fontFamily:T.font,
+          display:'flex', alignItems:'center', gap:14,
+        }}>
+          <MiniProgressRing
+            size={46}
+            value={module.progressPercent}
+            total={100}
+            stroke={module.status === 'completed' ? 'var(--theme-primary)' : module.status === 'current' ? 'var(--theme-primary)' : 'rgba(255,255,255,0.28)'}
+            track="rgba(255,255,255,0.08)"
+            label={`${module.progressPercent}%`}
+            labelColor={module.status === 'completed' ? T.teal : module.status === 'current' ? T.text : T.textSec}
+            textSize={10}
+          />
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',marginBottom:7}}>
+              <div style={{fontSize:17,fontWeight:800,color:T.text,lineHeight:1.2,minWidth:0}}>
+                {module.title}
+              </div>
+              <PathStatusPill status={module.status} compact/>
+            </div>
+            <div style={{fontSize:13,color:T.textSec,lineHeight:1.55,marginBottom:10}}>
+              {module.description || 'Structured progression for this section of your course.'}
+            </div>
+            <div style={{display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
+              <span style={{fontSize:12,fontWeight:700,color:T.textMuted}}>
+                {module.completedUnits}/{module.totalUnits} units complete
+              </span>
+              <span style={{fontSize:12,fontWeight:700,color:T.textMuted}}>
+                Weighted progress {module.completedWeight}/{module.totalWeight}
+              </span>
+              <span style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:12,fontWeight:800,color:module.sealEarned ? T.amber : T.textSec}}>
+                <MasteryStars count={module.masteryStars}/>
+                {module.sealEarned ? 'Seal earned' : `${module.masteryScore}% mastery`}
+              </span>
+            </div>
+          </div>
+          <div style={{
+            width:34,height:34,borderRadius:'50%',flexShrink:0,
+            display:'flex',alignItems:'center',justifyContent:'center',
+            background:'rgba(255,255,255,0.04)',border:`1px solid ${T.border}`,
+            color:T.textMuted,
+            transform:expanded ? 'rotate(90deg)' : 'rotate(0deg)',
+            transition:'transform 0.18s cubic-bezier(0.16,1,0.3,1)',
+          }}>
+            <ArrowRight sz={14}/>
+          </div>
+        </button>
+
+        {expanded && (
+          <div style={{padding:'0 18px 18px',display:'grid',gap:12}}>
+            <div style={{
+              borderRadius:18,
+              border:`1px solid ${module.sealEarned ? 'rgba(251,191,36,0.24)' : T.border}`,
+              background:module.sealEarned
+                ? 'linear-gradient(145deg, rgba(251,191,36,0.12), rgba(255,255,255,0.04))'
+                : 'rgba(255,255,255,0.03)',
+              padding:'14px 16px',
+              display:'grid',
+              gap:10,
+            }}>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,flexWrap:'wrap'}}>
+                <div>
+                  <div style={{fontSize:11,fontWeight:900,letterSpacing:'0.12em',textTransform:'uppercase',color:T.textMuted,marginBottom:6}}>
+                    Module Mastery
+                  </div>
+                  <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
+                    <MasteryStars count={module.masteryStars}/>
+                    <span style={{fontSize:13,fontWeight:800,color:module.sealEarned ? T.amber : T.text}}>
+                      {module.sealEarned ? 'Mastery Seal unlocked' : `${module.masteryScore}% mastery track`}
+                    </span>
+                  </div>
+                  <div style={{fontSize:12,color:T.textSec,lineHeight:1.5}}>
+                    {module.sealEarned
+                      ? `${module.rewardClaimed ? 'Bonus chest claimed' : 'Bonus chest ready'} · ${module.identityLabel}`
+                      : `Keep clearing units and scoring well on quizzes and challenges to complete this seal.`}
+                  </div>
+                </div>
+                <div style={{textAlign:'right'}}>
+                  <div style={{fontSize:11,fontWeight:800,color:T.textMuted,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:4}}>
+                    Bonus chest
+                  </div>
+                  <div style={{fontSize:18,fontWeight:900,color:module.sealEarned ? T.teal : T.textSec}}>
+                    +{module.rewardAmount}
+                  </div>
+                  <div style={{fontSize:11,color:T.textMuted}}>
+                    {module.rewardClaimed ? 'claimed' : 'gems on seal'}
+                  </div>
+                </div>
+              </div>
+            </div>
+            {module.items.map((item, itemIndex) => (
+              item.type === 'project' || item.type === 'final_exam'
+                ? <PathProjectCard key={`${module.id}:${item.id}:${item.sequenceIndex || item.dayNumber || itemIndex}`} item={item}/>
+                : (
+                  <PathUnitCard
+                    key={`${module.id}:${item.id}:${item.sequenceIndex || item.dayNumber || itemIndex}`}
+                    item={item}
+                    expanded={Boolean(expandedUnits[item.id])}
+                    onToggle={() => onToggleUnit(item.id)}
+                  />
+                )
+            ))}
+          </div>
+        )}
+      </div>
+    </StaggerBlock>
+  )
+}
+
 // ─── Energy Selector ───────────────────────────────────────────────────────────
 function EnergySelector({ value, onChange }) {
   return (
@@ -521,13 +1215,18 @@ const LESSON_LABELS = {
   project:    'Start Project',
 }
 
+function canRerollTask(task) {
+  return Boolean(task) && !task.completed && !['project', 'boss', 'capstone', 'quiz'].includes(task.type)
+}
+
 // ─── Task Preview Modal ────────────────────────────────────────────────────────
-function TaskPreview({ task, onClose, onStart, onComplete, isCompleting }) {
+function TaskPreview({ task, onClose, onStart, onComplete, onReroll, rerollCount = 0, isCompleting, rerollingTaskId = null }) {
   const ts   = taskStyle(task.type)
   const xp   = xpForTask(task.type)
   const info = TASK_TYPE_INFO[task.type] || TASK_TYPE_INFO.lesson
   const me   = isCompleting === task.id
   const anyCompleting = Boolean(isCompleting)
+  const canUseReroll = canRerollTask(task) && rerollCount > 0 && !anyCompleting && rerollingTaskId !== task.id
   const label = LESSON_LABELS[task.type] || 'Start Lesson'
 
   return (
@@ -628,7 +1327,38 @@ function TaskPreview({ task, onClose, onStart, onComplete, isCompleting }) {
             ✓ Completed
           </div>
         ) : (
-          <div style={{display:'flex',gap:10}}>
+          <div style={{display:'flex',flexDirection:'column',gap:10}}>
+            {canRerollTask(task) && (
+              <button
+                disabled={!canUseReroll}
+                className={canUseReroll ? 'interactive-secondary' : undefined}
+                onClick={() => { onClose(); onReroll?.(task) }}
+                style={{
+                  width:'100%',
+                  padding:'12px 14px',
+                  background: canUseReroll ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.03)',
+                  border:`1px solid ${canUseReroll ? T.border : T.borderAlt}`,
+                  borderRadius:14,
+                  color: canUseReroll ? T.text : T.textMuted,
+                  fontSize:13,
+                  fontWeight:800,
+                  cursor: canUseReroll ? 'pointer' : 'default',
+                  fontFamily:T.font,
+                  display:'flex',
+                  alignItems:'center',
+                  justifyContent:'space-between',
+                }}
+              >
+                <span style={{display:'inline-flex',alignItems:'center',gap:7}}>
+                  <IconGlyph name="repeat" size={14} strokeWidth={2.4} color={canUseReroll ? T.textSec : T.textDead}/>
+                  {rerollingTaskId === task.id ? 'Refreshing task…' : 'Use Task Reroll'}
+                </span>
+                <span style={{fontSize:11,fontWeight:900,color:canUseReroll ? T.teal : T.textMuted,letterSpacing:'0.08em',textTransform:'uppercase'}}>
+                  {rerollCount} left
+                </span>
+              </button>
+            )}
+            <div style={{display:'flex',gap:10}}>
             <button onClick={() => { onClose(); onStart(task) }} className="interactive-secondary" style={{
               flex:1, padding:'14px 12px',
               background:'rgba(14,245,194,0.06)',
@@ -664,6 +1394,7 @@ function TaskPreview({ task, onClose, onStart, onComplete, isCompleting }) {
                 ? <><div style={{width:13,height:13,border:'2px solid rgba(255,255,255,0.06)',borderTopColor:T.teal,borderRadius:'50%',animation:'spin 0.65s linear infinite'}}/>Saving…</>
                 : anyCompleting ? 'Wait…' : <><BoltIcon sz={13}/>Complete</>}
             </button>
+            </div>
           </div>
         )}
       </div>
@@ -675,6 +1406,9 @@ function TaskPreview({ task, onClose, onStart, onComplete, isCompleting }) {
 function TaskItem({ task, onPreview, index }) {
   const ts      = taskStyle(task.type)
   const xp      = xpForTask(task.type)
+  const isCourseFinalTask = isCourseFinalExamTask(task)
+  const finalExamMeta = task?._courseFinal || {}
+  const finalExamAttemptsRemaining = Math.max(0, (Number(finalExamMeta.maxAttempts) || 3) - (Number(finalExamMeta.attemptsUsed) || 0))
 
   return (
     <div
@@ -732,6 +1466,28 @@ function TaskItem({ task, onPreview, index }) {
           marginBottom:0}}>
           {task.description.length>110 ? task.description.slice(0,110)+'…' : task.description}
         </p>
+      )}
+
+      {isCourseFinalTask && !task.completed && (
+        <div style={{
+          marginTop:10,
+          padding:'10px 12px',
+          borderRadius:14,
+          background:'rgba(251,191,36,0.08)',
+          border:'1px solid rgba(251,191,36,0.18)',
+          display:'flex',
+          alignItems:'center',
+          justifyContent:'space-between',
+          gap:10,
+          flexWrap:'wrap',
+        }}>
+          <span style={{fontSize:11,fontWeight:800,color:'#FBBF24'}}>
+            Pass score {finalExamMeta.passScore || 80}%
+          </span>
+          <span style={{fontSize:11,color:T.textSec}}>
+            {finalExamAttemptsRemaining} attempt{finalExamAttemptsRemaining === 1 ? '' : 's'} remaining
+          </span>
+        </div>
       )}
 
       {/* Tap to preview hint */}
@@ -856,6 +1612,7 @@ export default function Dashboard() {
   // Optimistic task state
   const [tasks,       setTasks]       = useState([])
   const [completing,  setCompleting]  = useState(null)
+  const [rerollingTaskId, setRerollingTaskId] = useState(null)
 
   // Gamification
   const [xpDisplay,   setXpDisplay]   = useState(getLevelProgress(0))
@@ -864,16 +1621,21 @@ export default function Dashboard() {
   const [xpToasts,    setXpToasts]   = useState([])
   const [levelUpData, setLevelUpData] = useState(null)
   const [missionDone, setMissionDone] = useState(false)
-  const [mcData,      setMcData]     = useState(null)
-  const [showNextDayModal, setShowNextDayModal] = useState(false)
+  const [showMissionConfetti, setShowMissionConfetti] = useState(false)
   const [showNextDayCTA, setShowNextDayCTA] = useState(false)
   const [advancingNextDay, setAdvancingNextDay] = useState(false)
+  const [courseCompleteData, setCourseCompleteData] = useState(null)
 
   // UI
   const [energy,      setEnergy]      = useState('good')
   const [activeTab,   setActiveTab]   = useState('home')
+  const [expandedPathModules, setExpandedPathModules] = useState({})
+  const [expandedPathUnits,   setExpandedPathUnits]   = useState({})
   const [ownedThemes, setOwnedThemes] = useState([])
   const [activeTheme, setActiveTheme] = useState('default')
+  const [inventoryCounts, setInventoryCounts] = useState({ taskReroll: 0, reviewShield: 0 })
+  const [claimedModuleRewardIds, setClaimedModuleRewardIds] = useState([])
+  const [moduleRewardToasts, setModuleRewardToasts] = useState([])
   const [showLesson,  setShowLesson]  = useState(null)
   const [previewTask, setPreviewTask] = useState(null)
   const [error,       setError]       = useState('')
@@ -938,7 +1700,7 @@ export default function Dashboard() {
   // Earned badges
   const [earnedBadgeIds, setEarnedBadgeIds] = useState(new Set())
 
-  const nextDayModalTimerRef = useRef(null)
+  const missionConfettiTimerRef = useRef(null)
   const taskReloadTimerRef = useRef(null)
   const holdCompletedDayRef = useRef(false)
   const currentDayRowIdRef = useRef(null)
@@ -949,6 +1711,8 @@ export default function Dashboard() {
   const boostCheckedRef = useRef(false)
   const pendingTimersRef = useRef([])
   const isMountedRef = useRef(true)
+  const claimingModuleRewardRef = useRef(new Set())
+  const outlineRecoveryAttemptedRef = useRef(new Set())
   const tabScrollPositionsRef = useRef({
     home: 0,
     badges: 0,
@@ -964,11 +1728,27 @@ export default function Dashboard() {
     background: 'radial-gradient(circle at top, var(--theme-page-glow), transparent 34%), var(--theme-bg)',
   }), [themeVars])
 
+  const pathTracker = useMemo(() => buildPathOutlineTracker({
+    courseOutline: goal?.course_outline,
+    rows: allRows,
+    todayRowId: todayRow?.id || null,
+    goalText: goal?.goal_text || '',
+    claimedModuleRewardIds,
+  }), [goal?.course_outline, goal?.goal_text, allRows, todayRow?.id, claimedModuleRewardIds])
+
   const applyTheme = useCallback((themeId) => {
     const nextTheme = themeId === 'default' || ownedThemes.includes(themeId) ? themeId : 'default'
     setActiveTheme(nextTheme)
     setStoredActiveTheme(nextTheme)
   }, [ownedThemes])
+
+  const togglePathModule = useCallback((moduleId) => {
+    setExpandedPathModules((prev) => ({ ...prev, [moduleId]: !prev[moduleId] }))
+  }, [])
+
+  const togglePathUnit = useCallback((unitId) => {
+    setExpandedPathUnits((prev) => ({ ...prev, [unitId]: !prev[unitId] }))
+  }, [])
 
   const resolveMissionCompletion = useCallback((didPersist = true) => {
     if (missionCompletionResolverRef.current) {
@@ -992,7 +1772,7 @@ export default function Dashboard() {
     setTasks(Array.isArray(nextRow.tasks) ? nextRow.tasks : [])
     setMissionDone(nextRow.completion_status === 'completed')
     setTomorrowRow(followingRow)
-    setMcData(null)
+    setShowMissionConfetti(false)
   }, [allRows])
 
   // ─── Load ──────────────────────────────────────────────────────────────────
@@ -1014,7 +1794,8 @@ export default function Dashboard() {
       .order('created_at', { ascending: false }).limit(1).maybeSingle()
     if (ge) { setError(ge.message); setLoading(false); return }
     if (!activeGoal) { setLoading(false); return }
-    setGoal(activeGoal)
+    const hydratedGoal = hydrateGoalCourseOutline(activeGoal)
+    setGoal(hydratedGoal)
 
     // Load all goals for sidebar
     const { data: goalsList } = await supabase
@@ -1022,16 +1803,22 @@ export default function Dashboard() {
       .eq('user_id', me.id).order('created_at', { ascending: false })
     setAllGoals(goalsList || [])
 
-    const { data: rows, error: re } = await supabase
-      .from('daily_tasks').select('*')
-      .eq('goal_id', activeGoal.id).eq('user_id', me.id)
-      .order('day_number', { ascending: true })
+    const [{ data: rows, error: re }, { data: prog, error: progError }] = await Promise.all([
+      supabase
+        .from('daily_tasks').select('*')
+        .eq('goal_id', hydratedGoal.id).eq('user_id', me.id)
+        .order('day_number', { ascending: true }),
+      supabase
+        .from('user_progress').select('total_xp,current_streak,longest_streak,freeze_count,hearts_remaining,hearts_refill_at,total_days,gems,xp_boost_until')
+        .eq('goal_id', hydratedGoal.id).eq('user_id', me.id).maybeSingle(),
+    ])
     if (re) { setError(re.message); setLoading(false); return }
 
     // If a newer load() was started while we were awaiting, bail out — it will handle state
     if (thisLoadId !== loadIdRef.current) { setLoading(false); return }
 
-    const taskRows = applyCompletedTaskFloor(rows || [], completedTaskIdsByRowRef.current)
+    const scopedSourceRows = filterRowsForCourseWindow(rows || [], Number(prog?.total_days) || 0)
+    const taskRows = applyCompletedTaskFloor(scopedSourceRows, completedTaskIdsByRowRef.current)
     const nextCompletionFloor = new Map(completedTaskIdsByRowRef.current)
     taskRows.forEach((row) => {
       const completedIds = (Array.isArray(row.tasks) ? row.tasks : [])
@@ -1043,6 +1830,19 @@ export default function Dashboard() {
     })
     completedTaskIdsByRowRef.current = nextCompletionFloor
     setAllRows(taskRows)
+
+    const trackerSnapshot = buildPathOutlineTracker({
+      courseOutline: hydratedGoal?.course_outline,
+      rows: taskRows,
+      goalText: hydratedGoal?.goal_text || '',
+      claimedModuleRewardIds: [],
+    })
+    const expectedGoalDayCount = Math.max(
+      Number(prog?.total_days) || 0,
+      Number(hydratedGoal?.total_days) || 0,
+      Number(trackerSnapshot.plannedDayCount) || 0,
+    )
+    const trackerUnderestimatesCourse = expectedGoalDayCount > (Number(trackerSnapshot.plannedDayCount) || 0)
 
     const heldCompletedDay = holdCompletedDayRef.current && currentDayRowIdRef.current
       ? taskRows.find(r => r.id === currentDayRowIdRef.current) || null
@@ -1058,7 +1858,10 @@ export default function Dashboard() {
     const today = shouldPreserveCompletedDay
       ? heldCompletedDay
       : preferredRow
-      || taskRows.find(r => r.completion_status !== 'completed') || taskRows[taskRows.length-1]
+      || trackerSnapshot.currentGeneratedRow
+      || trackerSnapshot.lastCompletedRow
+      || taskRows.find(r => r.completion_status !== 'completed')
+      || taskRows[taskRows.length-1]
     if (!shouldPreserveCompletedDay) holdCompletedDayRef.current = false
     setTodayRow(today || null)
     if (today) {
@@ -1076,18 +1879,24 @@ export default function Dashboard() {
         return patched ? merged : dayTasks
       })
       const dayDone = today.completion_status === 'completed'
+      const isCompletedFinalExamDay = dayTasks.some(isCourseFinalExamTask)
       setMissionDone(dayDone)
       // If day is already complete on load, show the Next Day button inline
-      if (dayDone) setShowNextDayCTA(true)
+      if (dayDone && !isCompletedFinalExamDay && (!trackerSnapshot.courseCompleted || trackerUnderestimatesCourse)) {
+        setShowNextDayCTA(true)
+      }
+      else if (isCompletedFinalExamDay) setShowNextDayCTA(false)
     }
 
     const todayIdx   = taskRows.findIndex(r => r.id === today?.id)
-    const tomorrowR  = todayIdx >= 0 ? taskRows[todayIdx+1] || null : null
+    const tomorrowR  = shouldPreserveCompletedDay
+      ? trackerSnapshot.currentGeneratedRow || null
+      : today?.id === trackerSnapshot.currentGeneratedRow?.id
+        ? trackerSnapshot.nextGeneratedRow || null
+        : todayIdx >= 0
+          ? taskRows[todayIdx+1] || null
+          : null
     setTomorrowRow(tomorrowR)
-
-    const { data: prog, error: progError } = await supabase
-      .from('user_progress').select('total_xp,current_streak,longest_streak,freeze_count,hearts_remaining,hearts_refill_at,total_days,gems,xp_boost_until')
-      .eq('goal_id', activeGoal.id).eq('user_id', me.id).maybeSingle()
 
     try {
       const { data: themePurchaseData } = await supabase
@@ -1119,6 +1928,21 @@ export default function Dashboard() {
       ))
     }
 
+    try {
+      const { data: utilityRows } = await supabase
+        .from('gem_transactions')
+        .select('reason')
+        .eq('user_id', me.id)
+        .eq('goal_id', hydratedGoal.id)
+
+      const relevantRows = utilityRows || []
+      setInventoryCounts(buildInventoryCountsFromTransactions(relevantRows))
+      setClaimedModuleRewardIds(getClaimedModuleRewardIds(relevantRows))
+    } catch {
+      setInventoryCounts({ taskReroll: 0, reviewShield: 0 })
+      setClaimedModuleRewardIds([])
+    }
+
     // Only update state if the query succeeded — never reset gems/xp to 0 on error
     if (!progError && prog) {
       const storedXp   = Number(prog.total_xp) || 0
@@ -1135,7 +1959,7 @@ export default function Dashboard() {
           .from('gem_transactions')
           .select('id')
           .eq('user_id', me.id)
-          .eq('goal_id', activeGoal.id)
+          .eq('goal_id', hydratedGoal.id)
           .eq('reason', 'shop_heartContainer')
         const purchasedHeartSlots = (heartUpgradeData || []).length
         const derivedMaxHearts = Math.min(HEARTS_MAX_CAP, HEARTS_BASE + purchasedHeartSlots)
@@ -1165,7 +1989,7 @@ export default function Dashboard() {
             .from('gem_transactions')
             .select('amount')
             .eq('user_id', me.id)
-            .eq('goal_id', activeGoal.id)
+            .eq('goal_id', hydratedGoal.id)
             .lt('amount', 0)
           totalSpent = (spentData || []).reduce((s, t) => s + (Number(t.amount) || 0), 0)
         } catch { /* no transaction table yet — treat spent as 0 */ }
@@ -1176,7 +2000,7 @@ export default function Dashboard() {
             .from('user_progress')
             .update({ gems: finalGems })
             .eq('user_id', me.id)
-            .eq('goal_id', activeGoal.id)
+            .eq('goal_id', hydratedGoal.id)
             .then(() => {})
             .catch(() => {})
         }
@@ -1199,7 +2023,7 @@ export default function Dashboard() {
     try {
       const { data: extra } = await supabase
         .from('user_progress').select('reward_calendar,last_event_date')
-        .eq('goal_id', activeGoal.id).eq('user_id', me.id).maybeSingle()
+        .eq('goal_id', hydratedGoal.id).eq('user_id', me.id).maybeSingle()
       if (extra?.reward_calendar) {
         const cal = extra.reward_calendar
         const weekStart = getWeekStartStr()
@@ -1221,7 +2045,7 @@ export default function Dashboard() {
     try {
       const { data: { session: sess } } = await supabase.auth.getSession()
       const tok = sess?.access_token || null
-      const chalRes = await fetch(`/api/weekly-challenge?goalId=${activeGoal.id}${tok ? `&token=${tok}` : ''}`, {
+      const chalRes = await fetch(`/api/weekly-challenge?goalId=${hydratedGoal.id}${tok ? `&token=${tok}` : ''}`, {
         headers: tok ? { Authorization: `Bearer ${tok}` } : {},
       })
       if (chalRes.ok) {
@@ -1239,7 +2063,7 @@ export default function Dashboard() {
 
     // Analytics: app opened
     track(EVENTS.APP_OPENED, { isComeback: isBack }, {
-      userId: me.id, goalId: activeGoal.id,
+      userId: me.id, goalId: hydratedGoal.id,
       streakValue: currentStreak, xpBalance: Number(prog?.total_xp) || 0,
     })
 
@@ -1250,9 +2074,18 @@ export default function Dashboard() {
       fetch('/api/decay-check', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(dToken ? { Authorization: `Bearer ${dToken}` } : {}) },
-        body: JSON.stringify({ userId: me.id, goalId: activeGoal.id, accessToken: dToken }),
+        body: JSON.stringify({ userId: me.id, goalId: hydratedGoal.id, accessToken: dToken }),
       }).then(r => r.json()).then(d => {
+        if (d.shieldConsumed) {
+          setInventoryCounts((prev) => ({ ...prev, reviewShield: Number.isFinite(d.reviewShieldRemaining) ? d.reviewShieldRemaining : Math.max(0, (prev.reviewShield || 1) - 1) }))
+          setModuleRewardToasts((prev) => [...prev, {
+            id: `shield-${Date.now()}`,
+            title: 'Review shield used',
+            message: `${d.shieldedConceptId || 'A weak concept'} was deferred for one cycle.`,
+          }])
+        }
         if (d.decaying?.length > 0) setDecayingConcepts(d.decaying)
+        else setDecayingConcepts([])
       }).catch(() => {})
     } catch {}
 
@@ -1263,6 +2096,13 @@ export default function Dashboard() {
       })
 
     setLoading(false)
+    return {
+      today: today || null,
+      tomorrow: tomorrowR || null,
+      tracker: trackerSnapshot,
+      rows: taskRows,
+      goal: activeGoal,
+    }
   }, [router])
 
   useEffect(() => { load() }, [load])
@@ -1276,6 +2116,128 @@ export default function Dashboard() {
   }, [])
 
   useEffect(() => {
+    if (moduleRewardToasts.length === 0) return
+    const timer = setTimeout(() => setModuleRewardToasts([]), 4500)
+    return () => clearTimeout(timer)
+  }, [moduleRewardToasts])
+
+  useEffect(() => {
+    setExpandedPathModules({})
+    setExpandedPathUnits({})
+  }, [goal?.id])
+
+  useEffect(() => {
+    if (!goal?.id || !user?.id || goal?.mode === 'explore') return
+    const expectedUnitCount = Math.max(Number(goal?.total_days) || 0, Number(totalDaysPlanned) || 0)
+    const likelyBrokenShortCourse = expectedUnitCount > 0 && expectedUnitCount < 5
+    if (!likelyBrokenShortCourse && !courseOutlineNeedsRecovery(goal?.course_outline, expectedUnitCount)) return
+    if (outlineRecoveryAttemptedRef.current.has(goal.id)) return
+
+    outlineRecoveryAttemptedRef.current.add(goal.id)
+    ;(async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        const token = session?.access_token || null
+        const res = await fetch('/api/course-outline-recover', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ goalId: goal.id, userId: user.id, accessToken: token }),
+        })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok || !data.courseOutline) return
+
+        if (!isMountedRef.current) return
+        setGoal((prev) => prev?.id === goal.id ? { ...prev, course_outline: data.courseOutline } : prev)
+        if (data.sequenceDayCount) setTotalDaysPlanned(Number(data.sequenceDayCount))
+        await load(true)
+      } catch {
+        // Fallback tracker stays in place if recovery fails.
+      }
+    })()
+  }, [goal?.id, goal?.course_outline, goal?.mode, goal?.total_days, totalDaysPlanned, user?.id, load])
+
+  useEffect(() => {
+    if (!Array.isArray(pathTracker.modules) || pathTracker.modules.length === 0) return
+
+    setExpandedPathModules((prev) => {
+      const next = { ...prev }
+      let changed = false
+
+      pathTracker.modules.forEach((module) => {
+        if (next[module.id] == null) {
+          next[module.id] = module.id === pathTracker.currentModuleId
+          changed = true
+        }
+      })
+
+      if (pathTracker.currentModuleId && next[pathTracker.currentModuleId] == null) {
+        next[pathTracker.currentModuleId] = true
+        changed = true
+      }
+
+      return changed ? next : prev
+    })
+
+    if (pathTracker.currentUnitId) {
+      setExpandedPathUnits((prev) => (
+        prev[pathTracker.currentUnitId] == null
+          ? { ...prev, [pathTracker.currentUnitId]: true }
+          : prev
+      ))
+    }
+  }, [pathTracker.currentModuleId, pathTracker.currentUnitId, pathTracker.modules])
+
+  useEffect(() => {
+    if (!goal?.id || !user?.id) return
+    const nextModuleReward = pathTracker.modules.find((module) => (
+      module.sealEarned
+      && !module.rewardClaimed
+      && !claimingModuleRewardRef.current.has(module.id)
+    ))
+    if (!nextModuleReward) return
+
+    claimingModuleRewardRef.current.add(nextModuleReward.id)
+    ;(async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        const token = session?.access_token || null
+        const res = await fetch('/api/module-mastery-claim', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ goalId: goal.id, moduleId: nextModuleReward.id, accessToken: token }),
+        })
+        const data = await res.json()
+        if (!res.ok || data.alreadyClaimed) {
+          setClaimedModuleRewardIds((prev) => Array.from(new Set([...prev, nextModuleReward.id])))
+          return
+        }
+        if (data.newGemTotal != null) setGems(data.newGemTotal)
+        if (data.rewardAmount) {
+          setGemToasts((prev) => [...prev, { id: Date.now(), amount: data.rewardAmount }])
+          setModuleRewardToasts((prev) => [...prev, {
+            id: `${nextModuleReward.id}-${Date.now()}`,
+            title: nextModuleReward.title,
+            rewardAmount: data.rewardAmount,
+            identityLabel: data.identityLabel || nextModuleReward.identityLabel,
+          }])
+        }
+        setClaimedModuleRewardIds((prev) => Array.from(new Set([...prev, nextModuleReward.id])))
+      } catch {
+        // Retry on next render if needed
+        claimingModuleRewardRef.current.delete(nextModuleReward.id)
+        return
+      }
+      claimingModuleRewardRef.current.delete(nextModuleReward.id)
+    })()
+  }, [goal?.id, pathTracker.modules, user?.id])
+
+  useEffect(() => {
     currentDayRowIdRef.current = todayRow?.id || null
   }, [todayRow?.id])
 
@@ -1284,7 +2246,7 @@ export default function Dashboard() {
     isMountedRef.current = true
     return () => {
       isMountedRef.current = false
-      if (nextDayModalTimerRef.current) clearTimeout(nextDayModalTimerRef.current)
+      if (missionConfettiTimerRef.current) clearTimeout(missionConfettiTimerRef.current)
       if (taskReloadTimerRef.current) clearTimeout(taskReloadTimerRef.current)
       pendingTimersRef.current.forEach(clearTimeout)
       pendingTimersRef.current = []
@@ -1404,6 +2366,7 @@ export default function Dashboard() {
     const prevTasks = tasks
     const prevCompletedCount = countCompletedTasks(prevTasks)
     const prevRowStatus = deriveTaskRowStatus(prevTasks, todayRow?.completion_status || 'not_started')
+    const isCourseFinalTask = isCourseFinalExamTask(task)
     const xpAmount  = xpForTask(task.type)
     const optimisticTaskGems = 5
     let nextGemFloor = gems + optimisticTaskGems
@@ -1455,33 +2418,21 @@ export default function Dashboard() {
 
     // 3b. Instant mission complete — don't wait for API
     const allDoneNow = nextTasks.every(t => t.completed)
-    if (allDoneNow) {
+    if (allDoneNow && !isCourseFinalTask) {
       if (missionCompletionResolverRef.current) missionCompletionResolverRef.current(false)
       missionCompletionPromiseRef.current = new Promise((resolve) => {
         missionCompletionResolverRef.current = resolve
       })
       holdCompletedDayRef.current = true
-      setShowNextDayCTA(false)
+      setShowNextDayCTA(true)
       setAdvancingNextDay(false)
       setMissionDone(true)
-      setMcData({
-        conceptName:    todayRow?.covered_topics?.[0] || `Day ${todayRow?.day_number}`,
-        dayNumber:      todayRow?.day_number,
-        xpEarned:       xpAmount + 50, // optimistic: task + mission bonus
-        taskXp:         xpAmount,
-        missionBonusXp: 50,
-        streakBonusXp:  0,
-        gemsEarned:     20, // optimistic: 5 task + 15 mission
-        newStreak:      streakData.current || 1,
-        levelUp:        null,
-        tomorrowConcept:   tomorrowRow?.covered_topics?.[0] || null,
-        tomorrowDayNumber: tomorrowRow?.day_number || null,
-      })
-      if (nextDayModalTimerRef.current) clearTimeout(nextDayModalTimerRef.current)
-      nextDayModalTimerRef.current = setTimeout(() => {
-        setShowNextDayModal(true)
-        nextDayModalTimerRef.current = null
-      }, 500)
+      setShowMissionConfetti(true)
+      if (missionConfettiTimerRef.current) clearTimeout(missionConfettiTimerRef.current)
+      missionConfettiTimerRef.current = setTimeout(() => {
+        if (isMountedRef.current) setShowMissionConfetti(false)
+        missionConfettiTimerRef.current = null
+      }, 2400)
     }
 
     // 4. API call (async, non-blocking)
@@ -1522,6 +2473,8 @@ export default function Dashboard() {
       })
 
       if (!res.ok) {
+        let failureData = null
+        try { failureData = await res.json() } catch {}
         setTasks(prevTasks)
         if (rowId) {
           const completedIds = new Set(completedTaskIdsByRowRef.current.get(rowId) || [])
@@ -1543,19 +2496,18 @@ export default function Dashboard() {
         }
         setXpDisplay(getLevelProgress(prevXp))
         setGems(g => Math.max(0, g - optimisticTaskGems)) // rollback optimistic gem
-        if (allDoneNow) {
+        if (allDoneNow && !isCourseFinalTask) {
           resolveMissionCompletion(false)
           holdCompletedDayRef.current = false
-          if (nextDayModalTimerRef.current) {
-            clearTimeout(nextDayModalTimerRef.current)
-            nextDayModalTimerRef.current = null
+          if (missionConfettiTimerRef.current) {
+            clearTimeout(missionConfettiTimerRef.current)
+            missionConfettiTimerRef.current = null
           }
-          setShowNextDayModal(false)
+          setShowMissionConfetti(false)
           setShowNextDayCTA(false)
           setMissionDone(false)
-          setMcData(null)
         }
-        setError('Could not save. Try again.')
+        setError(failureData?.error || 'Could not save. Try again.')
         setCompleting(null)
         return
       }
@@ -1563,6 +2515,52 @@ export default function Dashboard() {
       const data = await res.json()
       // API succeeded — task is persisted. NEVER revert after this point.
       apiOk = true
+
+      if (isCourseFinalTask && data.finalExamPassed === false) {
+        const revertedTasks = Array.isArray(data.updatedTasks) ? data.updatedTasks : prevTasks
+        const revertedCompletedCount = countCompletedTasks(revertedTasks)
+        const revertedStatus = data.completionStatus || deriveTaskRowStatus(revertedTasks, 'in_progress')
+        setTasks(revertedTasks)
+        if (rowId) {
+          const completedIds = new Set(completedTaskIdsByRowRef.current.get(rowId) || [])
+          completedIds.delete(String(task.id))
+          if (completedIds.size > 0) completedTaskIdsByRowRef.current.set(rowId, completedIds)
+          else completedTaskIdsByRowRef.current.delete(rowId)
+          setTodayRow(prev => prev?.id === rowId ? {
+            ...prev,
+            tasks: revertedTasks,
+            tasks_completed: revertedCompletedCount,
+            completion_status: revertedStatus,
+          } : prev)
+          setAllRows(prev => prev.map(row => row.id === rowId ? {
+            ...row,
+            tasks: revertedTasks,
+            tasks_completed: revertedCompletedCount,
+            completion_status: revertedStatus,
+          } : row))
+        }
+        setXpDisplay(getLevelProgress(prevXp))
+        setGems(g => Math.max(0, g - optimisticTaskGems))
+        setMissionDone(false)
+        setCourseCompleteData(null)
+        setError(
+          data.finalExam?.failedOut
+            ? `Final exam not passed. You have used all ${data.finalExam.maxAttempts || 3} attempts.`
+            : `Final exam not passed. ${data.finalExam?.attemptsRemaining ?? 0} attempt${(data.finalExam?.attemptsRemaining ?? 0) === 1 ? '' : 's'} remaining.`
+        )
+        setCompleting(null)
+        return
+      }
+
+      if (Array.isArray(data.nextResult?.rows) && data.nextResult.rows.length > 0) {
+        const mergedRows = mergeRowsByDayNumber(allRows, data.nextResult.rows)
+        setAllRows(mergedRows)
+        const nextDayNumber = Number(data.nextResult?.startDay) || Number(data.nextResult.rows[0]?.day_number) || null
+        const inferredTomorrowRow = nextDayNumber != null
+          ? mergedRows.find((row) => Number(row.day_number) === nextDayNumber) || null
+          : data.nextResult.rows[0] || null
+        if (inferredTomorrowRow) setTomorrowRow(inferredTomorrowRow)
+      }
 
       // Apply server corrections (wrapped separately so errors don't revert task)
       try {
@@ -1655,25 +2653,12 @@ export default function Dashboard() {
       } catch { /* Post-API processing error — task is already saved, don't revert */ }
 
       // Mission complete — correct optimistic data with server values
-      if (data.missionComplete || allDoneNow) {
+      if (!isCourseFinalTask && (data.missionComplete || allDoneNow)) {
         const stillViewingCompletedDay = currentDayRowIdRef.current === rowId
-        const mc = {
-          conceptName:    todayRow.covered_topics?.[0] || `Day ${todayRow.day_number}`,
-          dayNumber:      todayRow.day_number,
-          xpEarned:       data.xpEarned ?? (xpAmount + (data.missionBonusXp||0) + (data.streakBonusXp||0)),
-          taskXp:         data.taskXp       ?? xpAmount,
-          missionBonusXp: data.missionBonusXp ?? 0,
-          streakBonusXp:  data.streakBonusXp  ?? 0,
-          gemsEarned:     data.gemsEarned   ?? 0,
-          newStreak:      data.streakState?.current ?? streakData.current,
-          levelUp:        data.levelUp ?? null,
-          tomorrowConcept:   tomorrowRow?.covered_topics?.[0] || null,
-          tomorrowDayNumber: tomorrowRow?.day_number || null,
-        }
         if (stillViewingCompletedDay) {
           holdCompletedDayRef.current = true
-          setMcData(mc) // update with real server data
           setMissionDone(true)
+          setShowNextDayCTA(true)
           setTodayRow(prev => prev?.id === rowId ? {
             ...prev,
             tasks: nextTasks,
@@ -1686,14 +2671,38 @@ export default function Dashboard() {
           completion_status: 'completed',
         } : row))
         try {
-          track(EVENTS.MISSION_COMPLETED, { totalXp: mc.xpEarned, dayNumber: mc.dayNumber }, {
+          track(EVENTS.MISSION_COMPLETED, {
+            totalXp: data.xpEarned ?? (xpAmount + (data.missionBonusXp || 0) + (data.streakBonusXp || 0)),
+            dayNumber: todayRow.day_number,
+          }, {
             userId: user?.id, goalId: goal?.id, missionId: todayRow?.id,
-            streakValue: mc.newStreak, energyMode: energy,
+            streakValue: data.streakState?.current ?? streakData.current,
+            energyMode: energy,
           })
         } catch { /* analytics never blocks */ }
       }
 
-      if (allDoneNow) resolveMissionCompletion(true)
+      if (isCourseFinalTask && data.courseCompleted) {
+        holdCompletedDayRef.current = false
+        setShowMissionConfetti(false)
+        setShowNextDayCTA(false)
+        setMissionDone(false)
+        setCourseCompleteData(data.courseCompletion || null)
+        setTodayRow(prev => prev?.id === rowId ? {
+          ...prev,
+          tasks: nextTasks,
+          tasks_completed: nextCompletedCount,
+          completion_status: 'completed',
+        } : prev)
+        setAllRows(prev => prev.map(row => row.id === rowId ? {
+          ...row,
+          tasks: nextTasks,
+          tasks_completed: nextCompletedCount,
+          completion_status: 'completed',
+        } : row))
+      }
+
+      if (allDoneNow && !isCourseFinalTask) resolveMissionCompletion(true)
 
       if (data.levelUp) {
         try {
@@ -1703,10 +2712,10 @@ export default function Dashboard() {
         } catch { /* analytics never blocks */ }
       }
 
-      if (!(data.missionComplete || allDoneNow)) {
+      if (!(data.missionComplete || allDoneNow) || (isCourseFinalTask && data.courseCompleted)) {
         if (taskReloadTimerRef.current) clearTimeout(taskReloadTimerRef.current)
         taskReloadTimerRef.current = setTimeout(() => {
-          if (isMountedRef.current) load(true, { preserveGemFloor: nextGemFloor })
+          if (isMountedRef.current) load(true, { preserveGemFloor: nextGemFloor, preferredRowId: rowId })
           taskReloadTimerRef.current = null
         }, 1200)
         pendingTimersRef.current.push(taskReloadTimerRef.current)
@@ -1735,25 +2744,73 @@ export default function Dashboard() {
         }
         setXpDisplay(getLevelProgress(prevXp))
         setGems(g => Math.max(0, g - optimisticTaskGems)) // rollback optimistic gem
-        if (allDoneNow) {
+        if (allDoneNow && !isCourseFinalTask) {
           resolveMissionCompletion(false)
           holdCompletedDayRef.current = false
-          if (nextDayModalTimerRef.current) {
-            clearTimeout(nextDayModalTimerRef.current)
-            nextDayModalTimerRef.current = null
+          if (missionConfettiTimerRef.current) {
+            clearTimeout(missionConfettiTimerRef.current)
+            missionConfettiTimerRef.current = null
           }
-          setShowNextDayModal(false)
+          setShowMissionConfetti(false)
           setShowNextDayCTA(false)
           setMissionDone(false)
-          setMcData(null)
         }
         setError('Network error. Check your connection.')
       }
     } finally {
-      if (allDoneNow && !apiOk) resolveMissionCompletion(false)
+      if (allDoneNow && !apiOk && !isCourseFinalTask) resolveMissionCompletion(false)
       setCompleting(null)
     }
-  }, [tasks, completing, xpDisplay, todayRow, tomorrowRow, streakData, addXpToast, load, gems, user, goal, energy, resolveMissionCompletion])
+  }, [tasks, completing, xpDisplay, todayRow, streakData, addXpToast, load, gems, user, goal, energy, resolveMissionCompletion, allRows])
+
+  const handleTaskReroll = useCallback(async (task) => {
+    if (rerollingTaskId || !goal || !todayRow || !canRerollTask(task)) return
+    setRerollingTaskId(task.id)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token || null
+      const res = await fetch('/api/task-reroll', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          goalId: goal.id,
+          taskRowId: todayRow.id,
+          taskId: task.id,
+          accessToken: token,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setError(data.error || 'Could not reroll that task')
+        return
+      }
+
+      const nextTasks = (Array.isArray(todayRow.tasks) ? todayRow.tasks : tasks).map((entry) => (
+        String(entry.id) === String(task.id) ? data.replacementTask : entry
+      ))
+
+      setTasks((prev) => prev.map((entry) => (
+        String(entry.id) === String(task.id) ? data.replacementTask : entry
+      )))
+      setTodayRow((prev) => prev?.id === todayRow.id ? { ...prev, tasks: nextTasks } : prev)
+      setAllRows((prev) => prev.map((row) => (
+        row.id === todayRow.id ? { ...row, tasks: nextTasks } : row
+      )))
+      if (data.inventoryCounts) setInventoryCounts(data.inventoryCounts)
+      setModuleRewardToasts((prev) => [...prev, {
+        id: `reroll-${task.id}-${Date.now()}`,
+        title: 'Task refreshed',
+        message: `${task.title} was replaced with a new valid task.`,
+      }])
+    } catch {
+      setError('Could not reroll that task')
+    } finally {
+      setRerollingTaskId(null)
+    }
+  }, [goal, rerollingTaskId, tasks, todayRow])
 
   // ─── Streak freeze ─────────────────────────────────────────────────────────
   const handleFreeze = useCallback(async () => {
@@ -1826,7 +2883,14 @@ export default function Dashboard() {
         body: JSON.stringify({ goalId: goal.id, userId: user.id, mode: goal.mode || 'goal', accessToken: token }),
       })
       generatedData = await res.json().catch(() => null)
-    } catch { /* silent */ }
+      if (!res.ok) {
+        throw new Error(generatedData?.error || 'Could not generate the next day')
+      }
+    } catch (error) {
+      setGeneratingNext(false)
+      setError(error?.message || 'Could not generate the next day')
+      throw error
+    }
     const insertedRows = Array.isArray(generatedData?.rows) ? generatedData.rows : []
     const nextDayNumber = Number.isFinite(options?.preferredDayNumber)
       ? Number(options.preferredDayNumber)
@@ -1839,12 +2903,17 @@ export default function Dashboard() {
         : insertedRows[0]
       setAllRows(mergedRows)
       activateDayRow(preferredInsertedRow, mergedRows)
-      await load(true, {
-        preferredRowId: preferredInsertedRow?.id || null,
-        preferredDayNumber: nextDayNumber != null ? nextDayNumber : Number(preferredInsertedRow?.day_number) || null,
-      })
+      setShowNextDayCTA(false)
+      setMissionDone(false)
+    } else if (generatedData?.reason === 'course_finished') {
+      setShowNextDayCTA(false)
     } else {
-      await load(true, nextDayNumber != null ? { preferredDayNumber: nextDayNumber } : {})
+      const loadResult = await load(true, nextDayNumber != null ? { preferredDayNumber: nextDayNumber } : {})
+      const loadedDayNumber = Number(loadResult?.today?.day_number) || null
+      if (nextDayNumber != null && loadedDayNumber === nextDayNumber && loadResult?.today?.id) {
+        setShowNextDayCTA(false)
+        setMissionDone(false)
+      }
     }
     setGeneratingNext(false)
     return generatedData
@@ -1853,12 +2922,12 @@ export default function Dashboard() {
   // ─── Fast-forward to next day ───────────────────────────────────────────────
   const handleStartNextDay = useCallback(async () => {
     if (advancingNextDay) return
-    if (nextDayModalTimerRef.current) {
-      clearTimeout(nextDayModalTimerRef.current)
-      nextDayModalTimerRef.current = null
+    if (missionConfettiTimerRef.current) {
+      clearTimeout(missionConfettiTimerRef.current)
+      missionConfettiTimerRef.current = null
     }
+    setShowMissionConfetti(false)
     setAdvancingNextDay(true)
-    setShowNextDayModal(false)
     setShowNextDayCTA(false)
 
     // Always clear hold flag — we want to move forward, not stay on completed day
@@ -1871,45 +2940,77 @@ export default function Dashboard() {
         new Promise(resolve => setTimeout(() => resolve(true), 2000)),
       ])
 
-      // Compute the next day number from current day
-      const currentDayNum = Number(todayRow?.day_number) || 0
-      const nextDayNum = currentDayNum + 1
+      const immediateNextRowReady = (
+        tomorrowRow
+        && tomorrowRow.id !== todayRow?.id
+        && Number(tomorrowRow.day_number) > (Number(todayRow?.day_number) || 0)
+        && tomorrowRow.completion_status !== 'completed'
+      ) ? tomorrowRow : null
 
-      // Strategy 1: tomorrowRow already exists in client state
-      if (tomorrowRow) {
-        activateDayRow(tomorrowRow, allRows)
-        await load(true, { preferredRowId: tomorrowRow.id, preferredDayNumber: tomorrowRow.day_number })
+      if (immediateNextRowReady) {
+        const mergedRows = mergeRowsByDayNumber(allRows, [immediateNextRowReady])
+        setAllRows(mergedRows)
+        activateDayRow(immediateNextRowReady, mergedRows)
+        setMissionDone(false)
         return
       }
 
-      // Strategy 2: try to load from DB — the complete API may have already generated the next day
-      holdCompletedDayRef.current = false
-      await load(true, { preferredDayNumber: nextDayNum })
+      const expectedCourseSpan = Math.max(
+        Number(totalDaysPlanned) || 0,
+        Number(goal?.total_days) || 0,
+        Number(pathTracker.plannedDayCount) || 0,
+      )
+      const effectiveCourseCompleted = pathTracker.courseCompleted && expectedCourseSpan <= (Number(pathTracker.plannedDayCount) || 0)
+      const nextTargetDay = Number(tomorrowRow?.day_number)
+        || Number(pathTracker.currentDayNumber)
+        || (expectedCourseSpan > (Number(todayRow?.day_number) || 0) ? (Number(todayRow?.day_number) || 0) + 1 : null)
+      if (!nextTargetDay || effectiveCourseCompleted) {
+        setShowNextDayCTA(false)
+        return
+      }
 
-      // Check if load actually moved us forward (check via ref since state hasn't flushed)
-      const movedForward = currentDayRowIdRef.current !== todayRow?.id
+      // Strategy 0: completion API already gave us the exact next row
+      if (
+        tomorrowRow
+        && tomorrowRow.id !== todayRow?.id
+        && Number(tomorrowRow.day_number) === nextTargetDay
+        && tomorrowRow.completion_status !== 'completed'
+      ) {
+        const mergedRows = mergeRowsByDayNumber(allRows, [tomorrowRow])
+        setAllRows(mergedRows)
+        activateDayRow(tomorrowRow, mergedRows)
+        setMissionDone(false)
+        return
+      }
+
+      // Strategy 1: next curriculum item already exists in client state
+      if (
+        pathTracker.currentGeneratedRow
+        && pathTracker.currentGeneratedRow.id !== todayRow?.id
+        && Number(pathTracker.currentGeneratedRow.day_number) > (Number(todayRow?.day_number) || 0)
+      ) {
+        activateDayRow(pathTracker.currentGeneratedRow, allRows)
+        setMissionDone(false)
+        return
+      }
+
+      // Strategy 2: try to load from DB — the completion API may have already generated the next sequence item
+      holdCompletedDayRef.current = false
+      const loadResult = await load(true, { preferredDayNumber: nextTargetDay })
+
+      // Check the actual loaded row instead of a ref that updates on the next render tick.
+      const movedForward = Number(loadResult?.today?.day_number) === nextTargetDay
       if (movedForward) return
 
-      // Strategy 3: generate next day if it doesn't exist yet
-      await handleGenerateNext({ preferredDayNumber: nextDayNum })
+      // Strategy 3: generate the exact next sequence item if it doesn't exist yet
+      await handleGenerateNext({ preferredDayNumber: nextTargetDay })
     } catch {
       // If advancing fails, restore the CTA so the user can retry
       if (isMountedRef.current) setShowNextDayCTA(true)
     } finally {
       if (isMountedRef.current) setAdvancingNextDay(false)
     }
-  }, [advancingNextDay, todayRow, tomorrowRow, allRows, activateDayRow, load, handleGenerateNext])
-
-  const handleDoLater = useCallback(() => {
-    if (advancingNextDay) return
-    if (nextDayModalTimerRef.current) {
-      clearTimeout(nextDayModalTimerRef.current)
-      nextDayModalTimerRef.current = null
-    }
-    holdCompletedDayRef.current = true
-    setShowNextDayModal(false)
-    setShowNextDayCTA(true)
-  }, [advancingNextDay])
+  }, [advancingNextDay, todayRow, tomorrowRow, allRows, activateDayRow, load, handleGenerateNext, pathTracker, totalDaysPlanned, goal?.total_days])
 
   // ─── Lesson complete ────────────────────────────────────────────────────────
   const handleLessonComplete = useCallback((task, metrics = {}) => {
@@ -1940,6 +3041,12 @@ export default function Dashboard() {
   // ─── Computed ───────────────────────────────────────────────────────────────
   const visibleTasks = useMemo(() => getFilteredTasks(tasks, energy), [tasks, energy])
   const hiddenCount = tasks.length - visibleTasks.length
+  const expectedCourseSpan = Math.max(
+    Number(totalDaysPlanned) || 0,
+    Number(goal?.total_days) || 0,
+    Number(pathTracker.plannedDayCount) || 0,
+  )
+  const effectiveCourseCompleted = pathTracker.courseCompleted && expectedCourseSpan <= (Number(pathTracker.plannedDayCount) || 0)
   const isTodayComplete = Boolean(
     todayRow && (
       missionDone
@@ -1948,12 +3055,39 @@ export default function Dashboard() {
     )
   )
   const nextDayBusy = advancingNextDay || generatingNext
-  const showInlineNextDayCTA = !showNextDayModal && showNextDayCTA
-  const showInlineNextDayProgress = !showNextDayModal && nextDayBusy
-  const nextDayStatusLabel = generatingNext ? 'Generating your next day...' : 'Loading next day...'
+  const showInlineNextDayCTA = showNextDayCTA && !effectiveCourseCompleted
+  const showInlineNextDayProgress = nextDayBusy && !effectiveCourseCompleted
+  const nextSequenceKind = pathTracker.currentItemKind
+  const nextSequenceTitle = pathTracker.sequenceItems.find((item) => item.id === pathTracker.currentItemId)?.title || null
+  const nextItemIsProject = nextSequenceKind === 'mini_project' || nextSequenceKind === 'full_project'
+  const nextRowIsFinalExam = nextSequenceKind === 'final_exam'
+  const nextDayStatusLabel = generatingNext
+    ? (nextRowIsFinalExam
+      ? 'Preparing your final exam...'
+      : nextItemIsProject
+        ? 'Preparing your project day...'
+        : 'Generating your next day...')
+    : (nextRowIsFinalExam
+      ? 'Loading final exam...'
+      : nextItemIsProject
+        ? 'Loading your project day...'
+        : 'Loading next day...')
   const nextDayStatusDetail = generatingNext
-    ? 'Building the next mission and pulling it into your dashboard now.'
-    : 'Switching you into the next day\'s unfinished tasks.'
+    ? (nextRowIsFinalExam
+      ? 'Building the comprehensive finish test and pulling it into your dashboard now.'
+      : nextItemIsProject
+        ? 'Setting up the dedicated project day for this module and pulling it into your dashboard now.'
+        : 'Building the next mission and pulling it into your dashboard now.')
+    : (nextRowIsFinalExam
+      ? 'Switching you into the comprehensive course finish test.'
+      : nextItemIsProject
+        ? 'Switching you into the dedicated module project day.'
+        : 'Switching you into the next day\'s unfinished tasks.')
+  const nextDayCtaLabel = nextRowIsFinalExam
+    ? 'Start final exam →'
+    : nextItemIsProject
+      ? `Start ${nextSequenceKind === 'full_project' ? 'module project' : 'mini-project'} →`
+      : 'Start next day →'
 
   const doneRows   = allRows.filter(r => r.completion_status === 'completed').length
   const totalRows  = allRows.length
@@ -2116,16 +3250,102 @@ export default function Dashboard() {
       {/* XP toasts */}
       {xpToasts.map(t => <XPToast key={t.id} {...t} onDone={removeXpToast}/>)}
 
+      {/* Module mastery + utility toasts */}
+      {moduleRewardToasts.length > 0 && (
+        <div style={{
+          position:'fixed',
+          top:92,
+          right:16,
+          zIndex:9400,
+          display:'flex',
+          flexDirection:'column',
+          gap:10,
+          width:'min(320px, calc(100vw - 32px))',
+          pointerEvents:'none',
+        }}>
+          {moduleRewardToasts.map((toast) => {
+            const isReward = Number.isFinite(Number(toast.rewardAmount)) && Number(toast.rewardAmount) > 0
+            return (
+              <div key={toast.id} style={{
+                borderRadius:18,
+                border:`1px solid ${isReward ? 'rgba(251,191,36,0.24)' : T.tealBorder}`,
+                background:isReward
+                  ? 'linear-gradient(145deg, rgba(251,191,36,0.12), rgba(255,255,255,0.06))'
+                  : 'rgba(6,6,15,0.88)',
+                boxShadow:isReward
+                  ? '0 20px 38px rgba(251,191,36,0.14)'
+                  : '0 18px 34px rgba(0,0,0,0.28)',
+                padding:'14px 16px',
+                backdropFilter:'blur(18px)',
+                WebkitBackdropFilter:'blur(18px)',
+                animation:'fadeUp 0.24s ease both',
+                pointerEvents:'auto',
+              }}>
+                <div style={{display:'flex',alignItems:'flex-start',gap:12}}>
+                  <div style={{
+                    width:38,height:38,borderRadius:14,flexShrink:0,
+                    display:'flex',alignItems:'center',justifyContent:'center',
+                    background:isReward ? 'rgba(251,191,36,0.14)' : 'rgba(14,245,194,0.10)',
+                    border:`1px solid ${isReward ? 'rgba(251,191,36,0.22)' : T.tealBorder}`,
+                    color:isReward ? T.amber : T.teal,
+                  }}>
+                    <IconGlyph name={isReward ? 'gem' : 'shield_check'} size={18} strokeWidth={2.4} color={isReward ? T.amber : T.teal}/>
+                  </div>
+                  <div style={{minWidth:0,flex:1}}>
+                    <div style={{
+                      fontSize:11,
+                      fontWeight:900,
+                      letterSpacing:'0.12em',
+                      textTransform:'uppercase',
+                      color:isReward ? T.amber : T.teal,
+                      marginBottom:5,
+                    }}>
+                      {isReward ? 'Module mastery' : 'Path update'}
+                    </div>
+                    <div style={{fontSize:14,fontWeight:800,color:T.text,lineHeight:1.35,marginBottom:4}}>
+                      {toast.title || 'Update'}
+                    </div>
+                    {toast.message && (
+                      <div style={{fontSize:12,color:T.textSec,lineHeight:1.5}}>
+                        {toast.message}
+                      </div>
+                    )}
+                    {isReward && (
+                      <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',marginTop:6}}>
+                        <span style={{fontSize:12,fontWeight:800,color:T.amber}}>+{toast.rewardAmount} gems</span>
+                        {toast.identityLabel && (
+                          <span style={{
+                            display:'inline-flex',alignItems:'center',gap:6,
+                            padding:'4px 8px',borderRadius:9999,
+                            background:'rgba(255,255,255,0.06)',border:`1px solid ${T.border}`,
+                            fontSize:10,fontWeight:900,color:T.textSec,letterSpacing:'0.08em',textTransform:'uppercase',
+                          }}>
+                            <IconGlyph name="badge" size={11} strokeWidth={2.2} color={T.amber}/>
+                            {toast.identityLabel}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
       {/* Level-up banner */}
       {levelUpData && <LevelUpBanner data={levelUpData} onDismiss={() => setLevelUpData(null)}/>}
 
-      {/* Mission complete overlay */}
-      <MissionComplete
-        isVisible={Boolean(showNextDayModal && mcData)}
-        data={mcData}
-        isStartingTomorrow={nextDayBusy}
-        onDoLater={handleDoLater}
-        onStartTomorrow={handleStartNextDay}
+      <MissionConfettiBurst active={showMissionConfetti}/>
+
+      <CourseCompleteOverlay
+        data={courseCompleteData}
+        onDismiss={() => setCourseCompleteData(null)}
+        onOpenPortfolio={() => {
+          setCourseCompleteData(null)
+          router.push('/portfolio')
+        }}
       />
 
       {/* Treasure Chest */}
@@ -2217,6 +3437,8 @@ export default function Dashboard() {
         <TaskPreview
           task={previewTask}
           isCompleting={completing}
+          rerollingTaskId={rerollingTaskId}
+          rerollCount={inventoryCounts.taskReroll || 0}
           onClose={() => setPreviewTask(null)}
           onStart={t => {
             setPreviewTask(null)
@@ -2226,6 +3448,10 @@ export default function Dashboard() {
           onComplete={(t, e) => {
             setPreviewTask(null)
             completeTask(t, e)
+          }}
+          onReroll={(t) => {
+            setPreviewTask(null)
+            handleTaskReroll(t)
           }}
         />
       )}
@@ -2933,40 +4159,6 @@ export default function Dashboard() {
               </StaggerBlock>
             )}
 
-            {/* Start a Project — manual trigger */}
-            <div style={{maxWidth:600,margin:'16px auto 0',padding:'0 20px'}}>
-              <button
-                onClick={() => setShowLesson({
-                  id: `d${dayNumber}project`,
-                  type: 'project',
-                  title: 'Portfolio Project',
-                  description: 'Build something real and add it to your portfolio',
-                  isProjectTrigger: true,
-                })}
-                style={{
-                  width:'100%', padding:'16px 18px',
-                  background:'linear-gradient(135deg, rgba(236,72,153,0.08), rgba(168,85,247,0.06))',
-                  border:'1px solid rgba(236,72,153,0.22)',
-                  borderRadius:18, cursor:'pointer', fontFamily:T.font,
-                  display:'flex', alignItems:'center', gap:14,
-                  textAlign:'left', transition:'transform 0.2s, box-shadow 0.2s',
-                }}
-                onMouseEnter={e => { e.currentTarget.style.transform='translateY(-2px)'; e.currentTarget.style.boxShadow='0 8px 24px rgba(236,72,153,0.15)' }}
-                onMouseLeave={e => { e.currentTarget.style.transform=''; e.currentTarget.style.boxShadow='' }}
-              >
-                <span style={{
-                  width:42, height:42, borderRadius:14, flexShrink:0,
-                  background:'rgba(236,72,153,0.12)', border:'1px solid rgba(236,72,153,0.25)',
-                  display:'flex', alignItems:'center', justifyContent:'center', color:'#EC4899',
-                }}><IconGlyph name="rocket" size={20} strokeWidth={2.3}/></span>
-                <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:14,fontWeight:800,color:T.text,marginBottom:2}}>Start a Project</div>
-                  <div style={{fontSize:11,color:T.textMuted}}>Build something real, get AI feedback, add it to your portfolio</div>
-                </div>
-                <span style={{color:'#EC4899',fontSize:11,fontWeight:800,whiteSpace:'nowrap'}}>100 XP</span>
-              </button>
-            </div>
-
             {/* Comeback note */}
             {streakData.current === 0 && doneRows > 0 && (
               <div style={{maxWidth:600,margin:'12px auto 0',padding:'0 20px'}}>
@@ -2978,7 +4170,7 @@ export default function Dashboard() {
                   <IconGlyph name="shield_check" size={18} strokeWidth={2.3} color={T.flame}/>
                   <div>
                     <div style={{fontSize:13,fontWeight:700,color:T.flame}}>Good to have you back</div>
-                    <div style={{fontSize:12,color:T.textMuted}}>Path adjusted — you're right on track.</div>
+                    <div style={{fontSize:12,color:T.textMuted}}>Path adjusted — you&apos;re right on track.</div>
                   </div>
                 </div>
               </div>
@@ -3052,7 +4244,7 @@ export default function Dashboard() {
                     animation:'fadeUp 0.30s ease both',
                   }}
                 >
-                  <>Start next day →</>
+                  <>{nextDayCtaLabel}</>
                 </button>
               </div>
             )}
@@ -3131,14 +4323,14 @@ export default function Dashboard() {
               <div style={{background:'rgba(14,245,194,0.05)',border:`1px solid ${T.tealBorder}`,
                 borderRadius:14,padding:'12px 16px',marginBottom:12,
                 fontSize:13,color:T.teal,fontWeight:600}}>
-                You're ahead of last week — outstanding consistency.
+                You&apos;re ahead of last week — outstanding consistency.
               </div>
             )}
             {weekDays < 3 && doneRows > 0 && (
               <div style={{background:T.surface,border:`1px solid ${T.border}`,
                 borderRadius:14,padding:'12px 16px',marginBottom:12,
                 fontSize:13,color:T.textSec,fontWeight:500}}>
-                Complete today's mission to build momentum. Every session counts.
+                Complete today&apos;s mission to build momentum. Every session counts.
               </div>
             )}
           </div>
@@ -3148,65 +4340,55 @@ export default function Dashboard() {
         {/* PATH TAB                                                       */}
         {/* ══════════════════════════════════════════════════════════════ */}
         {activeTab === 'path' && (
-          <div className="shell-transition-fade" style={{maxWidth:600,margin:'0 auto',padding:'24px 20px 0',textAlign:'center'}}>
-            <h2 style={{fontSize:22,fontWeight:800,color:T.text,marginBottom:8,letterSpacing:'-0.4px'}}>
-              Learning Path
-            </h2>
-            <p style={{color:T.textMuted,fontSize:14,marginBottom:24}}>
-              Your full map — concepts, chapters, and progress.
-            </p>
-            <button onClick={() => router.push('/path')} style={{
-              padding:'14px 36px',background:T.primaryGradient,
-              border:'none',borderRadius:14,color:T.ink,
-              fontWeight:800,fontSize:15,cursor:'pointer',fontFamily:T.font,
-              boxShadow:'0 0 32px rgba(14,245,194,0.30),inset 0 1px 0 rgba(255,255,255,0.40)',
-              display:'inline-flex',alignItems:'center',gap:8,
-            }}>
-              <PathIcon/> Open Full Map
-            </button>
-            {allRows.length > 0 && (
-              <div style={{marginTop:24,display:'grid',gap:8,textAlign:'left'}}>
-                {allRows.slice(0,5).map(row => {
-                  const t       = Array.isArray(row.tasks)?row.tasks:[]
-                  const done    = t.filter(tk=>tk.completed).length
-                  const isDone  = row.completion_status === 'completed'
-                  const isAct   = !isDone && row.id === todayRow?.id
-                  return (
-                    <div key={row.id} style={{
-                      background: isAct?'rgba(14,245,194,0.06)':isDone?'rgba(14,245,194,0.03)':T.surface,
-                      border:`1px solid ${isAct?T.tealBorder:isDone?'rgba(14,245,194,0.12)':T.border}`,
-                      borderRadius:14,padding:'12px 16px',
-                      display:'flex',alignItems:'center',gap:12,
-                    }}>
-                      <div style={{
-                        width:32,height:32,borderRadius:'50%',flexShrink:0,
-                        background: isDone?T.primaryGradient
-                          :isAct?'rgba(14,245,194,0.12)':'rgba(255,255,255,0.05)',
-                        display:'flex',alignItems:'center',justifyContent:'center',
-                        fontSize:12,fontWeight:800,
-                        color: isDone?T.ink:isAct?T.teal:T.textMuted,
-                        animation: isAct?'pulseActive 2.5s ease-in-out infinite':'none',
-                      }}>{isDone?'✓':row.day_number}</div>
-                      <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontSize:13,fontWeight:700,
-                          color:isDone?T.textMuted:T.text,
-                          whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
-                          {row.covered_topics?.[0]||`Day ${row.day_number}`}
-                        </div>
-                        <div style={{fontSize:11,color:T.textMuted}}>{done}/{t.length} tasks</div>
-                      </div>
-                      {isAct && (
-                        <span style={{fontSize:10,fontWeight:700,color:T.ink,
-                          background:T.teal,padding:'2px 8px',borderRadius:9999}}>TODAY</span>
-                      )}
-                    </div>
-                  )
-                })}
-                {allRows.length > 5 && (
-                  <p style={{textAlign:'center',fontSize:12,color:T.textMuted}}>
-                    +{allRows.length-5} more days on the full map
+          <div className="shell-transition-fade" style={{maxWidth:760,margin:'0 auto',padding:'18px 0 0'}}>
+            {pathTracker.modules.length > 0 ? (
+              <>
+                <PathTrackerSummary tracker={pathTracker}/>
+                <div style={{display:'grid',gap:12,padding:'14px 20px 28px'}}>
+                  {pathTracker.modules.map((module, index) => (
+                    <PathModuleCard
+                      key={module.id}
+                      module={module}
+                      expanded={Boolean(expandedPathModules[module.id])}
+                      onToggle={() => togglePathModule(module.id)}
+                      expandedUnits={expandedPathUnits}
+                      onToggleUnit={togglePathUnit}
+                      index={index}
+                    />
+                  ))}
+                  {pathTracker.tailItems.map((item, index) => (
+                    <StaggerBlock key={item.id} index={pathTracker.modules.length + index}>
+                      <PathProjectCard item={item}/>
+                    </StaggerBlock>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div style={{maxWidth:680,margin:'0 auto',padding:'0 20px'}}>
+                <div style={{
+                  borderRadius:24,
+                  border:`1px solid ${T.border}`,
+                  background:'linear-gradient(145deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02))',
+                  padding:'28px 22px',
+                  textAlign:'center',
+                  boxShadow:'0 14px 34px rgba(0,0,0,0.22)',
+                }}>
+                  <div style={{
+                    width:56,height:56,borderRadius:18,
+                    margin:'0 auto 14px',
+                    display:'flex',alignItems:'center',justifyContent:'center',
+                    background:'rgba(14,245,194,0.08)',border:`1px solid ${T.tealBorder}`,
+                    color:T.teal,
+                  }}>
+                    <IconGlyph name="map" size={24} strokeWidth={2.3}/>
+                  </div>
+                  <h2 style={{fontSize:22,fontWeight:800,color:T.text,marginBottom:8,letterSpacing:'-0.4px'}}>
+                    Your curriculum tracker is getting ready
+                  </h2>
+                  <p style={{color:T.textMuted,fontSize:14,lineHeight:1.65,maxWidth:440,margin:'0 auto'}}>
+                    As soon as your course outline is available, this tab will show every module, unit, sub-unit, and milestone project in one place.
                   </p>
-                )}
+                </div>
               </div>
             )}
           </div>
@@ -3395,6 +4577,7 @@ export default function Dashboard() {
               goalId={goal?.id}
               activeTheme={activeTheme}
               maxHearts={maxHearts}
+              inventoryCounts={inventoryCounts}
               onPurchase={(data) => {
                 if (data.newGemTotal != null) setGems(data.newGemTotal)
                 if (data.heartsRemaining != null) { setPrevHearts(heartsRemaining); setHeartsRemaining(data.heartsRemaining) }
@@ -3408,6 +4591,7 @@ export default function Dashboard() {
                   setStoredOwnedThemes(data.ownedThemes)
                   setOwnedThemes(data.ownedThemes)
                 }
+                if (data.inventoryCounts) setInventoryCounts(data.inventoryCounts)
                 if (data.streakRepaired) {
                   setStreakData(prev => ({ ...prev, current: data.currentStreak || prev.current }))
                 }

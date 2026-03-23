@@ -1,9 +1,59 @@
+import { getOpenAIModel } from '@/lib/openaiModels'
+
 export async function POST(request) {
   try {
-    const { concept, goal, knowledge } = await request.json()
+    const {
+      concept,
+      goal,
+      knowledge,
+      scope,
+      coveredConcepts,
+      questionCount,
+      examTitle,
+      moduleTitles,
+    } = await request.json()
     if (!concept || !goal) return Response.json({ error: 'Missing concept or goal' }, { status: 400 })
 
-    const prompt = `You are designing a quiz for a premium learning app. Create exactly 5 multiple-choice questions about "${concept}" for someone learning "${goal}".
+    const isCourseFinal = scope === 'course_final'
+    const totalQuestions = Number.isFinite(Number(questionCount))
+      ? Math.max(5, Math.min(16, Number(questionCount)))
+      : (isCourseFinal ? 12 : 5)
+    const conceptList = Array.isArray(coveredConcepts) ? coveredConcepts.filter(Boolean) : []
+    const moduleList = Array.isArray(moduleTitles) ? moduleTitles.filter(Boolean) : []
+
+    const prompt = isCourseFinal
+      ? `You are designing the FINAL comprehensive exam for a premium learning app.
+
+Create exactly ${totalQuestions} multiple-choice questions for the course "${goal}".
+EXAM TITLE: ${examTitle || `Final Course Exam: ${goal}`}
+COURSE CONCEPTS TO COVER: ${conceptList.join(', ') || concept}
+COURSE MODULES: ${moduleList.join(', ') || 'Use the full course progression'}
+${knowledge ? `The learner started with this background: ${knowledge}.` : ''}
+
+Return ONLY valid JSON — no markdown, no backticks:
+{
+  "questions": [
+    {
+      "question": "Question text?",
+      "options": ["Option A", "Option B", "Option C", "Option D"],
+      "correctIndex": 0,
+      "explanation": "Why this answer is correct and what the learner should remember."
+    }
+  ]
+}
+
+FINAL EXAM REQUIREMENTS:
+- Cover the full breadth of the course, not just one concept
+- Include a mix of foundation, application, debugging, comparison, synthesis, and transfer questions
+- At least 40% of the exam should require combining 2 or more concepts
+- At least 3 questions should feel like real-world scenarios or mini case studies
+- Questions should become slightly more demanding as the exam progresses
+- Each question must have exactly 4 options
+- Wrong answers must be plausible and based on common misconceptions
+- Explanations must be 2-3 sentences: why the answer is right, why a tempting distractor is wrong, and the key takeaway
+- NEVER use "All of the above" or "None of the above"
+- Avoid trivia and memorization; test durable understanding and decision-making`
+      : `You are designing a quiz for a premium learning app. Create exactly ${totalQuestions} multiple-choice questions about "${concept}" for someone learning "${goal}".
 ${knowledge ? `The student already knows: ${knowledge}. Don't test basics they already know.` : ''}
 
 Return ONLY valid JSON — no markdown, no backticks:
@@ -36,7 +86,12 @@ QUIZ QUALITY REQUIREMENTS:
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
-      body: JSON.stringify({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.4, max_tokens: 1200 }),
+      body: JSON.stringify({
+        model: getOpenAIModel('quizMulti'),
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.4,
+        max_tokens: isCourseFinal ? 2600 : 1200,
+      }),
     })
     const data = await res.json()
     const raw = data.choices?.[0]?.message?.content?.trim() || ''

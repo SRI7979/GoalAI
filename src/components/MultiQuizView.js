@@ -6,6 +6,11 @@ import ConfidenceSelector from './ConfidenceSelector'
 const font = "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif"
 
 export default function MultiQuizView({ task, goal, knowledge, onClose, onComplete }) {
+  const isCourseFinalExam = Boolean(task?.isCourseFinalExam || task?._courseFinal)
+  const examMeta = task?._courseFinal || {}
+  const attemptsUsed = Number(examMeta.attemptsUsed) || 0
+  const maxAttempts = Number(examMeta.maxAttempts) || 3
+  const attemptsRemaining = Math.max(0, maxAttempts - attemptsUsed)
   const [loading, setLoading] = useState(true)
   const [questions, setQuestions] = useState(null)
   const [current, setCurrent] = useState(0)
@@ -38,7 +43,16 @@ export default function MultiQuizView({ task, goal, knowledge, onClose, onComple
         const res = await fetch('/api/quiz-multi', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ concept: task._concept || task.title, goal, knowledge }),
+          body: JSON.stringify({
+            concept: task._concept || task.title,
+            goal,
+            knowledge,
+            scope: isCourseFinalExam ? 'course_final' : 'standard',
+            questionCount: isCourseFinalExam ? 12 : 5,
+            coveredConcepts: isCourseFinalExam ? task?._courseTopics || [] : undefined,
+            moduleTitles: isCourseFinalExam ? task?._courseModules || [] : undefined,
+            examTitle: isCourseFinalExam ? task.title : undefined,
+          }),
         })
         const data = await res.json()
         if (data.questions) {
@@ -49,7 +63,7 @@ export default function MultiQuizView({ task, goal, knowledge, onClose, onComple
       setLoading(false)
     }
     load()
-  }, [task.id, task.title, goal, knowledge, task._concept])
+  }, [task.id, task.title, goal, knowledge, task._concept, isCourseFinalExam, task?._courseTopics, task?._courseModules])
 
   function handleSelect(idx) {
     if (answered) return
@@ -105,7 +119,9 @@ export default function MultiQuizView({ task, goal, knowledge, onClose, onComple
   }
 
   const q = questions?.[current]
-  const pct = questions ? ((current + (answered ? 1 : 0)) / questions.length) * 100 : 0
+  const accent = isCourseFinalExam ? '#FBBF24' : '#FF453A'
+  const accentBg = isCourseFinalExam ? 'rgba(251,191,36,0.10)' : 'rgba(255,69,58,0.10)'
+  const accentBorder = isCourseFinalExam ? 'rgba(251,191,36,0.25)' : 'rgba(255,69,58,0.25)'
 
   return (
     <>
@@ -152,10 +168,10 @@ export default function MultiQuizView({ task, goal, knowledge, onClose, onComple
 
           <div style={{ display:'flex', alignItems:'center', gap:8 }}>
             {!loading && questions && !done && (
-              <span style={{ fontSize:12, fontWeight:700, color:'#FF453A' }}>{current + 1}/{questions.length}</span>
+              <span style={{ fontSize:12, fontWeight:700, color:accent }}>{current + 1}/{questions.length}</span>
             )}
-            <div style={{ padding:'4px 12px', background:'rgba(255,69,58,0.10)', border:'1px solid rgba(255,69,58,0.25)', borderRadius:9999, fontSize:11, fontWeight:700, color:'#FF453A', textTransform:'uppercase', letterSpacing:'1px' }}>
-              Quiz
+            <div style={{ padding:'4px 12px', background:accentBg, border:`1px solid ${accentBorder}`, borderRadius:9999, fontSize:11, fontWeight:700, color:accent, textTransform:'uppercase', letterSpacing:'1px' }}>
+              {isCourseFinalExam ? 'Final Exam' : 'Quiz'}
             </div>
           </div>
         </div>
@@ -166,9 +182,13 @@ export default function MultiQuizView({ task, goal, knowledge, onClose, onComple
 
             {loading ? (
               <div style={{ textAlign:'center', paddingTop:80 }}>
-                <div style={{ width:44, height:44, border:'3px solid rgba(255,255,255,0.06)', borderTopColor:'#FF453A', borderRadius:'50%', animation:'spin 0.65s linear infinite', margin:'0 auto 20px' }}/>
-                <p style={{ color:'#636366', fontSize:14 }}>Generating quiz…</p>
-                <p style={{ color:'#475569', fontSize:12, marginTop:8 }}>Preparing questions that test real understanding</p>
+                <div style={{ width:44, height:44, border:'3px solid rgba(255,255,255,0.06)', borderTopColor:accent, borderRadius:'50%', animation:'spin 0.65s linear infinite', margin:'0 auto 20px' }}/>
+                <p style={{ color:'#636366', fontSize:14 }}>{isCourseFinalExam ? 'Generating final exam…' : 'Generating quiz…'}</p>
+                <p style={{ color:'#475569', fontSize:12, marginTop:8 }}>
+                  {isCourseFinalExam
+                    ? 'Pulling questions from across the full course.'
+                    : 'Preparing questions that test real understanding'}
+                </p>
               </div>
             ) : !questions ? (
               <div style={{ textAlign:'center', paddingTop:80 }}>
@@ -179,18 +199,27 @@ export default function MultiQuizView({ task, goal, knowledge, onClose, onComple
               <div style={{ animation:'popIn 0.45s cubic-bezier(0.34,1.56,0.64,1) both', paddingTop:40 }}>
                 {/* Score header */}
                 <div style={{ textAlign:'center', marginBottom:32 }}>
-                  <div style={{ fontSize:56, marginBottom:16 }}>
-                    {score === questions.length ? '🏆' : score >= questions.length * 0.8 ? '🌟' : score >= questions.length * 0.6 ? '⭐' : '📚'}
-                  </div>
                   <h2 style={{ fontSize:28, fontWeight:900, color:'#f5f5f7', marginBottom:8 }}>
                     {score}/{questions.length} correct
                   </h2>
                   <p style={{ fontSize:15, color:'#8e8e93' }}>
-                    {score === questions.length ? 'Perfect score — you\'ve mastered this!' :
-                     score >= questions.length * 0.8 ? 'Excellent work! Almost perfect.' :
-                     score >= questions.length * 0.6 ? 'Good effort. Review the ones below.' :
-                     'Keep studying and try again — you\'ll improve!'}
+                    {isCourseFinalExam
+                      ? score >= questions.length * 0.8
+                        ? 'Strong final-exam performance. Submit it to finish the course.'
+                        : 'This attempt only counts if you clear the course pass threshold.'
+                      : score === questions.length
+                        ? 'Perfect score — you\'ve mastered this!'
+                        : score >= questions.length * 0.8
+                          ? 'Excellent work! Almost perfect.'
+                          : score >= questions.length * 0.6
+                            ? 'Good effort. Review the ones below.'
+                            : 'Keep studying and try again — you\'ll improve!'}
                   </p>
+                  {isCourseFinalExam && (
+                    <div style={{ marginTop: 14, display:'inline-flex', alignItems:'center', gap:8, padding:'8px 12px', borderRadius:9999, background:accentBg, border:`1px solid ${accentBorder}`, color:accent, fontSize:12, fontWeight:800 }}>
+                      Passing score: {examMeta.passScore || 80}% • Attempts used after submit: {Math.min(maxAttempts, attemptsUsed + 1)}/{maxAttempts}
+                    </div>
+                  )}
                 </div>
 
                 {/* Per-question breakdown */}
@@ -230,15 +259,43 @@ export default function MultiQuizView({ task, goal, knowledge, onClose, onComple
                   <ConfidenceSelector
                     value={confidenceLevel}
                     onChange={setConfidenceLevel}
-                    accent="#0ef5c2"
-                    borderColor="rgba(14,245,194,0.22)"
-                    background="rgba(14,245,194,0.05)"
-                    label="How confident are you about this concept now?"
+                    accent={isCourseFinalExam ? '#FBBF24' : '#0ef5c2'}
+                    borderColor={isCourseFinalExam ? 'rgba(251,191,36,0.22)' : 'rgba(14,245,194,0.22)'}
+                    background={isCourseFinalExam ? 'rgba(251,191,36,0.05)' : 'rgba(14,245,194,0.05)'}
+                    label={isCourseFinalExam
+                      ? 'How confident are you in your course-wide understanding now?'
+                      : 'How confident are you about this concept now?'}
                   />
                 </div>
               </div>
             ) : (
               <div key={current} style={{ animation:'fadeIn 0.3s ease both' }}>
+                {isCourseFinalExam && (
+                  <div style={{
+                    marginBottom: 18,
+                    padding: '12px 14px',
+                    borderRadius: 16,
+                    background: 'rgba(251,191,36,0.08)',
+                    border: '1px solid rgba(251,191,36,0.20)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                    flexWrap: 'wrap',
+                  }}>
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 900, letterSpacing: '1px', textTransform: 'uppercase', color: '#FBBF24', marginBottom: 4 }}>
+                        Course Finish
+                      </div>
+                      <div style={{ fontSize: 13, color: '#d4d4d8', lineHeight: 1.45 }}>
+                        Pass with {examMeta.passScore || 80}% or better. You have {attemptsRemaining} of {maxAttempts} attempts remaining.
+                      </div>
+                    </div>
+                    <div style={{ padding: '6px 10px', borderRadius: 9999, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', color: '#f5f5f7', fontSize: 11, fontWeight: 800 }}>
+                      Best {Number(examMeta.bestScore) || 0}%
+                    </div>
+                  </div>
+                )}
                 {/* Score tracker */}
                 <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:20 }}>
                   <span style={{ fontSize:12, color:'#636366', fontWeight:600, textTransform:'uppercase', letterSpacing:'1px' }}>

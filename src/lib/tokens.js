@@ -82,6 +82,9 @@ export const GEM_PRICES = {
   streakFreeze:  50,
   heartRefill:   30,
   heartContainer: 120,
+  taskReroll:    45,
+  reviewShield:  70,
+  recoveryPack:  95,
   freezeBundle:  135,
   xpBoost:       75,
   megaXpBoost:   160,
@@ -92,6 +95,9 @@ export const GEM_PRICES = {
 export const GEM_SHOP_ITEMS = {
   heartRefill:    { cost: GEM_PRICES.heartRefill,    label: 'Heart Refill' },
   heartContainer: { cost: GEM_PRICES.heartContainer, label: 'Heart Container' },
+  taskReroll:     { cost: GEM_PRICES.taskReroll,     label: 'Task Reroll Pass' },
+  reviewShield:   { cost: GEM_PRICES.reviewShield,   label: 'Review Shield' },
+  recoveryPack:   { cost: GEM_PRICES.recoveryPack,   label: 'Recovery Pack' },
   streakFreeze:   { cost: GEM_PRICES.streakFreeze,   label: 'Streak Freeze' },
   freezeBundle:   { cost: GEM_PRICES.freezeBundle,   label: 'Freeze Bundle' },
   xpBoost:        { cost: GEM_PRICES.xpBoost,        label: 'Double XP (15 min)' },
@@ -102,6 +108,9 @@ export const GEM_SHOP_ITEMS = {
   themeForest:    { cost: 165,                       label: 'Path Theme: Forest' },
   themeMidnight:  { cost: 175,                       label: 'Path Theme: Midnight' },
   themeRose:      { cost: 165,                       label: 'Path Theme: Rose' },
+  themeAurora:    { cost: 180,                       label: 'Path Theme: Aurora' },
+  themeEmber:     { cost: 180,                       label: 'Path Theme: Ember' },
+  themeMonolith:  { cost: 185,                       label: 'Path Theme: Monolith' },
 }
 
 // ── Gem award amounts ─────────────────────────────────────────────────────────

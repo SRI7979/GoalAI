@@ -1,4 +1,5 @@
 import { getSupabaseServerClient } from '@/lib/supabaseServer'
+import { getOpenAIModel } from '@/lib/openaiModels'
 import { getProjectReviewCriteria } from '@/lib/projectProof'
 
 function extractAccessToken(request) {
@@ -125,7 +126,7 @@ ${isBuildMode ? '- Give BONUS credit for using Build Mode — they had minimal g
         Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: getOpenAIModel('projectReview'),
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.45,
         max_tokens: 1800,

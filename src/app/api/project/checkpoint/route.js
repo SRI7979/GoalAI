@@ -1,3 +1,4 @@
+import { getOpenAIModel } from '@/lib/openaiModels'
 import { getSupabaseServerClient } from '@/lib/supabaseServer'
 
 function extractAccessToken(request) {
@@ -88,7 +89,7 @@ RULES:
           Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
         },
         body: JSON.stringify({
-          model: 'gpt-4o-mini',
+          model: getOpenAIModel('projectCheckpoint'),
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.5,
           max_tokens: 600,
@@ -136,7 +137,7 @@ RULES:
           Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
         },
         body: JSON.stringify({
-          model: 'gpt-4o-mini',
+          model: getOpenAIModel('projectCheckpoint'),
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.3,
           max_tokens: 300,

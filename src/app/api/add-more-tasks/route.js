@@ -1,3 +1,4 @@
+import { getOpenAIModel } from '@/lib/openaiModels'
 import { getSupabaseServerClient } from '@/lib/supabaseServer'
 
 const EXTRA_TASK_TYPES = ['practice', 'exercise', 'review', 'quiz', 'video', 'lesson']
@@ -37,7 +38,7 @@ async function generateExtraTasks({ goal, concept, count, baseDuration, openaiAp
         Authorization: `Bearer ${openaiApiKey}`,
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: getOpenAIModel('addMoreTasks'),
         temperature: 0.45,
         max_tokens: 1200,
         messages: [{

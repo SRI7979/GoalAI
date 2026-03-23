@@ -1,3 +1,5 @@
+import { getOpenAIModel } from '@/lib/openaiModels'
+
 const defaultLinks = [
   { title: 'Khan Academy', url: 'https://www.khanacademy.org/' },
   { title: 'MDN Learning', url: 'https://developer.mozilla.org/en-US/docs/Learn' },
@@ -26,7 +28,7 @@ export async function POST(request) {
         Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: getOpenAIModel('lessonAssistant'),
         temperature: 0.4,
         max_tokens: 1000,
         messages: [{

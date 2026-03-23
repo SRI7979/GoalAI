@@ -1,4 +1,5 @@
 import { getSupabaseServerClient } from '@/lib/supabaseServer'
+import { getOpenAIModel } from '@/lib/openaiModels'
 import { detectSkillType, getVerificationType } from '@/lib/skillTypes'
 import { buildProjectProofSummary, getProjectVerificationPlan } from '@/lib/projectProof'
 import { ensureProjectProgress, normalizeProjectSteps } from '@/lib/projectVerification'
@@ -161,6 +162,303 @@ function inferVerificationFocus(step = {}, skillType = 'general') {
   if (skillType === 'design') return 'Artifact + defense verification through rationale, hierarchy, and usability thinking.'
   if (skillType === 'hardware') return 'Artifact + process verification through expected behavior and troubleshooting logic.'
   return 'Artifact + defense verification against the project brief.'
+}
+
+function extractJsonPayload(rawText = '') {
+  const text = String(rawText || '').trim()
+  if (!text) throw new Error('Project generator returned an empty response')
+  const clean = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
+  const firstBrace = clean.indexOf('{')
+  const lastBrace = clean.lastIndexOf('}')
+  if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
+    throw new Error('Project generator did not return valid JSON')
+  }
+  return JSON.parse(clean.slice(firstBrace, lastBrace + 1))
+}
+
+function buildFallbackProjectPayload(skillType, {
+  goal,
+  concepts,
+  difficulty,
+  variant,
+  isBuildMode,
+  performanceProfile,
+}) {
+  const conceptList = String(concepts || 'core fundamentals')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+  const coreConcepts = conceptList.slice(0, 6)
+  const level = difficulty || 'beginner'
+  const supportLabel = performanceProfile?.supportLevel || 'moderate'
+  const contextualConcepts = coreConcepts.length > 0 ? coreConcepts : ['foundations', 'applied thinking', 'execution']
+
+  if (skillType === 'coding') {
+    const domain = variant?.domain || 'projects'
+    const items = variant?.items || 'items'
+    const fields = variant?.fields || 'title, category, score'
+    return {
+      title: `Build a ${domain.charAt(0).toUpperCase() + domain.slice(1)} Tracker`,
+      description: `Create a small JavaScript app that manages ${items}, lets you add and inspect entries, and proves you can turn concepts into something tangible. The project is scoped to feel real without becoming filler.`,
+      skill_type: 'coding',
+      real_world_context: `A lightweight tool for organizing ${items} with fields like ${fields}.`,
+      difficulty: level,
+      concepts_tested: contextualConcepts,
+      estimated_minutes: 60,
+      final_deliverable: `A runnable JavaScript tracker for ${items} with clear add, view, and summary behavior.`,
+      verification_summary: 'Verified through execution, output checks, AI review, and a short defense of the implementation.',
+      share_summary: `Built a runnable ${domain} tracker that proves practical JavaScript problem-solving.`,
+      steps: [
+        {
+          id: 's1',
+          title: 'Define the data shape',
+          description: isBuildMode ? 'Create the structure you will use to represent each item.' : `Create the initial data model for each ${domain} entry. Decide what fields matter, how the data should be stored, and how a user should read it back clearly.`,
+          hint: `Start with a small array of sample ${items} so you can test before adding user input.`,
+          concepts: contextualConcepts.slice(0, 2),
+          requires_code: true,
+          checkpoint: false,
+          required_output: `A starter data structure for ${items}.`,
+          verification_focus: 'Clean, runnable setup with the right data structure.',
+        },
+        {
+          id: 's2',
+          title: 'Render the current state',
+          description: isBuildMode ? 'Make the current entries visible in a readable output.' : `Write code that prints or renders the current ${items} in a readable way. The learner should be able to tell at a glance that the data is flowing correctly through the program.`,
+          hint: 'Readable output matters more than fancy formatting.',
+          concepts: contextualConcepts.slice(0, 3),
+          requires_code: true,
+          checkpoint: true,
+          required_output: `Visible output showing the current ${items}.`,
+          verification_focus: 'Output must clearly reflect the current stored state.',
+        },
+        {
+          id: 's3',
+          title: 'Add new entries',
+          description: isBuildMode ? 'Implement the add flow for a new item.' : `Add a function or interaction that creates a new ${domain} entry and stores it correctly. The behavior should feel like a real feature, not a hard-coded demo.`,
+          hint: 'Keep the input shape consistent with the sample data from step 1.',
+          concepts: contextualConcepts.slice(0, 3),
+          requires_code: true,
+          checkpoint: false,
+          required_output: `Code that adds new ${items} without breaking the existing state.`,
+          verification_focus: 'New entries should be added correctly and remain visible.',
+        },
+        {
+          id: 's4',
+          title: 'Create one useful summary',
+          description: isBuildMode ? 'Add one simple summary that makes the tool more useful.' : `Add one practical summary or filter, like counting entries, showing top-rated items, or grouping by a category. This is where the project starts feeling like a useful tool.`,
+          hint: 'Pick the summary that best matches the data you chose.',
+          concepts: contextualConcepts.slice(0, 4),
+          requires_code: true,
+          checkpoint: true,
+          required_output: 'A working summary or filter that changes based on the data.',
+          verification_focus: 'The program should derive a meaningful result from the stored data.',
+        },
+        {
+          id: 's5',
+          title: 'Explain the implementation',
+          description: isBuildMode ? 'Be ready to justify the key choices you made.' : 'Write a brief explanation of how the tracker works, why you chose this structure, and where the user-facing value comes from.',
+          hint: 'Focus on how data moves through the app.',
+          concepts: contextualConcepts.slice(0, 4),
+          requires_response: true,
+          response_prompt: 'Explain how your tracker stores data, adds new entries, and produces the summary output.',
+          checkpoint: true,
+          required_output: 'A concise explanation of the implementation.',
+          verification_focus: 'The explanation should prove the learner understands the system they built.',
+        },
+      ],
+      starter_code: `const ${items} = [\n  {\n    id: 1,\n    ${fields.split(',').map((field, index) => `${field.trim()}: ${index === 0 ? "'Sample'" : index === 1 ? "'Demo'" : index === 2 ? "'Beginner'" : '0'}`).join(',\n    ')}\n  }\n]\n\nfunction addItem(item) {\n  // Add a new item to the collection\n}\n\nfunction summarizeItems(list) {\n  // Return one useful summary about the current data\n}\n\nconsole.log(${items})\n`,
+      starter_language: 'javascript',
+      deliverables: [
+        `A runnable tool that manages ${items}`,
+        'One useful summary or filter',
+        'A short explanation of how the solution works',
+      ],
+      success_criteria: 'The code runs, new entries can be added, the summary works, and the explanation proves understanding.',
+    }
+  }
+
+  if (skillType === 'language') {
+    const scenario = variant?.scenario || 'travel'
+    return {
+      title: `Handle a ${scenario} conversation`,
+      description: `Practice realistic communication in ${goal} through a short scenario sequence that builds confidence, not just recall. The deliverable is a set of useful responses you could actually say.`,
+      skill_type: 'language',
+      real_world_context: variant?.context || `A realistic ${scenario} scenario.`,
+      difficulty: level,
+      concepts_tested: contextualConcepts,
+      estimated_minutes: 50,
+      final_deliverable: 'A complete mini-conversation sequence with natural responses.',
+      verification_summary: 'Verified through scenario responses, language quality checks, and a defense of word choice.',
+      share_summary: `Completed an applied language scenario with usable responses and verified understanding.`,
+      steps: [
+        {
+          id: 's1',
+          title: 'Read the scenario',
+          description: isBuildMode ? 'Review the setting and decide what you need to communicate.' : 'Read the scenario and identify the specific outcome you need from the interaction. Focus on clarity, tone, and what a natural response would need to accomplish.',
+          hint: 'Start with the practical goal before worrying about perfect phrasing.',
+          concepts: contextualConcepts.slice(0, 2),
+          requires_response: true,
+          response_prompt: 'In one or two sentences, describe what you need to communicate in this situation.',
+          checkpoint: false,
+          required_output: 'A short explanation of the communication goal.',
+          verification_focus: 'The learner should understand the scenario before responding.',
+        },
+        {
+          id: 's2',
+          title: 'Write the first response',
+          description: isBuildMode ? 'Respond naturally to the first prompt.' : 'Write a natural first response in the target language. It should sound like something a real person would say in this scenario, not a textbook translation.',
+          hint: 'Use simple structure if needed, but make it usable.',
+          concepts: contextualConcepts.slice(0, 3),
+          requires_response: true,
+          response_prompt: 'Write your first response in the target language.',
+          checkpoint: true,
+          required_output: 'A realistic first response.',
+          verification_focus: 'Grammar, appropriateness, and whether the response fits the scenario.',
+        },
+        {
+          id: 's3',
+          title: 'Expand the exchange',
+          description: isBuildMode ? 'Add the follow-up response that keeps the conversation moving.' : 'Add a follow-up response that shows you can sustain the exchange instead of stopping after one line. This is where fluency starts to feel practical.',
+          hint: 'Think about what the other person would likely ask next.',
+          concepts: contextualConcepts.slice(0, 4),
+          requires_response: true,
+          response_prompt: 'Write the next response that continues the conversation naturally.',
+          checkpoint: true,
+          required_output: 'A follow-up line that advances the conversation.',
+          verification_focus: 'The learner should sustain the interaction naturally.',
+        },
+        {
+          id: 's4',
+          title: 'Defend your language choices',
+          description: isBuildMode ? 'Explain why your phrasing fits the moment.' : 'Explain why you chose these words and structures, and why they fit the scenario. This proves you understand more than memorized phrases.',
+          hint: 'Mention tone, clarity, and useful vocabulary.',
+          concepts: contextualConcepts.slice(0, 4),
+          requires_response: true,
+          response_prompt: 'Explain why your responses fit the scenario and what key language choices you made.',
+          checkpoint: true,
+          required_output: 'A short rationale for the language choices.',
+          verification_focus: 'The explanation should prove intentional language use.',
+        },
+      ],
+      reference_material: 'Key phrases, useful vocabulary, and a few sentence patterns for the scenario.',
+      starter_language: goal,
+      deliverables: ['A complete short scenario response set', 'A rationale for the language choices'],
+      success_criteria: 'Responses feel natural, fit the scenario, and the learner can explain the choices.',
+    }
+  }
+
+  if (skillType === 'math') {
+    const scenario = variant?.scenario || 'finance'
+    return {
+      title: `Solve a ${scenario} analysis`,
+      description: `Apply math to a realistic scenario and show the full reasoning, not just the final answer. The project is designed to prove method quality and understanding.`,
+      skill_type: 'math',
+      real_world_context: variant?.context || `A realistic ${scenario} problem.`,
+      difficulty: level,
+      concepts_tested: contextualConcepts,
+      estimated_minutes: 55,
+      final_deliverable: 'A worked analysis with step-by-step reasoning.',
+      verification_summary: 'Verified through step-by-step solutions and defense of the method.',
+      share_summary: `Completed a real-world math scenario with full reasoning and validated method.`,
+      steps: [
+        {
+          id: 's1',
+          title: 'Identify the givens',
+          description: isBuildMode ? 'List the known values and what you need to solve.' : 'Break down the scenario into the values you know, the variables you need, and the question you are actually answering. Good math starts with framing the problem correctly.',
+          hint: 'Write the target unknown clearly before computing.',
+          concepts: contextualConcepts.slice(0, 2),
+          requires_response: true,
+          response_prompt: 'List the givens, the unknown, and the equation or method you plan to use.',
+          checkpoint: false,
+          required_output: 'A structured setup of the problem.',
+          verification_focus: 'The learner should correctly frame the problem before solving it.',
+        },
+        {
+          id: 's2',
+          title: 'Show the main calculation',
+          description: isBuildMode ? 'Work the main calculation step by step.' : 'Solve the central part of the problem and show every important step. Do not skip the reasoning that connects one line to the next.',
+          hint: 'Favor clarity over speed.',
+          concepts: contextualConcepts.slice(0, 3),
+          requires_response: true,
+          response_prompt: 'Write the full step-by-step calculation.',
+          checkpoint: true,
+          required_output: 'A correct worked solution.',
+          verification_focus: 'Method and correctness both matter.',
+        },
+        {
+          id: 's3',
+          title: 'Interpret the result',
+          description: isBuildMode ? 'Translate the result into a decision or recommendation.' : 'Explain what the result means in the real-world scenario and why it matters. This separates raw calculation from useful thinking.',
+          hint: 'Tie the number back to the original context.',
+          concepts: contextualConcepts.slice(0, 4),
+          requires_response: true,
+          response_prompt: 'Explain what your result means and what decision it supports.',
+          checkpoint: true,
+          required_output: 'A short interpretation of the answer.',
+          verification_focus: 'The learner should connect the math to the scenario outcome.',
+        },
+      ],
+      reference_material: 'Relevant formulas, variables, and scenario data.',
+      starter_language: 'math',
+      deliverables: ['A step-by-step solution', 'A short interpretation of the result'],
+      success_criteria: 'The method is sound, the result is correct, and the reasoning is visible.',
+    }
+  }
+
+  return {
+    title: `Applied ${goal} milestone`,
+    description: `Complete a focused applied project that turns ${goal} into visible evidence. The work is structured to create real proof instead of filler progress.`,
+    skill_type: skillType,
+    real_world_context: describeVariantContext(variant),
+    difficulty: level,
+    concepts_tested: contextualConcepts,
+    estimated_minutes: 55,
+    final_deliverable: `A shareable proof artifact that demonstrates applied ${goal}.`,
+    verification_summary: 'Verified through submitted work, validation, and explanation.',
+    share_summary: `Completed an applied ${goal} milestone with verifiable output.`,
+    steps: [
+      {
+        id: 's1',
+        title: 'Define the outcome',
+        description: isBuildMode ? 'Clarify what you are building or proving.' : `Set the target for this ${goal} milestone and define what a finished result should look like in a practical setting.`,
+        hint: 'A strong project starts with a visible outcome.',
+        concepts: contextualConcepts.slice(0, 2),
+        requires_response: true,
+        response_prompt: 'Describe the concrete outcome you are aiming to produce.',
+        checkpoint: false,
+        required_output: 'A concise goal statement.',
+        verification_focus: 'The learner should define a practical target before building.',
+      },
+      {
+        id: 's2',
+        title: 'Produce the core artifact',
+        description: isBuildMode ? 'Create the main piece of work.' : 'Create the main artifact or submission for this milestone. Make it concrete enough that someone else can inspect what you made and why it matters.',
+        hint: 'Aim for clarity and usefulness, not volume.',
+        concepts: contextualConcepts.slice(0, 3),
+        requires_response: true,
+        response_prompt: 'Submit the main artifact or explain what you produced in detail.',
+        checkpoint: true,
+        required_output: 'The main proof artifact.',
+        verification_focus: 'The core work should be specific and inspectable.',
+      },
+      {
+        id: 's3',
+        title: 'Explain the thinking',
+        description: isBuildMode ? 'Defend the choices you made.' : 'Explain how you approached the work, what tradeoffs you made, and how the final result proves the intended skill.',
+        hint: 'Focus on why your choices were appropriate.',
+        concepts: contextualConcepts.slice(0, 4),
+        requires_response: true,
+        response_prompt: 'Explain your approach, key decisions, and why the artifact proves the skill.',
+        checkpoint: true,
+        required_output: 'A short defense of the work.',
+        verification_focus: 'The learner should be able to explain the choices behind the artifact.',
+      },
+    ],
+    reference_material: 'Brief context, constraints, and reminders for the milestone.',
+    starter_language: skillType,
+    deliverables: ['A tangible artifact', 'A rationale for the approach'],
+    success_criteria: 'The artifact is concrete, aligned with the goal, and supported by a clear explanation.',
+  }
 }
 
 function normalizeProjectPayload(parsed = {}, skillType, variant, mode, performanceProfile) {
@@ -830,6 +1128,15 @@ export async function POST(request) {
       performanceProfile,
     })
 
+    const fallbackProject = buildFallbackProjectPayload(skillType, {
+      goal,
+      concepts: (conceptsCovered || []).join(', ') || 'Fundamentals',
+      difficulty: difficulty || 'beginner',
+      variant,
+      isBuildMode,
+      performanceProfile,
+    })
+
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -837,17 +1144,23 @@ export async function POST(request) {
         Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: getOpenAIModel('projectGenerate'),
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.6,
         max_tokens: 2500,
       }),
     })
 
-    const data = await res.json()
-    const raw = data.choices?.[0]?.message?.content?.trim() || ''
-    const clean = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
-    const parsed = normalizeProjectPayload(JSON.parse(clean), skillType, variant, mode, performanceProfile)
+    let parsed
+    try {
+      const rawResponseText = await res.text()
+      const data = rawResponseText ? JSON.parse(rawResponseText) : {}
+      if (!res.ok) throw new Error(data?.error?.message || `OpenAI request failed with ${res.status}`)
+      const raw = data?.choices?.[0]?.message?.content?.trim() || ''
+      parsed = normalizeProjectPayload(extractJsonPayload(raw), skillType, variant, mode, performanceProfile)
+    } catch {
+      parsed = normalizeProjectPayload(fallbackProject, skillType, variant, mode, performanceProfile)
+    }
 
     const progress = ensureProjectProgress({
       project_brief: {

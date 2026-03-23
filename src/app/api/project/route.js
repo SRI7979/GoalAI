@@ -1,3 +1,5 @@
+import { getOpenAIModel } from '@/lib/openaiModels'
+
 export async function POST(request) {
   try {
     const { concept, taskTitle, goal, knowledge, taskType } = await request.json()
@@ -33,7 +35,7 @@ PROJECT QUALITY REQUIREMENTS:
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
-      body: JSON.stringify({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.45, max_tokens: 1000 }),
+      body: JSON.stringify({ model: getOpenAIModel('projectIdea'), messages: [{ role: 'user', content: prompt }], temperature: 0.45, max_tokens: 1000 }),
     })
     const data = await res.json()
     const raw = data.choices?.[0]?.message?.content?.trim() || ''

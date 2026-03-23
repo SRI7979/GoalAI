@@ -30,6 +30,44 @@ const ITEMS = [
     ),
   },
   {
+    id: 'taskReroll', name: 'Task Reroll Pass', cost: 45,
+    desc: 'Swap one unfinished standard task for a fresh valid alternative',
+    inventoryKey: 'taskReroll',
+    color: '#2dd4bf',
+    icon: (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2dd4bf" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 7h11a4 4 0 0 1 4 4v1"/>
+        <path d="M18 5l3 3-3 3"/>
+        <path d="M21 17H10a4 4 0 0 1-4-4v-1"/>
+        <path d="M6 19l-3-3 3-3"/>
+      </svg>
+    ),
+  },
+  {
+    id: 'reviewShield', name: 'Review Shield', cost: 70,
+    desc: 'Delay the next decay alert by one review cycle',
+    inventoryKey: 'reviewShield',
+    color: '#38bdf8',
+    icon: (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 3l7 4v5c0 5-3.4 8.7-7 10-3.6-1.3-7-5-7-10V7l7-4z"/>
+        <path d="M9 12l2 2 4-4" stroke="#fff" strokeWidth="1.5"/>
+      </svg>
+    ),
+  },
+  {
+    id: 'recoveryPack', name: 'Recovery Pack', cost: 95,
+    desc: 'Full heal now, plus 1 reroll pass for your next push',
+    inventoryKey: 'taskReroll',
+    color: '#fb7185',
+    icon: (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fb7185" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="4" y="6" width="16" height="12" rx="3"/>
+        <path d="M12 9v6M9 12h6" stroke="#fff" strokeWidth="1.5"/>
+      </svg>
+    ),
+  },
+  {
     id: 'streakFreeze', name: 'Streak Freeze', cost: 50,
     desc: 'Protect your streak for 1 missed day',
     color: '#60A5FA',
@@ -131,6 +169,40 @@ const ITEMS = [
       </svg>
     ),
   },
+  {
+    id: 'themeAurora', name: 'Theme: Aurora', cost: 180,
+    desc: 'Prismatic northern-lights dashboard and map', cosmetic: true,
+    color: '#5eead4',
+    icon: (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#5eead4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 16c2-4 5-6 9-6s7 2 9 6"/>
+        <path d="M5 11c2-2 4-3 7-3 4 0 6 2 7 3"/>
+        <path d="M8 18h8"/>
+      </svg>
+    ),
+  },
+  {
+    id: 'themeEmber', name: 'Theme: Ember', cost: 180,
+    desc: 'Cinder studio dashboard and map', cosmetic: true,
+    color: '#fb923c',
+    icon: (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fb923c" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 3c2 3 5 4.5 5 8a5 5 0 1 1-10 0c0-2.4 1.2-4.1 5-8z"/>
+        <path d="M10 14c.7.8 1.3 1.2 2 1.2.8 0 1.5-.4 2-1.2"/>
+      </svg>
+    ),
+  },
+  {
+    id: 'themeMonolith', name: 'Theme: Monolith', cost: 185,
+    desc: 'Graphite studio dashboard and map', cosmetic: true,
+    color: '#e5e7eb',
+    icon: (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#e5e7eb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="7" y="3" width="10" height="18" rx="2"/>
+        <path d="M10 8h4M10 12h4M10 16h4" stroke="#94a3b8" strokeWidth="1.4"/>
+      </svg>
+    ),
+  },
 ]
 
 function GemIcon({ sz = 18 }) {
@@ -143,7 +215,7 @@ function GemIcon({ sz = 18 }) {
   )
 }
 
-export default function GemShop({ gems, goalId, activeTheme, maxHearts, onPurchase }) {
+export default function GemShop({ gems, goalId, activeTheme, maxHearts, inventoryCounts = {}, onPurchase }) {
   const [buying, setBuying]         = useState(null)
   const [confirm, setConfirm]       = useState(null)
   const [success, setSuccess]       = useState(null)
@@ -264,10 +336,17 @@ export default function GemShop({ gems, goalId, activeTheme, maxHearts, onPurcha
           const isSuccess = success === item.id
           const isBuying = buying === item.id
           const canBuy = canAfford && !isMaxed && !owned
+          const inventoryCount = item.inventoryKey ? Number(inventoryCounts[item.inventoryKey]) || 0 : 0
           const itemDesc = item.id === 'heartRefill'
             ? `Restore all ${maxHearts} hearts instantly`
             : item.id === 'heartContainer'
             ? `Permanently increase your max hearts by 1 (${maxHearts}/${HEARTS_MAX_CAP})`
+            : item.id === 'taskReroll'
+            ? `${item.desc}${inventoryCount > 0 ? ` (${inventoryCount} ready)` : ''}`
+            : item.id === 'reviewShield'
+            ? `${item.desc}${inventoryCount > 0 ? ` (${inventoryCount} ready)` : ''}`
+            : item.id === 'recoveryPack'
+            ? `${item.desc}${inventoryCount > 0 ? ` (${inventoryCount} rerolls ready)` : ''}`
             : item.desc
 
           return (
@@ -293,6 +372,18 @@ export default function GemShop({ gems, goalId, activeTheme, maxHearts, onPurcha
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontSize:15,fontWeight:700,color:'#F1F5F9',marginBottom:2}}>{item.name}</div>
                 <div style={{fontSize:12,color:'#475569',lineHeight:1.4}}>{itemDesc}</div>
+                {item.inventoryKey && inventoryCount > 0 && (
+                  <div style={{marginTop:6}}>
+                    <span style={{
+                      display:'inline-flex',alignItems:'center',gap:5,
+                      padding:'4px 8px',borderRadius:9999,
+                      background:'rgba(14,245,194,0.08)',border:'1px solid rgba(14,245,194,0.18)',
+                      fontSize:10,fontWeight:800,color:'#0ef5c2',letterSpacing:'0.08em',textTransform:'uppercase',
+                    }}>
+                      {inventoryCount} in inventory
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Action */}

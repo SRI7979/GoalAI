@@ -1,3 +1,5 @@
+import { getOpenAIModel } from '@/lib/openaiModels'
+
 function sanitizeUrl(url) {
   try {
     const parsed = new URL(url)
@@ -193,7 +195,7 @@ ${codeBlockRules}
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${openaiApiKey}` },
     body: JSON.stringify({
-      model: 'gpt-4o-mini',
+      model: getOpenAIModel('lesson'),
       max_tokens: 3000,
       temperature: 0.3,
       messages: [{ role: 'user', content: prompt }],

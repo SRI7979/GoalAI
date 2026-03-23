@@ -559,9 +559,6 @@ export default function BadgeShowcase({ earnedIds, maxWidth = 680, outerPadding 
                   <br/>
                   not just streak trophies.
                 </div>
-                <div style={{ maxWidth: 420, fontSize: 13, lineHeight: 1.7, color: '#98A1B2' }}>
-                  Inspired by Huly’s dark glass workspace language: sharper hierarchy, stronger status signals, richer filters, and a dedicated inspector for each badge.
-                </div>
               </div>
 
               <div style={{
@@ -782,9 +779,9 @@ export default function BadgeShowcase({ earnedIds, maxWidth = 680, outerPadding 
                     background: selectedEarned ? `${selectedAccent}12` : 'rgba(255,255,255,0.04)',
                     border: `1px solid ${selectedEarned ? `${selectedAccent}24` : 'rgba(255,255,255,0.08)'}`,
                     boxShadow: selectedEarned ? `0 0 20px ${selectedAccent}14` : 'none',
-                    fontSize: 34,
+                    color: selectedAccent,
                   }}>
-                    {selectedEarned ? selectedBadge.icon : <Lock size={26} color="rgba(255,255,255,0.26)" />}
+                    {selectedEarned ? <IconGlyph name={selectedBadge.icon} size={34} strokeWidth={2.2} color={selectedAccent}/> : <Lock size={26} color="rgba(255,255,255,0.26)" />}
                   </div>
 
                   <div>

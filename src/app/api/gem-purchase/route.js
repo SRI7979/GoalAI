@@ -1,6 +1,7 @@
 // POST /api/gem-purchase
 // Spend gems on shop items. Validates balance, deducts gems, applies effect.
 
+import { buildInventoryCountsFromTransactions, getTrackedInventoryReasons } from '@/lib/shopInventory'
 import { getSupabaseServerClient } from '@/lib/supabaseServer'
 import { GEM_SHOP_ITEMS } from '@/lib/tokens'
 import { HEARTS_BASE, HEARTS_MAX_CAP } from '@/lib/tokens'
@@ -12,6 +13,9 @@ const THEME_REASON_TO_ID = {
   shop_themeForest: 'themeForest',
   shop_themeMidnight: 'themeMidnight',
   shop_themeRose: 'themeRose',
+  shop_themeAurora: 'themeAurora',
+  shop_themeEmber: 'themeEmber',
+  shop_themeMonolith: 'themeMonolith',
 }
 
 const THEME_TRANSACTION_REASONS = Object.keys(THEME_REASON_TO_ID)
@@ -74,6 +78,19 @@ export async function POST(request) {
       HEARTS_MAX_CAP,
       Math.max(HEARTS_BASE, Number(clientMaxHearts) || HEARTS_BASE),
     )
+    const inventoryReasons = getTrackedInventoryReasons()
+    let inventoryRows = []
+    let inventoryCounts = { taskReroll: 0, reviewShield: 0 }
+    if (inventoryReasons.length > 0) {
+      const { data } = await supabase
+        .from('gem_transactions')
+        .select('reason')
+        .eq('user_id', user.id)
+        .eq('goal_id', goalId)
+        .in('reason', inventoryReasons)
+      inventoryRows = data || []
+      inventoryCounts = buildInventoryCountsFromTransactions(inventoryRows)
+    }
     const isThemeItem = itemId.startsWith('theme')
     let ownedThemes = null
 
@@ -117,6 +134,20 @@ export async function POST(request) {
         effectDescription = `Max hearts increased to ${nextMaxHearts}`
         break
       }
+
+      case 'taskReroll':
+        effectDescription = 'Task reroll pass added'
+        break
+
+      case 'reviewShield':
+        effectDescription = 'Review shield added'
+        break
+
+      case 'recoveryPack':
+        update.hearts_remaining = currentMaxHearts
+        update.hearts_refill_at = null
+        effectDescription = `Hearts restored and 1 reroll pass added`
+        break
 
       case 'freezeBundle':
         update.freeze_count = (Number(progress.freeze_count) || 0) + 3
@@ -173,6 +204,9 @@ export async function POST(request) {
       case 'themeForest':
       case 'themeMidnight':
       case 'themeRose':
+      case 'themeAurora':
+      case 'themeEmber':
+      case 'themeMonolith':
         effectDescription = `Theme unlocked: ${item.label.replace('Path Theme: ', '')}`
         ownedThemes = Array.from(new Set([...(ownedThemes || []), itemId]))
         break
@@ -198,6 +232,11 @@ export async function POST(request) {
       })
     } catch { /* non-critical */ }
 
+    inventoryCounts = buildInventoryCountsFromTransactions([
+      ...inventoryRows,
+      { reason: `shop_${itemId}` },
+    ])
+
     // Build response with ALL updated fields so frontend can sync immediately
     const response = {
       ok: true,
@@ -222,6 +261,7 @@ export async function POST(request) {
     if (ownedThemes) {
       response.ownedThemes = ownedThemes
     }
+    response.inventoryCounts = inventoryCounts
 
     return Response.json(response)
 

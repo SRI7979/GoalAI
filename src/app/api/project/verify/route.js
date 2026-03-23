@@ -1,3 +1,4 @@
+import { getOpenAIModel } from '@/lib/openaiModels'
 import { getSupabaseServerClient } from '@/lib/supabaseServer'
 
 function extractAccessToken(request) {
@@ -231,7 +232,7 @@ export async function POST(request) {
         Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: getOpenAIModel('projectVerify'),
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.4,
         max_tokens: 600,
