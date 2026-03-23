@@ -28,7 +28,7 @@ export async function POST(request) {
     const accessToken = extractAccessToken(request) || body?.accessToken || null
     supabase = getSupabaseServerClient({ accessToken })
 
-    const { goalId, userId, goal, days, weekdayMins, weekendMins, knowledge, mode = 'goal' } = body
+    const { goalId, userId, goal, days, weekdayMins, weekendMins, knowledge, mode = 'goal', startingXp = 0 } = body
     parsedGoalId = goalId
 
     if (!goalId || !userId || !goal) {
@@ -127,6 +127,18 @@ export async function POST(request) {
       mode,
     })
     progressInitialized = true
+
+    if (Number(startingXp) > 0) {
+      const { error: xpError } = await supabase
+        .from('user_progress')
+        .update({ total_xp: Number(startingXp) })
+        .eq('user_id', userId)
+        .eq('goal_id', goalId)
+
+      if (xpError) {
+        throw new Error(`Failed to initialize onboarding XP: ${xpError.message}`)
+      }
+    }
 
     await updateGoalStatus({ supabase, goalId, mode })
 
