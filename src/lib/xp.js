@@ -1,18 +1,28 @@
 // ─── XP System ────────────────────────────────────────────────────────────────
 // XP per task type — higher XP for higher-effort task types
 export const XP_PER_TYPE = {
+  // ── Clean 7-type system ──
+  concept:          20,
+  guided_practice:  30,
+  challenge:        40,
+  explain:          25,
+  quiz:             35,
+  reflect:          15,
+  boss:             0,   // boss XP awarded separately via complete API (200 on defeat)
+  // ── Project (separate system) ──
+  project:          100,
+  // ── Legacy types (backward compat for existing DB data) ──
   lesson:           20,
   video:            15,
   practice:         25,
   exercise:         30,
-  quiz:             35,
   review:           20,
-  project:          100,
-  guided_practice:  30,
-  challenge:        40,
+  reading:          20,
+  flashcard:        15,
+  discussion:       20,
   ai_interaction:   25,
   reflection:       15,
-  boss:             0,   // boss XP awarded separately via complete API (200 on defeat)
+  capstone:         0,
 }
 
 export const XP_DEFAULT         = 20

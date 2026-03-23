@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import AIAssistant from './AIAssistant'
+import ConfidenceSelector from './ConfidenceSelector'
 
 const font = "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif"
 
@@ -19,6 +20,8 @@ export default function ChallengeView({ task, goal, knowledge, onClose, onComple
   const [showSolution, setShowSolution] = useState(false)
   const [timeUp, setTimeUp] = useState(false)
   const [completing, setCompleting] = useState(false)
+  const [assistantUsageCount, setAssistantUsageCount] = useState(0)
+  const [confidenceLevel, setConfidenceLevel] = useState('')
   const timerRef = useRef(null)
 
   useEffect(() => {
@@ -62,8 +65,33 @@ export default function ChallengeView({ task, goal, knowledge, onClose, onComple
   const urgentColor = timeLeft < 60 ? '#FF453A' : timeLeft < 180 ? '#FBBF24' : '#F59E0B'
   const totalTime = challenge?.timeLimit || 600
   const timePct = (timeLeft / totalTime) * 100
+  const elapsedSec = Math.max(0, totalTime - timeLeft)
 
   const DIFFICULTY_COLOR = { beginner: '#34D399', intermediate: '#F59E0B', advanced: '#FF453A' }
+
+  const estimatedChallengeScore = (() => {
+    let score = 78
+    score -= Math.max(0, hintIndex + 1) * 10
+    score -= assistantUsageCount * 8
+    if (timeUp) score -= 18
+    if (showSolution) score -= 14
+    if (!showSolution && !timeUp && elapsedSec < totalTime * 0.8) score += 8
+    return Math.max(25, Math.min(98, score))
+  })()
+
+  function handleComplete() {
+    if (!confidenceLevel) return
+    setCompleting(true)
+    onComplete({
+      hintsUsed: Math.max(0, hintIndex + 1),
+      maxHints: challenge?.hints?.length || 3,
+      assistantUsageCount,
+      confidenceLevel,
+      completionTimeSec: elapsedSec || totalTime,
+      attempts: Math.max(1, (showSolution ? 2 : 1) + (timeUp ? 1 : 0)),
+      challengeScore: estimatedChallengeScore,
+    })
+  }
 
   return (
     <>
@@ -153,6 +181,15 @@ export default function ChallengeView({ task, goal, knowledge, onClose, onComple
                   )}
                 </div>
 
+                <ConfidenceSelector
+                  value={confidenceLevel}
+                  onChange={setConfidenceLevel}
+                  accent="#F59E0B"
+                  borderColor="rgba(245,158,11,0.24)"
+                  background="rgba(245,158,11,0.05)"
+                  label="How confident do you feel about handling a similar challenge?"
+                />
+
                 {/* Solution (after time up or requested) */}
                 {showSolution && (
                   <div style={{ padding: '18px 20px', background: 'rgba(52,211,153,0.05)', border: '1px solid rgba(52,211,153,0.18)', borderRadius: 16, animation: 'fadeIn 0.3s ease both' }}>
@@ -180,17 +217,17 @@ export default function ChallengeView({ task, goal, knowledge, onClose, onComple
                     Show Solution
                   </button>
                 )}
-                <button onClick={() => { setCompleting(true); onComplete() }} disabled={completing} style={{
+                <button onClick={handleComplete} disabled={completing || !confidenceLevel} style={{
                   flex: 1, padding: '14px',
-                  background: completing ? 'rgba(14,245,194,0.06)' : 'linear-gradient(135deg,#0ef5c2,#00d4ff)',
-                  border: completing ? '1px solid rgba(14,245,194,0.22)' : 'none',
-                  borderRadius: 16, color: completing ? '#0ef5c2' : '#06060f',
+                  background: completing ? 'rgba(14,245,194,0.06)' : confidenceLevel ? 'linear-gradient(135deg,#0ef5c2,#00d4ff)' : 'rgba(255,255,255,0.04)',
+                  border: completing ? '1px solid rgba(14,245,194,0.22)' : confidenceLevel ? 'none' : '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: 16, color: completing ? '#0ef5c2' : confidenceLevel ? '#06060f' : '#636366',
                   fontSize: 16, fontWeight: 700, cursor: completing ? 'default' : 'pointer', fontFamily: font,
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
                 }}>
                   {completing ? (
                     <><div style={{width:14,height:14,border:'2px solid rgba(14,245,194,0.2)',borderTopColor:'#0ef5c2',borderRadius:'50%',animation:'spin 0.65s linear infinite'}}/>Saving…</>
-                  ) : 'Complete ✓'}
+                  ) : confidenceLevel ? 'Complete ✓' : 'Choose confidence to continue'}
                 </button>
               </div>
             ) : null}
@@ -198,7 +235,15 @@ export default function ChallengeView({ task, goal, knowledge, onClose, onComple
         </div>
       </div>
 
-      {started && <AIAssistant concept={task._concept || task.title} goal={goal} context={`Challenge: ${challenge?.title}`} />}
+      {started && (
+        <AIAssistant
+          concept={task._concept || task.title}
+          goal={goal}
+          mode={task._aiMode || 'challenge'}
+          onAsk={() => setAssistantUsageCount((count) => count + 1)}
+          context={`Challenge: ${challenge?.title}`}
+        />
+      )}
     </>
   )
 }

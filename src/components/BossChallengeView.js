@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
+import ConfidenceSelector from './ConfidenceSelector'
 
 const font = "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif"
 
@@ -24,10 +25,14 @@ export default function BossChallengeView({ task, goal, knowledge, onClose, onCo
   const [completing, setCompleting] = useState(false)
   const [totalScore, setTotalScore] = useState(0)
   const [shakeScreen, setShakeScreen] = useState(false)
-  const startTimeRef = useRef(Date.now())
+  const [confidenceLevel, setConfidenceLevel] = useState('')
+  const [mistakeCount, setMistakeCount] = useState(0)
+  const [failedPhases, setFailedPhases] = useState(0)
+  const startTimeRef = useRef(null)
 
   useEffect(() => {
     async function load() {
+      startTimeRef.current = Date.now()
       setLoading(true)
       const cacheKey = `pathai.boss.v1::${task.id || task.title}`
       try {
@@ -76,6 +81,7 @@ export default function BossChallengeView({ task, goal, knowledge, onClose, onCo
       setBossHP(hp => Math.max(0, hp - damage))
       setTotalScore(s => s + 25)
     } else {
+      setMistakeCount((count) => count + 1)
       setPlayerHP(hp => Math.max(0, hp - 10))
       setShakeScreen(true)
       setTimeout(() => setShakeScreen(false), 400)
@@ -113,6 +119,7 @@ export default function BossChallengeView({ task, goal, knowledge, onClose, onCo
         setBossHP(hp => Math.max(0, hp - damage))
         setTotalScore(s => s + (result.score || 50))
       } else {
+        setFailedPhases((count) => count + 1)
         setPlayerHP(hp => Math.max(0, hp - 15))
         setShakeScreen(true)
         setTimeout(() => setShakeScreen(false), 400)
@@ -146,15 +153,21 @@ export default function BossChallengeView({ task, goal, knowledge, onClose, onCo
     }
   }
 
-  function handleComplete() {
+function handleComplete() {
+    if (!confidenceLevel) return
     setCompleting(true)
-    const elapsed = Math.round((Date.now() - startTimeRef.current) / 1000)
+    const elapsed = startTimeRef.current
+      ? Math.round((Date.now() - startTimeRef.current) / 1000)
+      : 0
     onComplete({
       bossDefeated: battleState === 'victory',
       totalScore,
       bossHPRemaining: bossHP,
       playerHPRemaining: playerHP,
       completionTimeSec: elapsed,
+      attempts: Math.max(1, 1 + mistakeCount + failedPhases),
+      confidenceLevel,
+      challengeScore: Math.max(20, Math.min(100, totalScore)),
     })
   }
 
@@ -515,6 +528,17 @@ export default function BossChallengeView({ task, goal, knowledge, onClose, onCo
                     color: '#FBBF24', fontSize: 14, fontWeight: 700,
                   }}>💎 +50 Gems</div>
                 </div>
+
+                <div style={{ maxWidth: 460, margin: '0 auto' }}>
+                  <ConfidenceSelector
+                    value={confidenceLevel}
+                    onChange={setConfidenceLevel}
+                    accent="#0ef5c2"
+                    borderColor="rgba(14,245,194,0.22)"
+                    background="rgba(14,245,194,0.05)"
+                    label="How confident are you taking on a similar boss challenge now?"
+                  />
+                </div>
               </div>
             ) : battleState === 'defeat' ? (
               /* Defeat */
@@ -529,6 +553,17 @@ export default function BossChallengeView({ task, goal, knowledge, onClose, onCo
                 <p style={{ color: '#636366', fontSize: 13 }}>
                   Review the concepts and try again when you&apos;re ready!
                 </p>
+
+                <div style={{ maxWidth: 460, margin: '20px auto 0' }}>
+                  <ConfidenceSelector
+                    value={confidenceLevel}
+                    onChange={setConfidenceLevel}
+                    accent="#818CF8"
+                    borderColor="rgba(129,140,248,0.22)"
+                    background="rgba(129,140,248,0.05)"
+                    label="Even after this attempt, how confident are you with the core ideas?"
+                  />
+                </div>
               </div>
             ) : null}
           </div>
@@ -561,14 +596,16 @@ export default function BossChallengeView({ task, goal, knowledge, onClose, onCo
             {(battleState === 'victory' || battleState === 'defeat') && (
               <button
                 onClick={handleComplete}
-                disabled={completing}
+                disabled={completing || !confidenceLevel}
                 style={{
                   flex: 1, padding: '14px',
                   background: completing ? 'rgba(236,72,153,0.06)'
-                    : battleState === 'victory' ? 'linear-gradient(135deg, #0ef5c2, #00d4ff)' : 'linear-gradient(135deg, #818CF8, #6366F1)',
-                  border: completing ? '1px solid rgba(236,72,153,0.22)' : 'none',
+                    : confidenceLevel
+                    ? (battleState === 'victory' ? 'linear-gradient(135deg, #0ef5c2, #00d4ff)' : 'linear-gradient(135deg, #818CF8, #6366F1)')
+                    : 'rgba(255,255,255,0.04)',
+                  border: completing ? '1px solid rgba(236,72,153,0.22)' : confidenceLevel ? 'none' : '1px solid rgba(255,255,255,0.08)',
                   borderRadius: 16,
-                  color: completing ? '#EC4899' : battleState === 'victory' ? '#06060f' : '#fff',
+                  color: completing ? '#EC4899' : confidenceLevel ? (battleState === 'victory' ? '#06060f' : '#fff') : '#636366',
                   fontSize: 16, fontWeight: 700,
                   cursor: completing ? 'default' : 'pointer', fontFamily: font,
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
@@ -576,7 +613,7 @@ export default function BossChallengeView({ task, goal, knowledge, onClose, onCo
               >
                 {completing ? (
                   <><div style={{ width: 14, height: 14, border: '2px solid rgba(236,72,153,0.2)', borderTopColor: '#EC4899', borderRadius: '50%', animation: 'spin 0.65s linear infinite' }}/>Saving...</>
-                ) : battleState === 'victory' ? 'Claim Rewards ✓' : 'Continue'}
+                ) : confidenceLevel ? (battleState === 'victory' ? 'Claim Rewards ✓' : 'Continue') : 'Choose confidence to continue'}
               </button>
             )}
           </div>

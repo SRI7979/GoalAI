@@ -1,6 +1,7 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import AIAssistant from './AIAssistant'
+import ConfidenceSelector from './ConfidenceSelector'
 
 const font = "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif"
 
@@ -16,9 +17,14 @@ export default function MultiQuizView({ task, goal, knowledge, onClose, onComple
   const [showVignette, setShowVignette] = useState(false)
   const [completing, setCompleting] = useState(false)
   const [combo, setCombo] = useState(0)
+  const [bestCombo, setBestCombo] = useState(0)
+  const [assistantUsageCount, setAssistantUsageCount] = useState(0)
+  const [confidenceLevel, setConfidenceLevel] = useState('')
+  const startTimeRef = useRef(null)
 
   useEffect(() => {
     async function load() {
+      startTimeRef.current = Date.now()
       setLoading(true)
       const cacheKey = `pathai.quiz.v1::${task.id || task.title}`
       try {
@@ -53,7 +59,11 @@ export default function MultiQuizView({ task, goal, knowledge, onClose, onComple
     setResults(prev => [...prev, { questionIdx: current, selectedIdx: idx, correct }])
     if (correct) {
       setScore(s => s + 1)
-      setCombo(c => c + 1)
+      setCombo(c => {
+        const next = c + 1
+        setBestCombo((best) => Math.max(best, next))
+        return next
+      })
     } else {
       setCombo(0)
       setShowVignette(true)
@@ -72,8 +82,26 @@ export default function MultiQuizView({ task, goal, knowledge, onClose, onComple
   }
 
   const handleComplete = () => {
+    if (!confidenceLevel) return
     setCompleting(true)
-    onComplete()
+    const totalQuestions = questions?.length || 0
+    const correctCount = results.filter((entry) => entry.correct).length
+    const incorrectCount = Math.max(0, totalQuestions - correctCount)
+    const completionTimeSec = startTimeRef.current
+      ? Math.round((Date.now() - startTimeRef.current) / 1000)
+      : 0
+    onComplete({
+      accuracy: totalQuestions > 0 ? Math.round((correctCount / totalQuestions) * 100) : 0,
+      correctCount,
+      questionCount: totalQuestions,
+      attempts: Math.max(1, incorrectCount + 1),
+      confidenceLevel,
+      assistantUsageCount,
+      completionTimeSec,
+      quizPerfect: totalQuestions > 0 && correctCount === totalQuestions,
+      comboMax: bestCombo,
+      quizScore: totalQuestions > 0 ? Math.round((correctCount / totalQuestions) * 100) : 0,
+    })
   }
 
   const q = questions?.[current]
@@ -197,6 +225,17 @@ export default function MultiQuizView({ task, goal, knowledge, onClose, onComple
                     )
                   })}
                 </div>
+
+                <div style={{ marginTop: 20 }}>
+                  <ConfidenceSelector
+                    value={confidenceLevel}
+                    onChange={setConfidenceLevel}
+                    accent="#0ef5c2"
+                    borderColor="rgba(14,245,194,0.22)"
+                    background="rgba(14,245,194,0.05)"
+                    label="How confident are you about this concept now?"
+                  />
+                </div>
               </div>
             ) : (
               <div key={current} style={{ animation:'fadeIn 0.3s ease both' }}>
@@ -292,20 +331,20 @@ export default function MultiQuizView({ task, goal, knowledge, onClose, onComple
 
         {/* Bottom nav */}
         <div style={{ padding:'14px 20px 30px', borderTop:'1px solid rgba(255,255,255,0.08)', background:'rgba(6,6,15,0.90)', backdropFilter:'blur(28px)' }}>
-          <div style={{ maxWidth:640, margin:'0 auto', display:'flex', gap:12 }}>
+              <div style={{ maxWidth:640, margin:'0 auto', display:'flex', gap:12 }}>
             <button onClick={onClose} style={{ padding:'14px 24px', background:'rgba(255,255,255,0.07)', border:'1px solid rgba(255,255,255,0.12)', borderRadius:16, color:'#8e8e93', fontSize:15, fontWeight:600, cursor:'pointer', fontFamily:font }}>Back</button>
             {done ? (
-              <button onClick={handleComplete} disabled={completing} style={{
+              <button onClick={handleComplete} disabled={completing || !confidenceLevel} style={{
                 flex:1, padding:'14px',
-                background: completing ? 'rgba(14,245,194,0.06)' : 'linear-gradient(135deg,#0ef5c2,#00d4ff)',
-                border: completing ? '1px solid rgba(14,245,194,0.22)' : 'none',
-                borderRadius:16, color: completing ? '#0ef5c2' : '#06060f',
+                background: completing ? 'rgba(14,245,194,0.06)' : confidenceLevel ? 'linear-gradient(135deg,#0ef5c2,#00d4ff)' : 'rgba(255,255,255,0.04)',
+                border: completing ? '1px solid rgba(14,245,194,0.22)' : confidenceLevel ? 'none' : '1px solid rgba(255,255,255,0.08)',
+                borderRadius:16, color: completing ? '#0ef5c2' : confidenceLevel ? '#06060f' : '#636366',
                 fontSize:16, fontWeight:700, cursor: completing ? 'default' : 'pointer', fontFamily:font,
                 display:'flex', alignItems:'center', justifyContent:'center', gap:8,
               }}>
                 {completing ? (
                   <><div style={{width:14,height:14,border:'2px solid rgba(14,245,194,0.2)',borderTopColor:'#0ef5c2',borderRadius:'50%',animation:'spin 0.65s linear infinite'}}/>Saving…</>
-                ) : 'Complete ✓'}
+                ) : confidenceLevel ? 'Complete ✓' : 'Choose confidence to continue'}
               </button>
             ) : answered ? (
               <button onClick={handleNext} style={{
@@ -328,7 +367,13 @@ export default function MultiQuizView({ task, goal, knowledge, onClose, onComple
         </div>
       </div>
 
-      <AIAssistant concept={task._concept || task.title} goal={goal} context={`Quiz Q${current + 1}: ${q?.question || task.title}`} />
+      <AIAssistant
+        concept={task._concept || task.title}
+        goal={goal}
+        mode={task._aiMode || 'hint'}
+        onAsk={() => setAssistantUsageCount((count) => count + 1)}
+        context={`Quiz Q${current + 1}: ${q?.question || task.title}`}
+      />
     </>
   )
 }

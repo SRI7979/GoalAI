@@ -6,10 +6,38 @@ import { GEM_SHOP_ITEMS } from '@/lib/tokens'
 import { HEARTS_BASE, HEARTS_MAX_CAP } from '@/lib/tokens'
 import { computeStreakUpdate } from '@/lib/streak'
 
+const THEME_REASON_TO_ID = {
+  shop_themeOcean: 'themeOcean',
+  shop_themeSunset: 'themeSunset',
+  shop_themeForest: 'themeForest',
+  shop_themeMidnight: 'themeMidnight',
+  shop_themeRose: 'themeRose',
+}
+
+const THEME_TRANSACTION_REASONS = Object.keys(THEME_REASON_TO_ID)
+
 function extractAccessToken(request) {
   const h = request.headers.get('authorization') || request.headers.get('Authorization')
   if (!h || !h.toLowerCase().startsWith('bearer ')) return null
   return h.slice(7).trim() || null
+}
+
+async function getOwnedThemes(supabase, userId) {
+  const { data, error } = await supabase
+    .from('gem_transactions')
+    .select('reason')
+    .eq('user_id', userId)
+    .in('reason', THEME_TRANSACTION_REASONS)
+
+  if (error) return { ownedThemes: [], error }
+
+  const ownedThemes = Array.from(new Set(
+    (data || [])
+      .map((row) => THEME_REASON_TO_ID[row.reason])
+      .filter(Boolean),
+  ))
+
+  return { ownedThemes, error: null }
 }
 
 export async function POST(request) {
@@ -46,9 +74,21 @@ export async function POST(request) {
       HEARTS_MAX_CAP,
       Math.max(HEARTS_BASE, Number(clientMaxHearts) || HEARTS_BASE),
     )
+    const isThemeItem = itemId.startsWith('theme')
+    let ownedThemes = null
+
+    if (isThemeItem) {
+      const themeResult = await getOwnedThemes(supabase, user.id)
+      if (!themeResult.error) {
+        ownedThemes = themeResult.ownedThemes
+        if (ownedThemes.includes(itemId)) {
+          return Response.json({ error: 'Theme already owned', ownedThemes }, { status: 400 })
+        }
+      }
+    }
 
     if (currentGems < item.cost) {
-      return Response.json({ error: 'Insufficient gems', currentGems, cost: item.cost }, { status: 400 })
+      return Response.json({ error: 'Insufficient gems', currentGems, cost: item.cost, ownedThemes }, { status: 400 })
     }
 
     // Build update
@@ -133,8 +173,8 @@ export async function POST(request) {
       case 'themeForest':
       case 'themeMidnight':
       case 'themeRose':
-        // Cosmetic — just deduct gems; theme stored client-side via localStorage
         effectDescription = `Theme unlocked: ${item.label.replace('Path Theme: ', '')}`
+        ownedThemes = Array.from(new Set([...(ownedThemes || []), itemId]))
         break
 
       default:
@@ -158,20 +198,32 @@ export async function POST(request) {
       })
     } catch { /* non-critical */ }
 
-    return Response.json({
+    // Build response with ALL updated fields so frontend can sync immediately
+    const response = {
       ok: true,
       newGemTotal: currentGems - item.cost,
       effect: effectDescription,
       item: itemId,
-      // Return updated fields so frontend can sync
-      ...(itemId === 'heartRefill' ? { heartsRemaining: currentMaxHearts } : {}),
-      ...(itemId === 'heartContainer' ? {
-        maxHearts: currentMaxHearts + 1,
-        heartsRemaining: update.hearts_remaining,
-      } : {}),
-      ...(itemId === 'streakFreeze' || itemId === 'freezeBundle' ? { freezeCount: update.freeze_count } : {}),
-      ...(itemId === 'xpBoost' || itemId === 'megaXpBoost' ? { xpBoostUntil: update.xp_boost_until } : {}),
-    })
+    }
+
+    // Always include the fields that were updated so frontend stays in sync
+    if (update.hearts_remaining != null) response.heartsRemaining = update.hearts_remaining
+    if (update.hearts_refill_at !== undefined) response.heartsRefillAt = update.hearts_refill_at
+    if (update.freeze_count != null) response.freezeCount = update.freeze_count
+    if (update.xp_boost_until) response.xpBoostUntil = update.xp_boost_until
+    if (update.last_activity_date) {
+      response.streakRepaired = true
+      response.currentStreak = progress.current_streak || 0
+      response.lastActivityDate = update.last_activity_date
+    }
+    if (itemId === 'heartContainer') {
+      response.maxHearts = currentMaxHearts + 1
+    }
+    if (ownedThemes) {
+      response.ownedThemes = ownedThemes
+    }
+
+    return Response.json(response)
 
   } catch (err) {
     return Response.json({ error: 'Purchase failed', details: err?.message }, { status: 500 })

@@ -1,7 +1,7 @@
 // LessonView — iOS Liquid Glass Edition
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 // ─── Syntax Highlighter ───────────────────────────────────────────────────────
 const LANG_KEYWORDS = {
@@ -346,7 +346,7 @@ function QuizView({ quiz, onComplete, onWrongAnswer, onCorrectAnswer, comboCount
 
 
 // ─── Main Lesson Viewer ──────────────────────────────────────────────────────
-export default function LessonViewer({ concept, taskTitle, goal, knowledge, lessonKey, onClose, onComplete, onHeartLost }) {
+export default function LessonViewer({ concept, taskTitle, goal, knowledge, lessonKey, aiMode = 'hint', onClose, onComplete, onHeartLost }) {
   const [loading, setLoading]               = useState(true)
   const [error, setError]                   = useState('')
   const [slides, setSlides]                 = useState([])
@@ -368,10 +368,11 @@ export default function LessonViewer({ concept, taskTitle, goal, knowledge, less
   }, [goal, concept, taskTitle, lessonKey])
 
   // Stabilize knowledge reference to prevent unnecessary re-fetches
-  const knowledgeKey = useMemo(() => JSON.stringify(knowledge), [knowledge]) // eslint-disable-line react-hooks/exhaustive-deps
+  const knowledgeKey = useMemo(() => JSON.stringify(knowledge), [knowledge])
 
   useEffect(() => {
     async function load() {
+      startTimeRef.current = Date.now()
       setLoading(true); setError(''); setShowQuiz(false); setCurrent(0)
       if (typeof window !== 'undefined') {
         try {
@@ -396,7 +397,7 @@ export default function LessonViewer({ concept, taskTitle, goal, knowledge, less
       setLoading(false)
     }
     load()
-  }, [concept, taskTitle, goal, knowledgeKey, cacheKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [concept, taskTitle, goal, knowledgeKey, cacheKey])
 
   const totalSlides = slides.length
   const isLastSlide = current === totalSlides - 1
@@ -404,12 +405,24 @@ export default function LessonViewer({ concept, taskTitle, goal, knowledge, less
   const [quizPassed, setQuizPassed] = useState(false)
   const [comboCount, setComboCount] = useState(0)
   const [comboMax, setComboMax] = useState(0)
+  const [assistantUsageCount, setAssistantUsageCount] = useState(0)
+  const startTimeRef = useRef(null)
 
   const handleNext = () => {
     if (isLastSlide) {
       if (quiz && !showQuiz) setShowQuiz(true)
       else if (showQuiz && !quizPassed) return // block until quiz is answered correctly
-      else if (onComplete) onComplete()
+      else if (onComplete) {
+        const completionTimeSec = startTimeRef.current
+          ? Math.round((Date.now() - startTimeRef.current) / 1000)
+          : 0
+        onComplete({
+          completionTimeSec,
+          assistantUsageCount,
+          comboMax,
+          quizPerfect: Boolean(quiz && comboMax > 0),
+        })
+      }
     } else { setCurrent(c => c + 1) }
   }
   const handleBack = () => {
@@ -433,7 +446,8 @@ export default function LessonViewer({ concept, taskTitle, goal, knowledge, less
     setAssistantMessages((prev) => prev.concat({ role: 'user', text: question }))
     setAssistantLoading(true)
     try {
-      const res = await fetch('/api/lesson-assistant', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question, concept, goal, slide: slide ? { title: slide.title, content: slide.content } : null }) })
+      setAssistantUsageCount((count) => count + 1)
+      const res = await fetch('/api/lesson-assistant', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question, concept, goal, mode: aiMode, slide: slide ? { title: slide.title, content: slide.content } : null }) })
       const data = await res.json()
       if (!res.ok) throw new Error(data?.error || 'Assistant failed')
       setAssistantMessages((prev) => prev.concat({ role: 'assistant', text: data?.answer || 'No answer.', tips: Array.isArray(data?.tips) ? data.tips : [], links: Array.isArray(data?.links) ? data.links : [] }))
@@ -508,7 +522,27 @@ export default function LessonViewer({ concept, taskTitle, goal, knowledge, less
                   <button onClick={onClose} style={{ padding: '10px 20px', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12, color: '#8e8e93', cursor: 'pointer', fontFamily: "'DM Sans', sans-serif", backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}>Go back</button>
                 </div>
               ) : showQuiz ? (
-                <QuizView quiz={quiz} comboCount={comboCount} onComplete={() => { setQuizPassed(true); if (onComplete) onComplete() }} onWrongAnswer={() => { setComboCount(0); if (onHeartLost) onHeartLost() }} onCorrectAnswer={() => { setComboCount(c => { const next = c + 1; setComboMax(m => Math.max(m, next)); return next }) }} />
+                <QuizView
+                  quiz={quiz}
+                  comboCount={comboCount}
+                  onComplete={() => {
+                    setQuizPassed(true)
+                    if (onComplete) {
+                      const completionTimeSec = startTimeRef.current
+                        ? Math.round((Date.now() - startTimeRef.current) / 1000)
+                        : 0
+                      onComplete({
+                        completionTimeSec,
+                        assistantUsageCount,
+                        comboMax: Math.max(comboMax, 1),
+                        quizPerfect: true,
+                        quizScore: 100,
+                      })
+                    }
+                  }}
+                  onWrongAnswer={() => { setComboCount(0); if (onHeartLost) onHeartLost() }}
+                  onCorrectAnswer={() => { setComboCount(c => { const next = c + 1; setComboMax(m => Math.max(m, next)); return next }) }}
+                />
               ) : slide ? (
                 <div key={slide.id} style={{ animation: 'slideLeft 0.32s cubic-bezier(0.16,1,0.3,1)' }}>
                   {/* Slide type badge */}

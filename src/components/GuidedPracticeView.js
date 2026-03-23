@@ -1,6 +1,7 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import AIAssistant from './AIAssistant'
+import ConfidenceSelector from './ConfidenceSelector'
 
 const font = "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif"
 
@@ -19,12 +20,15 @@ export default function GuidedPracticeView({ task, goal, knowledge, onClose, onC
   const [checkpointAnswer, setCheckpointAnswer] = useState('')
   const [checkpointResults, setCheckpointResults] = useState([])
   const [phase, setPhase] = useState('practice') // practice | checkpoint | solution | done
-  const [startTime] = useState(Date.now())
   const [submitting, setSubmitting] = useState(false)
   const [showSolution, setShowSolution] = useState(false)
+  const [assistantUsageCount, setAssistantUsageCount] = useState(0)
+  const [confidenceLevel, setConfidenceLevel] = useState('')
+  const startTimeRef = useRef(null)
 
   useEffect(() => {
     async function load() {
+      startTimeRef.current = Date.now()
       setLoading(true)
       const cacheKey = `pathai.practice.v1::${task.id || task.title}`
       try {
@@ -80,13 +84,19 @@ export default function GuidedPracticeView({ task, goal, knowledge, onClose, onC
   }
 
   const handleComplete = () => {
+    if (!confidenceLevel) return
     setSubmitting(true)
-    const elapsed = Math.round((Date.now() - startTime) / 1000)
+    const elapsed = startTimeRef.current
+      ? Math.round((Date.now() - startTimeRef.current) / 1000)
+      : 0
     onComplete({
       hintsUsed: hintsRevealed,
       maxHints: practice?.hints?.length || 3,
       completionTimeSec: elapsed,
       checkpointsPassed: checkpointResults.length,
+      attempts: Math.max(1, 1 + checkpointResults.length),
+      assistantUsageCount,
+      confidenceLevel,
     })
   }
 
@@ -384,6 +394,15 @@ export default function GuidedPracticeView({ task, goal, knowledge, onClose, onC
                           </p>
                         </div>
 
+                        <ConfidenceSelector
+                          value={confidenceLevel}
+                          onChange={setConfidenceLevel}
+                          accent="#00d4ff"
+                          borderColor="rgba(0,212,255,0.24)"
+                          background="rgba(0,212,255,0.05)"
+                          label="How confident are you that you could do a similar problem on your own?"
+                        />
+
                         {phase !== 'done' && setPhase('done') && null}
                       </>
                     )}
@@ -409,26 +428,32 @@ export default function GuidedPracticeView({ task, goal, knowledge, onClose, onC
             {phase === 'done' && (
               <button
                 onClick={handleComplete}
-                disabled={submitting}
+                disabled={submitting || !confidenceLevel}
                 style={{
                   flex: 1, padding: '14px',
-                  background: submitting ? 'rgba(0,212,255,0.06)' : 'linear-gradient(135deg, #00d4ff, #0ef5c2)',
-                  border: submitting ? '1px solid rgba(0,212,255,0.22)' : 'none',
-                  borderRadius: 16, color: submitting ? '#00d4ff' : '#06060f',
+                  background: submitting ? 'rgba(0,212,255,0.06)' : confidenceLevel ? 'linear-gradient(135deg, #00d4ff, #0ef5c2)' : 'rgba(255,255,255,0.04)',
+                  border: submitting ? '1px solid rgba(0,212,255,0.22)' : confidenceLevel ? 'none' : '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: 16, color: submitting ? '#00d4ff' : confidenceLevel ? '#06060f' : '#636366',
                   fontSize: 16, fontWeight: 700, cursor: submitting ? 'default' : 'pointer',
                   fontFamily: font, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
                 }}
               >
                 {submitting ? (
                   <><div style={{ width: 14, height: 14, border: '2px solid rgba(0,212,255,0.2)', borderTopColor: '#00d4ff', borderRadius: '50%', animation: 'spin 0.65s linear infinite' }}/>Saving...</>
-                ) : 'Complete Practice ✓'}
+                ) : confidenceLevel ? 'Complete Practice ✓' : 'Choose confidence to continue'}
               </button>
             )}
           </div>
         </div>
       </div>
 
-      <AIAssistant concept={task._concept || task.title} goal={goal} context={`Guided Practice: ${practice?.title || task.title}`} />
+      <AIAssistant
+        concept={task._concept || task.title}
+        goal={goal}
+        mode={task._aiMode || 'teaching'}
+        onAsk={() => setAssistantUsageCount((count) => count + 1)}
+        context={`Guided Practice: ${practice?.title || task.title}`}
+      />
     </>
   )
 }

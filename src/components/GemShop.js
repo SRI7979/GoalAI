@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { GEM_SHOP_ITEMS, HEARTS_MAX_CAP } from '@/lib/tokens'
-import { getStoredOwnedThemes, setStoredActiveTheme, unlockStoredTheme } from '@/lib/appThemes'
+import { getStoredOwnedThemes, setStoredOwnedThemes, unlockStoredTheme } from '@/lib/appThemes'
 import { setStoredMaxHearts } from '@/lib/shopStorage'
 
 const font = "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif"
@@ -143,10 +143,11 @@ function GemIcon({ sz = 18 }) {
   )
 }
 
-export default function GemShop({ gems, goalId, activeTheme, maxHearts, onPurchase, onThemeChange }) {
+export default function GemShop({ gems, goalId, activeTheme, maxHearts, onPurchase }) {
   const [buying, setBuying]         = useState(null)
   const [confirm, setConfirm]       = useState(null)
   const [success, setSuccess]       = useState(null)
+  const [successMsg, setSuccessMsg] = useState(null)
   const [errorMsg, setErrorMsg]     = useState(null)
   const [ownedThemes, setOwnedThemes] = useState([])
 
@@ -180,13 +181,18 @@ export default function GemShop({ gems, goalId, activeTheme, maxHearts, onPurcha
       })
       const data = await res.json()
       if (!res.ok) {
+        if (Array.isArray(data.ownedThemes)) {
+          setStoredOwnedThemes(data.ownedThemes)
+          setOwnedThemes(data.ownedThemes)
+        }
         setErrorMsg(data.error || 'Purchase failed')
         setBuying(null)
         setConfirm(null)
         return
       }
       if (item.id.startsWith('theme')) {
-        const themes = unlockStoredTheme(item.id)
+        const themes = Array.isArray(data.ownedThemes) ? data.ownedThemes : unlockStoredTheme(item.id)
+        setStoredOwnedThemes(themes)
         setOwnedThemes(themes)
         // Don't auto-apply — let user choose from the owned themes list
       }
@@ -194,7 +200,8 @@ export default function GemShop({ gems, goalId, activeTheme, maxHearts, onPurcha
         setStoredMaxHearts(data.maxHearts)
       }
       setSuccess(item.id)
-      setTimeout(() => setSuccess(null), 2000)
+      setSuccessMsg(data.effect || 'Purchase complete!')
+      setTimeout(() => { setSuccess(null); setSuccessMsg(null) }, 3000)
       onPurchase(data)
     } catch {
       setErrorMsg('Network error')
@@ -229,6 +236,20 @@ export default function GemShop({ gems, goalId, activeTheme, maxHearts, onPurcha
           borderRadius:12,fontSize:13,color:'#ef5060',
         }}>
           {errorMsg}
+        </div>
+      )}
+
+      {/* Success toast */}
+      {successMsg && (
+        <div style={{
+          marginBottom:12,padding:'12px 16px',
+          background:'rgba(14,245,194,0.08)',border:'1px solid rgba(14,245,194,0.25)',
+          borderRadius:12,fontSize:14,fontWeight:700,color:'#0ef5c2',
+          display:'flex',alignItems:'center',gap:8,
+          animation:'fadeUp 0.25s ease both',
+        }}>
+          <span style={{fontSize:18}}>&#10003;</span>
+          {successMsg}
         </div>
       )}
 

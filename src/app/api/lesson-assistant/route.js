@@ -7,11 +7,17 @@ const defaultLinks = [
 export async function POST(request) {
   try {
     const body = await request.json()
-    const { question, concept, goal, slide } = body || {}
+    const { question, concept, goal, slide, mode = 'hint' } = body || {}
 
     if (!question || !concept || !goal) {
       return Response.json({ error: 'Missing question, concept, or goal' }, { status: 400 })
     }
+
+    const modeInstruction = mode === 'teaching'
+      ? 'Use Teaching Mode: explain concepts clearly, break work into smaller steps, and prefer worked examples over shortcuts.'
+      : mode === 'challenge'
+      ? 'Use Challenge Mode: avoid spoon-feeding, ask sharper follow-up questions, and push for transfer and deeper understanding.'
+      : 'Use Hint Mode: give a nudge, not the whole answer, and encourage the learner to think through the next step themselves.'
 
     const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -31,6 +37,7 @@ Lesson goal: ${goal}
 Concept: ${concept}
 Current slide title: ${slide?.title || 'N/A'}
 Current slide content: ${slide?.content || 'N/A'}
+Assistant mode: ${mode}
 Student question: ${question}
 
 Return ONLY valid JSON:
@@ -41,7 +48,8 @@ Return ONLY valid JSON:
 }
 
 Rules:
-- Keep answer practical and beginner-friendly
+- ${modeInstruction}
+- Keep answer practical and learner-friendly
 - Tips should be actionable
 - Include 1-3 reputable links`,
         }],

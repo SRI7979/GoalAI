@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { selectReflectionPrompts } from '@/lib/learningEngine'
+import ConfidenceSelector from './ConfidenceSelector'
 
 const font = "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif"
 
@@ -16,6 +17,7 @@ export default function ReflectionView({ task, goal, knowledge, onClose, onCompl
   const [evaluating, setEvaluating] = useState(false)
   const [evaluation, setEvaluation] = useState(null)
   const [completing, setCompleting] = useState(false)
+  const [confidenceLevel, setConfidenceLevel] = useState('')
 
   const allRequired = prompts.filter(p => p.required).every(p => (responses[p.id] || '').trim().length > 10)
   const filledCount = Object.values(responses).filter(v => v.trim().length > 5).length
@@ -53,10 +55,13 @@ export default function ReflectionView({ task, goal, knowledge, onClose, onCompl
   }
 
   function handleComplete() {
+    if (!confidenceLevel) return
     setCompleting(true)
     onComplete({
       reflectionQuality: evaluation?.quality_score || 50,
       confusedTopics: evaluation?.confused_topics || [],
+      confidenceLevel,
+      attempts: Math.max(1, filledCount),
     })
   }
 
@@ -268,6 +273,15 @@ export default function ReflectionView({ task, goal, knowledge, onClose, onCompl
                     </div>
                   </div>
                 )}
+
+                <ConfidenceSelector
+                  value={confidenceLevel}
+                  onChange={setConfidenceLevel}
+                  accent="#A78BFA"
+                  borderColor="rgba(167,139,250,0.22)"
+                  background="rgba(167,139,250,0.05)"
+                  label="After reflecting, how clear does this concept feel?"
+                />
               </div>
             )}
           </div>
@@ -288,19 +302,19 @@ export default function ReflectionView({ task, goal, knowledge, onClose, onCompl
 
               <button
                 onClick={handleComplete}
-                disabled={completing}
+                disabled={completing || !confidenceLevel}
                 style={{
                   flex: 1, padding: '14px',
-                  background: completing ? 'rgba(167,139,250,0.06)' : 'linear-gradient(135deg, #A78BFA, #818CF8)',
-                  border: completing ? '1px solid rgba(167,139,250,0.22)' : 'none',
-                  borderRadius: 16, color: completing ? '#A78BFA' : '#fff',
+                  background: completing ? 'rgba(167,139,250,0.06)' : confidenceLevel ? 'linear-gradient(135deg, #A78BFA, #818CF8)' : 'rgba(255,255,255,0.04)',
+                  border: completing ? '1px solid rgba(167,139,250,0.22)' : confidenceLevel ? 'none' : '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: 16, color: completing ? '#A78BFA' : confidenceLevel ? '#fff' : '#636366',
                   fontSize: 16, fontWeight: 700, cursor: completing ? 'default' : 'pointer',
                   fontFamily: font, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
                 }}
               >
                 {completing ? (
                   <><div style={{ width: 14, height: 14, border: '2px solid rgba(167,139,250,0.2)', borderTopColor: '#A78BFA', borderRadius: '50%', animation: 'spin 0.65s linear infinite' }}/>Saving...</>
-                ) : 'Complete Reflection ✓'}
+                ) : confidenceLevel ? 'Complete Reflection ✓' : 'Choose confidence to continue'}
               </button>
             </div>
           </div>

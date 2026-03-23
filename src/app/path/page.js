@@ -38,7 +38,7 @@ const BANNER_H   = 88   // world banner strip height
 const COORD_W    = 400  // SVG coordinate width
 
 // XP per task type
-const TASK_XP = { lesson:20, video:15, practice:25, exercise:30, quiz:35, review:20, guided_practice:30, challenge:40, ai_interaction:25, reflection:15, boss:200 }
+const TASK_XP = { concept:20, guided_practice:30, challenge:40, explain:25, quiz:35, reflect:15, boss:200, project:100, lesson:20, video:15, practice:25, exercise:30, review:20, reading:20, flashcard:15, ai_interaction:25, reflection:15, capstone:0 }
 const rowXP   = (tasks) => tasks.reduce((s, t) => s + (TASK_XP[t.type] || 20), 0)
 
 function patchNodeTask(nodes, rowId, taskId) {

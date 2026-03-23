@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { AI_INTERACTION_TYPES } from '@/lib/learningEngine'
+import ConfidenceSelector from './ConfidenceSelector'
 
 const font = "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif"
 
@@ -15,6 +16,7 @@ export default function AIInteractionView({ task, goal, knowledge, onClose, onCo
   const [debugAnswers, setDebugAnswers] = useState({})
   const [predictAnswer, setPredictAnswer] = useState(null)
   const [predictRevealed, setPredictRevealed] = useState(false)
+  const [confidenceLevel, setConfidenceLevel] = useState('')
 
   const types = Object.entries(AI_INTERACTION_TYPES)
 
@@ -74,10 +76,14 @@ export default function AIInteractionView({ task, goal, knowledge, onClose, onCo
   }
 
   function handleComplete() {
+    if (!confidenceLevel) return
     setCompleting(true)
     onComplete({
       aiInteractionDepth: evaluation?.depth_score || 50,
       interactionType: selectedType,
+      confidenceLevel,
+      attempts: 1,
+      accuracy: evaluation?.score || 70,
     })
   }
 
@@ -473,12 +479,39 @@ export default function AIInteractionView({ task, goal, knowledge, onClose, onCo
                         ))}
                       </div>
                     )}
+
+                    <ConfidenceSelector
+                      value={confidenceLevel}
+                      onChange={setConfidenceLevel}
+                      accent="#818CF8"
+                      borderColor="rgba(129,140,248,0.22)"
+                      background="rgba(129,140,248,0.05)"
+                      label="How confident are you in this kind of reasoning now?"
+                    />
                   </div>
                 )}
               </div>
             )}
           </div>
         </div>
+
+        {(selectedType === 'predict' && predictRevealed && !evaluation) && (
+          <div style={{
+            padding: '0 20px 16px',
+            background: 'rgba(6,6,15,0.90)',
+          }}>
+            <div style={{ maxWidth: 640, margin: '0 auto' }}>
+              <ConfidenceSelector
+                value={confidenceLevel}
+                onChange={setConfidenceLevel}
+                accent="#818CF8"
+                borderColor="rgba(129,140,248,0.22)"
+                background="rgba(129,140,248,0.05)"
+                label="How confident are you in reading situations like this now?"
+              />
+            </div>
+          </div>
+        )}
 
         {/* Bottom nav */}
         <div style={{
@@ -493,17 +526,17 @@ export default function AIInteractionView({ task, goal, knowledge, onClose, onCo
             }}>{selectedType && !evaluation ? 'Change Type' : 'Back'}</button>
 
             {(evaluation || (selectedType === 'predict' && predictRevealed)) && (
-              <button onClick={handleComplete} disabled={completing} style={{
+              <button onClick={handleComplete} disabled={completing || !confidenceLevel} style={{
                 flex: 1, padding: '14px',
-                background: completing ? 'rgba(129,140,248,0.06)' : 'linear-gradient(135deg, #818CF8, #6366F1)',
-                border: completing ? '1px solid rgba(129,140,248,0.22)' : 'none',
-                borderRadius: 16, color: completing ? '#818CF8' : '#fff',
+                background: completing ? 'rgba(129,140,248,0.06)' : confidenceLevel ? 'linear-gradient(135deg, #818CF8, #6366F1)' : 'rgba(255,255,255,0.04)',
+                border: completing ? '1px solid rgba(129,140,248,0.22)' : confidenceLevel ? 'none' : '1px solid rgba(255,255,255,0.08)',
+                borderRadius: 16, color: completing ? '#818CF8' : confidenceLevel ? '#fff' : '#636366',
                 fontSize: 16, fontWeight: 700, cursor: completing ? 'default' : 'pointer',
                 fontFamily: font, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
               }}>
                 {completing ? (
                   <><div style={{ width: 14, height: 14, border: '2px solid rgba(129,140,248,0.2)', borderTopColor: '#818CF8', borderRadius: '50%', animation: 'spin 0.65s linear infinite' }}/>Saving...</>
-                ) : 'Complete ✓'}
+                ) : confidenceLevel ? 'Complete ✓' : 'Choose confidence to continue'}
               </button>
             )}
           </div>

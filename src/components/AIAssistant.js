@@ -3,7 +3,7 @@ import { useState, useRef, useEffect } from 'react'
 
 const font = "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif"
 
-export default function AIAssistant({ concept, goal, context }) {
+export default function AIAssistant({ concept, goal, context, mode = 'hint', onAsk }) {
   const [open, setOpen] = useState(false)
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
@@ -19,12 +19,13 @@ export default function AIAssistant({ concept, goal, context }) {
     if (!q || loading) return
     setInput('')
     setMessages(m => [...m, { role: 'user', text: q }])
+    onAsk?.(q)
     setLoading(true)
     try {
       const res = await fetch('/api/lesson-assistant', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: q, concept, goal, slide: { title: context || concept, content: '' } }),
+        body: JSON.stringify({ question: q, concept, goal, mode, slide: { title: context || concept, content: '' } }),
       })
       const data = await res.json()
       setMessages(m => [...m, { role: 'assistant', text: data.answer || 'Sorry, I had trouble with that.', tips: data.tips }])
@@ -58,7 +59,9 @@ export default function AIAssistant({ concept, goal, context }) {
               <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'linear-gradient(135deg,#0ef5c2,#00d4ff)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 900, color: '#06060f' }}>✦</div>
               <div>
                 <div style={{ fontSize: 13, fontWeight: 700, color: '#f5f5f7' }}>AI Tutor</div>
-                <div style={{ fontSize: 11, color: '#636366' }}>Ask anything about {concept}</div>
+                <div style={{ fontSize: 11, color: '#636366' }}>
+                  {mode === 'teaching' ? 'Step-by-step coach' : mode === 'challenge' ? 'Pushes deeper thinking' : 'Guiding with hints'} · {concept}
+                </div>
               </div>
             </div>
             <button onClick={() => setOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#636366', padding: 4 }}>

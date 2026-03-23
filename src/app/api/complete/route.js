@@ -10,6 +10,7 @@ import { GEM_AWARDS } from '@/lib/tokens'
 import { generateDailyQuests, updateQuestProgress } from '@/lib/quests'
 import { checkAndAwardBadges } from '@/lib/badges'
 import { calculateUnderstandingScore, calculateAdaptiveDifficulty } from '@/lib/learningEngine'
+import { buildAdaptiveProfile, createTaskPerformanceRecord, getAdaptiveAiMode } from '@/lib/adaptiveLearning'
 
 function extractAccessToken(request) {
   const authHeader = request.headers.get('authorization') || request.headers.get('Authorization')
@@ -40,6 +41,13 @@ export async function POST(request) {
     const challengeScore = Number.isFinite(body?.challengeScore) ? body.challengeScore : 0
     const aiInteractionDepth = Number.isFinite(body?.aiInteractionDepth) ? body.aiInteractionDepth : 0
     const bossDefeated = Boolean(body?.bossDefeated)
+    const attempts = Number.isFinite(body?.attempts) ? body.attempts : 1
+    const accuracy = Number.isFinite(body?.accuracy) ? body.accuracy : null
+    const correctCount = Number.isFinite(body?.correctCount) ? body.correctCount : null
+    const questionCount = Number.isFinite(body?.questionCount) ? body.questionCount : null
+    const completionTimeSec = Number.isFinite(body?.completionTimeSec) ? body.completionTimeSec : lessonTimeSec
+    const assistantUsageCount = Number.isFinite(body?.assistantUsageCount) ? body.assistantUsageCount : 0
+    const confidenceLevel = body?.confidenceLevel || 'medium'
     const accessToken = extractAccessToken(request) || body?.accessToken || null
     supabase = getSupabaseServerClient({ accessToken })
 
@@ -71,8 +79,111 @@ export async function POST(request) {
     const alreadyCompleted = Boolean(targetTask.completed)
 
     // ── Update tasks array ───────────────────────────────────────────────────
+    let adaptiveSnapshot = null
+    const taskAdaptiveRecord = createTaskPerformanceRecord(targetTask, {
+      accuracy,
+      attempts,
+      correctCount,
+      questionCount,
+      hintsUsed,
+      maxHints,
+      reflectionQuality,
+      challengeScore,
+      aiInteractionDepth,
+      bossDefeated,
+      confidenceLevel,
+      assistantUsageCount,
+      completionTimeSec,
+      lessonTimeSec,
+      comboMax,
+      quizPerfect,
+    })
+
+    try {
+      const [{ data: adaptiveRows }, { data: masteryRows }] = await Promise.all([
+        supabase
+          .from('daily_tasks')
+          .select('day_number,task_date,completion_status,covered_topics,tasks')
+          .eq('goal_id', row.goal_id)
+          .eq('user_id', row.user_id)
+          .order('day_number', { ascending: false })
+          .limit(18),
+        supabase
+          .from('concept_mastery')
+          .select('concept_id,mastery_score,last_review,review_interval')
+          .eq('goal_id', row.goal_id)
+          .eq('user_id', row.user_id),
+      ])
+
+      const previewTasks = currentTasks.map((entry) => {
+        const shouldBeCompleted = completedTaskIdSet.has(normalizeTaskId(entry.id)) || normalizeTaskId(entry.id) === normalizeTaskId(taskId)
+        if (normalizeTaskId(entry.id) !== normalizeTaskId(taskId)) {
+          return shouldBeCompleted && !entry.completed ? { ...entry, completed: true } : entry
+        }
+        return {
+          ...entry,
+          completed: shouldBeCompleted ? true : entry.completed,
+          _adaptive: {
+            ...(entry._adaptive || {}),
+            ...taskAdaptiveRecord,
+            completedAt: new Date().toISOString(),
+          },
+        }
+      })
+
+      const historyRows = Array.isArray(adaptiveRows) ? [...adaptiveRows] : []
+      const existingIndex = historyRows.findIndex((entry) => Number(entry.day_number) === Number(row.day_number))
+      const previewRow = {
+        day_number: row.day_number,
+        task_date: row.task_date || new Date().toISOString().split('T')[0],
+        completion_status: row.completion_status,
+        covered_topics: row.covered_topics || [],
+        tasks: previewTasks,
+      }
+
+      if (existingIndex >= 0) historyRows[existingIndex] = previewRow
+      else historyRows.push(previewRow)
+
+      const adaptiveProfile = buildAdaptiveProfile(historyRows, masteryRows || [], {
+        targetConcept: targetTask._concept || row.covered_topics?.[0] || targetTask.title,
+      })
+      adaptiveSnapshot = {
+        userState: adaptiveProfile.targetConcept?.userState || adaptiveProfile.learner.userState,
+        engagementState: adaptiveProfile.targetConcept?.engagementState || adaptiveProfile.learner.engagementState,
+        aiMode: getAdaptiveAiMode({
+          userState: adaptiveProfile.targetConcept?.userState || adaptiveProfile.learner.userState,
+          engagementState: adaptiveProfile.targetConcept?.engagementState || adaptiveProfile.learner.engagementState,
+          taskType: targetTask.type,
+        }),
+        fastTrackEligible: Boolean(adaptiveProfile.learner.fastTrackEligible),
+        pacing: adaptiveProfile.learner.preferredPace,
+        explanationStyle: adaptiveProfile.learner.explanationStyle,
+        weakConcepts: adaptiveProfile.weakConcepts.slice(0, 2).map((entry) => entry.conceptName),
+        reviewTargets: adaptiveProfile.reviewTargets.slice(0, 2),
+      }
+      taskAdaptiveRecord.userState = adaptiveSnapshot.userState
+      taskAdaptiveRecord.engagementState = adaptiveSnapshot.engagementState
+      taskAdaptiveRecord.aiMode = adaptiveSnapshot.aiMode
+      taskAdaptiveRecord.fastTrackEligible = adaptiveSnapshot.fastTrackEligible
+      taskAdaptiveRecord.pacing = adaptiveSnapshot.pacing
+    } catch {
+      adaptiveSnapshot = null
+    }
+
     const updatedTasks     = currentTasks.map((t) => {
       const shouldBeCompleted = completedTaskIdSet.has(normalizeTaskId(t.id)) || normalizeTaskId(t.id) === normalizeTaskId(taskId)
+      if (!shouldBeCompleted && normalizeTaskId(t.id) !== normalizeTaskId(taskId)) return t
+      if (normalizeTaskId(t.id) === normalizeTaskId(taskId)) {
+        return {
+          ...t,
+          completed: shouldBeCompleted ? true : t.completed,
+          _adaptive: {
+            ...(t._adaptive || {}),
+            ...taskAdaptiveRecord,
+            completedAt: new Date().toISOString(),
+          },
+        }
+      }
       return shouldBeCompleted && !t.completed ? { ...t, completed: true } : t
     })
     const tasksCompleted   = updatedTasks.filter((t) => t.completed).length
@@ -215,7 +326,13 @@ export async function POST(request) {
     let conceptMasteryScore = 0
     try {
       const conceptId = row.concept_id ?? row.covered_topics?.[0] ?? row.day_number
-      await updateConceptMastery({ supabase, userId: row.user_id, goalId: row.goal_id, conceptId })
+      await updateConceptMastery({
+        supabase,
+        userId: row.user_id,
+        goalId: row.goal_id,
+        conceptId,
+        signals: taskAdaptiveRecord,
+      })
       // Read back the updated mastery score for badge checking
       const { data: masteryRow } = await supabase
         .from('concept_mastery')
@@ -235,23 +352,23 @@ export async function POST(request) {
     try {
       if (!alreadyCompleted) {
         const expectedTimeSec = (targetTask.durationMin || 15) * 60
-        const completionTimeRatio = lessonTimeSec > 0 && expectedTimeSec > 0
-          ? lessonTimeSec / expectedTimeSec : 1
+        const completionTimeRatio = completionTimeSec > 0 && expectedTimeSec > 0
+          ? completionTimeSec / expectedTimeSec : 1
 
         understandingScore = calculateUnderstandingScore({
-          quizScore: quizPerfect ? 100 : (comboMax > 3 ? 80 : 60),
+          quizScore: taskAdaptiveRecord.quizScore ?? taskAdaptiveRecord.accuracy ?? (quizPerfect ? 100 : (comboMax > 3 ? 80 : 60)),
           hintsUsed,
           maxHints,
           completionTimeRatio,
           reflectionQuality,
           aiInteractionDepth,
           challengeScore,
-          retryCount: 0,
+          retryCount: Math.max(0, attempts - 1),
         })
 
         adaptiveDifficulty = calculateAdaptiveDifficulty({
-          recentQuizScores: quizPerfect ? [100] : comboMax > 3 ? [80] : [60],
-          avgCompletionTime: lessonTimeSec || null,
+          recentQuizScores: [taskAdaptiveRecord.quizScore ?? taskAdaptiveRecord.accuracy ?? (quizPerfect ? 100 : comboMax > 3 ? 80 : 60)],
+          avgCompletionTime: completionTimeSec || lessonTimeSec || null,
           expectedTime: expectedTimeSec || null,
           hintsUsed,
           totalHintsAvailable: maxHints,
@@ -585,6 +702,7 @@ export async function POST(request) {
       nextResult,
       understandingScore: alreadyCompleted ? 0 : understandingScore,
       adaptiveDifficulty,
+      adaptive: adaptiveSnapshot,
       warnings,
     })
   } catch (error) {

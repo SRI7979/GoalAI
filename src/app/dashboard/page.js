@@ -10,9 +10,7 @@ import ProjectView from '@/components/ProjectView'
 import MultiQuizView from '@/components/MultiQuizView'
 import ReadingView from '@/components/ReadingView'
 import FlashcardView from '@/components/FlashcardView'
-import DiscussionView from '@/components/DiscussionView'
 import ChallengeView from '@/components/ChallengeView'
-import CapstoneView from '@/components/CapstoneView'
 import ProjectViewer from '@/components/ProjectViewer'
 import GuidedPracticeView from '@/components/GuidedPracticeView'
 import ReflectionView from '@/components/ReflectionView'
@@ -34,6 +32,7 @@ import {
   getStoredActiveTheme,
   getStoredOwnedThemes,
   setStoredActiveTheme,
+  setStoredOwnedThemes,
 } from '@/lib/appThemes'
 import { getStoredMaxHearts, setStoredMaxHearts } from '@/lib/shopStorage'
 import { HEARTS_BASE, HEARTS_MAX_CAP } from '@/lib/tokens'
@@ -71,6 +70,16 @@ const T = {
   font:         "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif",
   fontMono:     "'JetBrains Mono','Fira Code',Menlo,monospace",
 }
+
+const THEME_REASON_TO_ID = {
+  shop_themeOcean: 'themeOcean',
+  shop_themeSunset: 'themeSunset',
+  shop_themeForest: 'themeForest',
+  shop_themeMidnight: 'themeMidnight',
+  shop_themeRose: 'themeRose',
+}
+
+const THEME_TRANSACTION_REASONS = Object.keys(THEME_REASON_TO_ID)
 
 // ─── Keyframes ─────────────────────────────────────────────────────────────────
 const KEYFRAMES = `
@@ -114,24 +123,29 @@ const KEYFRAMES = `
 
 // ─── Task type config ──────────────────────────────────────────────────────────
 const TASK_STYLE = {
-  lesson:     {color:'var(--theme-primary)',bg:'var(--theme-primary-dim)',  border:'var(--theme-primary-border)',  label:'LESSON'    },
-  video:      {color:'#FBBF24',bg:'rgba(251,191,36,0.10)',  border:'rgba(251,191,36,0.22)',  label:'VIDEO'     },
-  practice:   {color:'var(--theme-secondary)',bg:'rgba(0,212,255,0.10)',   border:'var(--theme-primary-border)',   label:'PRACTICE'  },
-  exercise:   {color:'var(--theme-mastery)',bg:'var(--theme-mastery-dim)', border:'var(--theme-mastery-border)', label:'EXERCISE'  },
-  reading:    {color:'#34D399',bg:'rgba(52,211,153,0.10)',  border:'rgba(52,211,153,0.22)',  label:'READING'   },
-  flashcard:  {color:'#A78BFA',bg:'rgba(167,139,250,0.10)', border:'rgba(167,139,250,0.22)', label:'FLASHCARDS'},
-  discussion: {color:'#60A5FA',bg:'rgba(96,165,250,0.10)',  border:'rgba(96,165,250,0.22)',  label:'DISCUSSION'},
-  challenge:  {color:'#F59E0B',bg:'rgba(245,158,11,0.10)',  border:'rgba(245,158,11,0.22)',  label:'CHALLENGE' },
-  capstone:   {color:'#F97316',bg:'rgba(249,115,22,0.10)',  border:'rgba(249,115,22,0.22)',  label:'CAPSTONE'  },
-  project:          {color:'#EC4899',bg:'rgba(236,72,153,0.10)', border:'rgba(236,72,153,0.22)', label:'PROJECT'  },
-  quiz:             {color:'#FF453A',bg:'rgba(255,69,58,0.10)',   border:'rgba(255,69,58,0.22)',   label:'QUIZ'    },
-  review:           {color:'#FF6B35',bg:'rgba(255,107,53,0.10)',  border:'rgba(255,107,53,0.22)',  label:'REVIEW'  },
-  guided_practice:  {color:'#00d4ff',bg:'rgba(0,212,255,0.10)',   border:'rgba(0,212,255,0.22)',   label:'PRACTICE' },
-  ai_interaction:   {color:'#818CF8',bg:'rgba(129,140,248,0.10)', border:'rgba(129,140,248,0.22)', label:'EXPLAIN'  },
-  reflection:       {color:'#A78BFA',bg:'rgba(167,139,250,0.10)', border:'rgba(167,139,250,0.22)', label:'REFLECT'  },
-  boss:             {color:'#EC4899',bg:'rgba(236,72,153,0.12)', border:'rgba(236,72,153,0.30)', label:'BOSS'     },
+  // ── Clean 7-type system ──
+  concept:          {color:'var(--theme-primary)',bg:'var(--theme-primary-dim)',  border:'var(--theme-primary-border)',  label:'CONCEPT'   },
+  guided_practice:  {color:'#00d4ff',bg:'rgba(0,212,255,0.10)',   border:'rgba(0,212,255,0.22)',   label:'PRACTICE'  },
+  challenge:        {color:'#F59E0B',bg:'rgba(245,158,11,0.10)',  border:'rgba(245,158,11,0.22)',  label:'CHALLENGE' },
+  explain:          {color:'#818CF8',bg:'rgba(129,140,248,0.10)', border:'rgba(129,140,248,0.22)', label:'EXPLAIN'   },
+  quiz:             {color:'#FF453A',bg:'rgba(255,69,58,0.10)',   border:'rgba(255,69,58,0.22)',   label:'QUIZ'      },
+  reflect:          {color:'#A78BFA',bg:'rgba(167,139,250,0.10)', border:'rgba(167,139,250,0.22)', label:'REFLECT'   },
+  boss:             {color:'#EC4899',bg:'rgba(236,72,153,0.12)',  border:'rgba(236,72,153,0.30)',  label:'BOSS'      },
+  project:          {color:'#EC4899',bg:'rgba(236,72,153,0.10)',  border:'rgba(236,72,153,0.22)',  label:'PROJECT'   },
+  // ── Legacy types (backward compat for existing DB tasks) ──
+  lesson:           {color:'var(--theme-primary)',bg:'var(--theme-primary-dim)',  border:'var(--theme-primary-border)',  label:'LESSON'    },
+  video:            {color:'#FBBF24',bg:'rgba(251,191,36,0.10)',  border:'rgba(251,191,36,0.22)',  label:'VIDEO'     },
+  practice:         {color:'var(--theme-secondary)',bg:'rgba(0,212,255,0.10)',   border:'var(--theme-primary-border)',  label:'PRACTICE'  },
+  exercise:         {color:'var(--theme-mastery)',bg:'var(--theme-mastery-dim)', border:'var(--theme-mastery-border)', label:'EXERCISE'  },
+  reading:          {color:'#34D399',bg:'rgba(52,211,153,0.10)',  border:'rgba(52,211,153,0.22)',  label:'READING'   },
+  flashcard:        {color:'#A78BFA',bg:'rgba(167,139,250,0.10)', border:'rgba(167,139,250,0.22)', label:'FLASHCARDS'},
+  discussion:       {color:'#60A5FA',bg:'rgba(96,165,250,0.10)',  border:'rgba(96,165,250,0.22)',  label:'DISCUSSION'},
+  capstone:         {color:'#F97316',bg:'rgba(249,115,22,0.10)',  border:'rgba(249,115,22,0.22)',  label:'CAPSTONE'  },
+  review:           {color:'#FF6B35',bg:'rgba(255,107,53,0.10)',  border:'rgba(255,107,53,0.22)',  label:'REVIEW'    },
+  ai_interaction:   {color:'#818CF8',bg:'rgba(129,140,248,0.10)', border:'rgba(129,140,248,0.22)', label:'EXPLAIN'   },
+  reflection:       {color:'#A78BFA',bg:'rgba(167,139,250,0.10)', border:'rgba(167,139,250,0.22)', label:'REFLECT'   },
 }
-const taskStyle = (type) => TASK_STYLE[type] || TASK_STYLE.lesson
+const taskStyle = (type) => TASK_STYLE[type] || TASK_STYLE.concept
 
 // Helper: current week's Monday as YYYY-MM-DD
 function getWeekStartStr() {
@@ -964,6 +978,36 @@ export default function Dashboard() {
       .from('user_progress').select('total_xp,current_streak,longest_streak,freeze_count,hearts_remaining,hearts_refill_at,total_days,gems,xp_boost_until')
       .eq('goal_id', activeGoal.id).eq('user_id', me.id).maybeSingle()
 
+    try {
+      const { data: themePurchaseData } = await supabase
+        .from('gem_transactions')
+        .select('reason')
+        .eq('user_id', me.id)
+        .in('reason', THEME_TRANSACTION_REASONS)
+
+      const serverOwnedThemes = Array.from(new Set(
+        (themePurchaseData || [])
+          .map((row) => THEME_REASON_TO_ID[row.reason])
+          .filter(Boolean),
+      ))
+      const mergedOwnedThemes = Array.from(new Set([...getStoredOwnedThemes(), ...serverOwnedThemes]))
+      setStoredOwnedThemes(mergedOwnedThemes)
+      setOwnedThemes(mergedOwnedThemes)
+      setActiveTheme((currentTheme) => (
+        currentTheme === 'default' || mergedOwnedThemes.includes(currentTheme)
+          ? currentTheme
+          : getStoredActiveTheme(mergedOwnedThemes)
+      ))
+    } catch {
+      const localOwnedThemes = getStoredOwnedThemes()
+      setOwnedThemes(localOwnedThemes)
+      setActiveTheme((currentTheme) => (
+        currentTheme === 'default' || localOwnedThemes.includes(currentTheme)
+          ? currentTheme
+          : getStoredActiveTheme(localOwnedThemes)
+      ))
+    }
+
     // Only update state if the query succeeded — never reset gems/xp to 0 on error
     if (!progError && prog) {
       const storedXp   = Number(prog.total_xp) || 0
@@ -1226,7 +1270,7 @@ export default function Dashboard() {
   }, [])
 
   // ─── Optimistic task completion ─────────────────────────────────────────────
-  const completeTask = useCallback(async (task, event) => {
+  const completeTask = useCallback(async (task, event, metrics = {}) => {
     if (task.completed || completing) return
 
     if (taskReloadTimerRef.current) {
@@ -1336,6 +1380,22 @@ export default function Dashboard() {
           completedTaskIds: prevTasks.filter((entry) => entry.completed).map((entry) => entry.id),
           accessToken: token,
           clientHour: new Date().getHours(),
+          attempts: metrics?.attempts,
+          accuracy: metrics?.accuracy,
+          correctCount: metrics?.correctCount,
+          questionCount: metrics?.questionCount,
+          confidenceLevel: metrics?.confidenceLevel,
+          assistantUsageCount: metrics?.assistantUsageCount,
+          completionTimeSec: metrics?.completionTimeSec,
+          lessonTimeSec: metrics?.completionTimeSec,
+          hintsUsed: metrics?.hintsUsed,
+          maxHints: metrics?.maxHints,
+          reflectionQuality: metrics?.reflectionQuality,
+          challengeScore: metrics?.challengeScore,
+          aiInteractionDepth: metrics?.aiInteractionDepth,
+          bossDefeated: metrics?.bossDefeated,
+          comboMax: metrics?.comboMax,
+          quizPerfect: metrics?.quizPerfect,
         }),
       })
 
@@ -1669,18 +1729,6 @@ export default function Dashboard() {
   }, [generatingNext, goal, user, load, allRows, activateDayRow])
 
   // ─── Fast-forward to next day ───────────────────────────────────────────────
-  const advanceDay = useCallback(async () => {
-    if (tomorrowRow) {
-      activateDayRow(tomorrowRow, allRows)
-      await load(true, { preferredRowId: tomorrowRow.id, preferredDayNumber: tomorrowRow.day_number })
-      return
-    }
-    const fallbackNextDayNumber = Number.isFinite(Number(todayRow?.day_number))
-      ? Number(todayRow.day_number) + 1
-      : null
-    await handleGenerateNext({ preferredDayNumber: fallbackNextDayNumber })
-  }, [tomorrowRow, allRows, load, handleGenerateNext, todayRow, activateDayRow])
-
   const handleStartNextDay = useCallback(async () => {
     if (advancingNextDay) return
     if (nextDayModalTimerRef.current) {
@@ -1690,21 +1738,45 @@ export default function Dashboard() {
     setAdvancingNextDay(true)
     setShowNextDayModal(false)
     setShowNextDayCTA(false)
+
+    // Always clear hold flag — we want to move forward, not stay on completed day
+    holdCompletedDayRef.current = false
+
     try {
-      // Wait for mission to persist, but don't hang forever — timeout after 2s
-      // By the time the inline CTA is visible, the API has already completed
+      // Wait for mission completion API, but don't hang — timeout after 2s
       await Promise.race([
         missionCompletionPromiseRef.current.catch(() => true),
         new Promise(resolve => setTimeout(() => resolve(true), 2000)),
       ])
-      await advanceDay()
+
+      // Compute the next day number from current day
+      const currentDayNum = Number(todayRow?.day_number) || 0
+      const nextDayNum = currentDayNum + 1
+
+      // Strategy 1: tomorrowRow already exists in client state
+      if (tomorrowRow) {
+        activateDayRow(tomorrowRow, allRows)
+        await load(true, { preferredRowId: tomorrowRow.id, preferredDayNumber: tomorrowRow.day_number })
+        return
+      }
+
+      // Strategy 2: try to load from DB — the complete API may have already generated the next day
+      holdCompletedDayRef.current = false
+      await load(true, { preferredDayNumber: nextDayNum })
+
+      // Check if load actually moved us forward (check via ref since state hasn't flushed)
+      const movedForward = currentDayRowIdRef.current !== todayRow?.id
+      if (movedForward) return
+
+      // Strategy 3: generate next day if it doesn't exist yet
+      await handleGenerateNext({ preferredDayNumber: nextDayNum })
     } catch {
       // If advancing fails, restore the CTA so the user can retry
       if (isMountedRef.current) setShowNextDayCTA(true)
     } finally {
       if (isMountedRef.current) setAdvancingNextDay(false)
     }
-  }, [advancingNextDay, advanceDay])
+  }, [advancingNextDay, todayRow, tomorrowRow, allRows, activateDayRow, load, handleGenerateNext])
 
   const handleDoLater = useCallback(() => {
     if (advancingNextDay) return
@@ -1718,12 +1790,12 @@ export default function Dashboard() {
   }, [advancingNextDay])
 
   // ─── Lesson complete ────────────────────────────────────────────────────────
-  const handleLessonComplete = useCallback((task) => {
+  const handleLessonComplete = useCallback((task, metrics = {}) => {
     // Close lesson view first, then complete the task
     setShowLesson(null)
     if (task && !task.completed) {
       // Small delay so the view closes visually before the task completion triggers
-      setTimeout(() => completeTask(task, null), 100)
+      setTimeout(() => completeTask(task, null, metrics), 100)
     }
   }, [completeTask])
 
@@ -2026,31 +2098,28 @@ export default function Dashboard() {
         />
       )}
 
-      {/* Task viewer — routed by type */}
+      {/* Task viewer — routed by type (7-type system + legacy backward compat) */}
+
+      {/* ── CONCEPT (new) + LESSON/READING/VIDEO/FLASHCARD (legacy) → LessonViewer ── */}
+      {showLesson && ['concept', 'lesson'].includes(showLesson.type) && (
+        <LessonViewer
+          concept={showLesson._concept || showLesson.title}
+          taskTitle={showLesson.title}
+          goal={goal?.goal_text}
+          knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
+          lessonKey={`${goal?.id || 'g'}::${showLesson.id || showLesson.title}`}
+          aiMode={showLesson._aiMode || 'hint'}
+          onClose={() => setShowLesson(null)}
+          onComplete={(payload) => handleLessonComplete(showLesson, payload)}
+          onHeartLost={handleHeartLost}
+        />
+      )}
       {showLesson && showLesson.type === 'video' && (
         <VideoView
           task={showLesson}
           goal={goal?.goal_text}
           onClose={() => setShowLesson(null)}
-          onComplete={() => handleLessonComplete(showLesson)}
-        />
-      )}
-      {showLesson && (showLesson.type === 'practice' || showLesson.type === 'exercise') && (
-        <ProjectView
-          task={showLesson}
-          goal={goal?.goal_text}
-          knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
-          onClose={() => setShowLesson(null)}
-          onComplete={() => handleLessonComplete(showLesson)}
-        />
-      )}
-      {showLesson && showLesson.type === 'quiz' && (
-        <MultiQuizView
-          task={showLesson}
-          goal={goal?.goal_text}
-          knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
-          onClose={() => setShowLesson(null)}
-          onComplete={() => handleLessonComplete(showLesson)}
+          onComplete={(payload) => handleLessonComplete(showLesson, payload)}
         />
       )}
       {showLesson && showLesson.type === 'reading' && (
@@ -2059,7 +2128,7 @@ export default function Dashboard() {
           goal={goal?.goal_text}
           knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
           onClose={() => setShowLesson(null)}
-          onComplete={() => handleLessonComplete(showLesson)}
+          onComplete={(payload) => handleLessonComplete(showLesson, payload)}
         />
       )}
       {showLesson && showLesson.type === 'flashcard' && (
@@ -2068,36 +2137,86 @@ export default function Dashboard() {
           goal={goal?.goal_text}
           knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
           onClose={() => setShowLesson(null)}
-          onComplete={() => handleLessonComplete(showLesson)}
+          onComplete={(payload) => handleLessonComplete(showLesson, payload)}
         />
       )}
-      {showLesson && showLesson.type === 'discussion' && (
-        <DiscussionView
+
+      {/* ── GUIDED PRACTICE (clean) + PRACTICE/EXERCISE (legacy) ── */}
+      {showLesson && showLesson.type === 'guided_practice' && (
+        <GuidedPracticeView
           task={showLesson}
           goal={goal?.goal_text}
           knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
           onClose={() => setShowLesson(null)}
-          onComplete={() => handleLessonComplete(showLesson)}
+          onComplete={(payload) => handleLessonComplete(showLesson, payload)}
         />
       )}
+      {showLesson && (showLesson.type === 'practice' || showLesson.type === 'exercise') && (
+        <ProjectView
+          task={showLesson}
+          goal={goal?.goal_text}
+          knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
+          onClose={() => setShowLesson(null)}
+          onComplete={(payload) => handleLessonComplete(showLesson, payload)}
+        />
+      )}
+
+      {/* ── CHALLENGE (clean, 1:1) ── */}
       {showLesson && showLesson.type === 'challenge' && (
         <ChallengeView
           task={showLesson}
           goal={goal?.goal_text}
           knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
           onClose={() => setShowLesson(null)}
-          onComplete={() => handleLessonComplete(showLesson)}
+          onComplete={(payload) => handleLessonComplete(showLesson, payload)}
         />
       )}
-      {showLesson && showLesson.type === 'capstone' && (
-        <CapstoneView
+
+      {/* ── EXPLAIN (new) + AI_INTERACTION/DISCUSSION (legacy) → AIInteractionView ── */}
+      {showLesson && ['explain', 'ai_interaction', 'discussion'].includes(showLesson.type) && (
+        <AIInteractionView
           task={showLesson}
           goal={goal?.goal_text}
           knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
           onClose={() => setShowLesson(null)}
-          onComplete={() => handleLessonComplete(showLesson)}
+          onComplete={(payload) => handleLessonComplete(showLesson, payload)}
         />
       )}
+
+      {/* ── QUIZ (clean) + REVIEW (legacy) → MultiQuizView ── */}
+      {showLesson && ['quiz', 'review'].includes(showLesson.type) && (
+        <MultiQuizView
+          task={showLesson}
+          goal={goal?.goal_text}
+          knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
+          onClose={() => setShowLesson(null)}
+          onComplete={(payload) => handleLessonComplete(showLesson, payload)}
+        />
+      )}
+
+      {/* ── REFLECT (new) + REFLECTION (legacy) → ReflectionView ── */}
+      {showLesson && ['reflect', 'reflection'].includes(showLesson.type) && (
+        <ReflectionView
+          task={showLesson}
+          goal={goal?.goal_text}
+          knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
+          onClose={() => setShowLesson(null)}
+          onComplete={(payload) => handleLessonComplete(showLesson, payload)}
+        />
+      )}
+
+      {/* ── BOSS (clean) + CAPSTONE (legacy) → BossChallengeView ── */}
+      {showLesson && ['boss', 'capstone'].includes(showLesson.type) && (
+        <BossChallengeView
+          task={showLesson}
+          goal={goal?.goal_text}
+          knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
+          onClose={() => setShowLesson(null)}
+          onComplete={(payload) => handleLessonComplete(showLesson, payload)}
+        />
+      )}
+
+      {/* ── PROJECT (separate system, unchanged) ── */}
       {showLesson && showLesson.type === 'project' && (
         <ProjectViewer
           task={showLesson}
@@ -2105,54 +2224,21 @@ export default function Dashboard() {
           knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
           goalId={goal?.id}
           onClose={() => setShowLesson(null)}
-          onComplete={() => handleLessonComplete(showLesson)}
+          onComplete={(payload) => handleLessonComplete(showLesson, payload)}
         />
       )}
-      {showLesson && showLesson.type === 'ai_interaction' && (
-        <AIInteractionView
-          task={showLesson}
-          goal={goal?.goal_text}
-          knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
-          onClose={() => setShowLesson(null)}
-          onComplete={() => handleLessonComplete(showLesson)}
-        />
-      )}
-      {showLesson && showLesson.type === 'guided_practice' && (
-        <GuidedPracticeView
-          task={showLesson}
-          goal={goal?.goal_text}
-          knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
-          onClose={() => setShowLesson(null)}
-          onComplete={() => handleLessonComplete(showLesson)}
-        />
-      )}
-      {showLesson && showLesson.type === 'reflection' && (
-        <ReflectionView
-          task={showLesson}
-          goal={goal?.goal_text}
-          knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
-          onClose={() => setShowLesson(null)}
-          onComplete={() => handleLessonComplete(showLesson)}
-        />
-      )}
-      {showLesson && showLesson.type === 'boss' && (
-        <BossChallengeView
-          task={showLesson}
-          goal={goal?.goal_text}
-          knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
-          onClose={() => setShowLesson(null)}
-          onComplete={() => handleLessonComplete(showLesson)}
-        />
-      )}
-      {showLesson && !['video','practice','exercise','quiz','reading','flashcard','discussion','challenge','capstone','project','guided_practice','reflection','boss','ai_interaction'].includes(showLesson.type) && (
+
+      {/* ── Fallback: unknown type → LessonViewer ── */}
+      {showLesson && !['concept','lesson','video','reading','flashcard','guided_practice','practice','exercise','challenge','explain','ai_interaction','discussion','quiz','review','reflect','reflection','boss','capstone','project'].includes(showLesson.type) && (
         <LessonViewer
           concept={showLesson._concept || showLesson.title}
           taskTitle={showLesson.title}
           goal={goal?.goal_text}
           knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
           lessonKey={`${goal?.id || 'g'}::${showLesson.id || showLesson.title}`}
+          aiMode={showLesson._aiMode || 'hint'}
           onClose={() => setShowLesson(null)}
-          onComplete={() => handleLessonComplete(showLesson)}
+          onComplete={(payload) => handleLessonComplete(showLesson, payload)}
           onHeartLost={handleHeartLost}
         />
       )}
@@ -3137,11 +3223,6 @@ export default function Dashboard() {
             goalId={goal?.id}
             activeTheme={activeTheme}
             maxHearts={maxHearts}
-            onThemeChange={(themeId) => {
-              setOwnedThemes(getStoredOwnedThemes())
-              setActiveTheme(themeId)
-              setStoredActiveTheme(themeId)
-            }}
             onPurchase={(data) => {
               if (data.newGemTotal != null) setGems(data.newGemTotal)
               if (data.heartsRemaining != null) { setPrevHearts(heartsRemaining); setHeartsRemaining(data.heartsRemaining) }
@@ -3151,8 +3232,17 @@ export default function Dashboard() {
               }
               if (data.freezeCount != null) setFreezeCount(data.freezeCount)
               if (data.xpBoostUntil) setXpBoostUntil(new Date(data.xpBoostUntil))
+              if (Array.isArray(data.ownedThemes)) {
+                setStoredOwnedThemes(data.ownedThemes)
+                setOwnedThemes(data.ownedThemes)
+              }
+              if (data.streakRepaired) {
+                setStreakData(prev => ({ ...prev, current: data.currentStreak || prev.current }))
+              }
               setGemPulse(true)
               setTimeout(() => setGemPulse(false), 400)
+              // Reload to sync all state from server
+              load(true)
             }}
           />
         )}
