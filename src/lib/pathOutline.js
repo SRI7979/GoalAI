@@ -1,4 +1,5 @@
 import { COURSE_FINAL_EXAM_WEIGHT, isCourseFinalExamTask } from '@/lib/courseCompletion'
+import { getCourseOutlineStatus } from '@/lib/courseOutlineStore'
 
 const UNIT_WEIGHT = 1
 const PROJECT_WEIGHT = 2
@@ -193,6 +194,7 @@ export function getOutlineUnitCount(courseOutline) {
 }
 
 export function courseOutlineNeedsRecovery(courseOutline, expectedUnitCount = 0) {
+  if (getCourseOutlineStatus(courseOutline) === 'pending') return true
   const normalizedModules = normalizeModules(courseOutline)
   if (normalizedModules.length === 0) return true
   if (expectedUnitCount > 0 && getOutlineUnitCount(courseOutline) < expectedUnitCount) return true

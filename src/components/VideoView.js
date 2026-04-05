@@ -142,7 +142,7 @@ export default function VideoView({ task, goal, onClose, onComplete }) {
             }}>
               {completing ? (
                 <><div style={{width:14,height:14,border:'2px solid rgba(14,245,194,0.2)',borderTopColor:'#0ef5c2',borderRadius:'50%',animation:'spin 0.65s linear infinite'}}/>Saving…</>
-              ) : watched ? 'Complete ✓' : 'Mark as Watched'}
+              ) : watched ? 'Complete' : 'Mark as Watched'}
             </button>
           </div>
         </div>

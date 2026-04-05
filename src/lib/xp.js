@@ -1,28 +1,19 @@
+import { normalizeLearningTask } from '@/lib/taskTaxonomy'
+
 // ─── XP System ────────────────────────────────────────────────────────────────
 // XP per task type — higher XP for higher-effort task types
 export const XP_PER_TYPE = {
-  // ── Clean 7-type system ──
+  // ── Canonical task taxonomy ──
   concept:          20,
   guided_practice:  30,
   challenge:        40,
   explain:          25,
   quiz:             35,
+  recall:           15,
   reflect:          15,
   boss:             0,   // boss XP awarded separately via complete API (200 on defeat)
-  // ── Project (separate system) ──
   project:          100,
-  // ── Legacy types (backward compat for existing DB data) ──
-  lesson:           20,
-  video:            15,
-  practice:         25,
-  exercise:         30,
-  review:           20,
-  reading:          20,
-  flashcard:        15,
-  discussion:       20,
-  ai_interaction:   25,
-  reflection:       15,
-  capstone:         0,
+  final_exam:       75,
 }
 
 export const XP_DEFAULT         = 20
@@ -106,8 +97,17 @@ export function getLevelProgress(totalXp) {
   }
 }
 
-export function xpForTask(type) {
-  return XP_PER_TYPE[String(type || '').toLowerCase()] ?? XP_DEFAULT
+export function xpForTask(taskOrType) {
+  const normalized = typeof taskOrType === 'string'
+    ? normalizeLearningTask({ type: taskOrType })
+    : normalizeLearningTask(taskOrType || {})
+
+  const base = XP_PER_TYPE[normalized.type] ?? XP_DEFAULT
+  if (['boss', 'project', 'final_exam'].includes(normalized.type)) return base
+
+  const difficultyBonus = Math.max(0, (normalized.difficultyLevel || 3) - 2) * 2
+  const effortBonus = Math.max(0, (normalized.effortWeight || 1) - 1) * 2
+  return base + difficultyBonus + effortBonus
 }
 
 // Compute total XP earned from a set of daily_task rows (for initial load)
@@ -115,12 +115,12 @@ export function computeTotalXpFromRows(taskRows) {
   if (!Array.isArray(taskRows)) return 0
   return taskRows.reduce((acc, row) => {
     const tasks = Array.isArray(row.tasks) ? row.tasks : []
-    return acc + tasks.filter((t) => t.completed).reduce((s, t) => s + xpForTask(t.type), 0)
+    return acc + tasks.filter((t) => t.completed).reduce((s, t) => s + xpForTask(t), 0)
   }, 0)
 }
 
 // Return mission XP reward preview (sum of task XP + mission bonus)
 export function missionXpReward(tasks) {
   if (!Array.isArray(tasks)) return 0
-  return tasks.reduce((s, t) => s + xpForTask(t.type), 0) + XP_MISSION_BONUS
+  return tasks.reduce((s, t) => s + xpForTask(t), 0) + XP_MISSION_BONUS
 }

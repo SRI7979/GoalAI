@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from 'react'
 import AIAssistant from './AIAssistant'
 import ConfidenceSelector from './ConfidenceSelector'
+import IconGlyph from '@/components/IconGlyph'
 
 const font = "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif"
 
@@ -120,7 +121,7 @@ export default function ChallengeView({ task, goal, knowledge, onClose, onComple
               </span>
             </div>
           )}
-          {timeUp && <span style={{ fontSize: 13, fontWeight: 700, color: '#FF453A' }}>Time's up</span>}
+          {timeUp && <span style={{ fontSize: 13, fontWeight: 700, color: '#FF453A' }}>Time&apos;s up</span>}
 
           <div style={{ padding: '4px 12px', background: 'rgba(245,158,11,0.10)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: 9999, fontSize: 11, fontWeight: 700, color: '#F59E0B', textTransform: 'uppercase', letterSpacing: '1px' }}>
             Challenge
@@ -141,16 +142,20 @@ export default function ChallengeView({ task, goal, knowledge, onClose, onComple
             ) : !started ? (
               /* Pre-start screen */
               <div style={{ textAlign: 'center', paddingTop: 40, animation: 'fadeIn 0.3s ease both' }}>
-                <div style={{ fontSize: 52, marginBottom: 20 }}>⏱️</div>
+                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 20 }}>
+                  <div style={{ width: 72, height: 72, borderRadius: 22, background: 'rgba(245,158,11,0.10)', border: '1px solid rgba(245,158,11,0.24)', display: 'grid', placeItems: 'center' }}>
+                    <IconGlyph name="timer" size={32} strokeWidth={2.2} color="#F59E0B" />
+                  </div>
+                </div>
                 <div style={{ marginBottom: 10 }}>
                   <span style={{ fontSize: 12, fontWeight: 700, color: DIFFICULTY_COLOR[challenge.difficulty] || '#F59E0B', textTransform: 'uppercase', letterSpacing: '1px', padding: '3px 10px', background: `${DIFFICULTY_COLOR[challenge.difficulty] || '#F59E0B'}18`, border: `1px solid ${DIFFICULTY_COLOR[challenge.difficulty] || '#F59E0B'}30`, borderRadius: 9999 }}>
                     {challenge.difficulty}
                   </span>
                 </div>
                 <h1 style={{ fontSize: 24, fontWeight: 900, color: '#f5f5f7', marginBottom: 12, letterSpacing: '-0.4px' }}>{challenge.title}</h1>
-                <p style={{ fontSize: 15, color: '#8e8e93', lineHeight: 1.6, marginBottom: 28, maxWidth: 420, margin: '0 auto 28px' }}>You'll have <strong style={{ color: '#F59E0B' }}>{formatTime(challenge.timeLimit)}</strong> to complete this challenge. The prompt will be revealed when you start.</p>
+                <p style={{ fontSize: 15, color: '#8e8e93', lineHeight: 1.6, marginBottom: 28, maxWidth: 420, margin: '0 auto 28px' }}>You&apos;ll have <strong style={{ color: '#F59E0B' }}>{formatTime(challenge.timeLimit)}</strong> to complete this challenge. The prompt will be revealed when you start.</p>
                 <div style={{ padding: '14px 20px', background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.18)', borderRadius: 14, maxWidth: 360, margin: '0 auto', fontSize: 13, color: '#8e8e93', lineHeight: 1.6 }}>
-                  💡 You'll have 3 hints available. Use the AI assistant for conceptual help — it won't give you the answer directly.
+                  You&apos;ll have 3 hints available. Use the AI assistant for conceptual help — it won&apos;t give you the answer directly.
                 </div>
               </div>
             ) : (
@@ -208,7 +213,7 @@ export default function ChallengeView({ task, goal, knowledge, onClose, onComple
             <button onClick={onClose} style={{ padding: '14px 24px', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 16, color: '#8e8e93', fontSize: 15, fontWeight: 600, cursor: 'pointer', fontFamily: font }}>Back</button>
             {!started && challenge ? (
               <button onClick={() => setStarted(true)} style={{ flex: 1, padding: '14px', background: 'linear-gradient(135deg,#F59E0B,#FBBF24)', border: 'none', borderRadius: 16, color: '#06060f', fontSize: 16, fontWeight: 700, cursor: 'pointer', fontFamily: font }}>
-                Start Challenge ⏱
+                Start Challenge
               </button>
             ) : started ? (
               <div style={{ flex: 1, display: 'flex', gap: 10 }}>
@@ -227,7 +232,7 @@ export default function ChallengeView({ task, goal, knowledge, onClose, onComple
                 }}>
                   {completing ? (
                     <><div style={{width:14,height:14,border:'2px solid rgba(14,245,194,0.2)',borderTopColor:'#0ef5c2',borderRadius:'50%',animation:'spin 0.65s linear infinite'}}/>Saving…</>
-                  ) : confidenceLevel ? 'Complete ✓' : 'Choose confidence to continue'}
+                  ) : confidenceLevel ? 'Complete' : 'Choose confidence to continue'}
                 </button>
               </div>
             ) : null}

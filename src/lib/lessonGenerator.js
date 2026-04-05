@@ -55,9 +55,15 @@ function isProgrammingTopic(concept = '', goal = '') {
   return /python|javascript|typescript|java\b|c\+\+|c#|rust\b|golang|ruby|swift|kotlin|sql|html|css|react|angular|vue|node|django|flask|express|api|rest|graphql|function|variable|loop|array|object|class|method|algorithm|data structure|programming|coding|code|syntax|terminal|bash|shell|git|database|query|recursion/.test(text)
 }
 
+function buildLessonError(code, message) {
+  const error = new Error(message)
+  error.code = code
+  return error
+}
+
 export async function generateLessonFromOpenAI({ concept, taskTitle, goal, knowledge, openaiApiKey }) {
-  if (!concept || !goal) throw new Error('Missing concept or goal')
-  if (!openaiApiKey)     throw new Error('Missing OPENAI_API_KEY')
+  if (!concept || !goal) throw buildLessonError('missing_inputs', 'Missing concept or goal')
+  if (!openaiApiKey) throw buildLessonError('missing_api_key', 'Missing OPENAI_API_KEY')
 
   const isProg = isProgrammingTopic(concept, goal)
 
@@ -191,20 +197,25 @@ ${codeBlockRules}
 - Content paragraphs: 2-4 sentences, clear, warm, encouraging tone
 - Never use generic filler text`
 
-  const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${openaiApiKey}` },
-    body: JSON.stringify({
-      model: getOpenAIModel('lesson'),
-      max_tokens: 3000,
-      temperature: 0.3,
-      messages: [{ role: 'user', content: prompt }],
-    }),
-  })
+  let openaiRes
+  try {
+    openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${openaiApiKey}` },
+      body: JSON.stringify({
+        model: getOpenAIModel('lesson'),
+        max_tokens: 3000,
+        temperature: 0.3,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    })
+  } catch (error) {
+    throw buildLessonError('openai_request_failed', error?.message || 'OpenAI request failed')
+  }
 
   if (!openaiRes.ok) {
     const errText = await openaiRes.text()
-    throw new Error(`OpenAI lesson error: ${errText}`)
+    throw buildLessonError('openai_http_error', `OpenAI lesson error: ${errText}`)
   }
 
   const openaiData = await openaiRes.json()
@@ -214,9 +225,14 @@ ${codeBlockRules}
   const firstBrace = jsonStr.indexOf('{')
   if (firstBrace >= 0) jsonStr = jsonStr.slice(firstBrace)
 
-  const parsed = JSON.parse(jsonStr)
+  let parsed
+  try {
+    parsed = JSON.parse(jsonStr)
+  } catch (error) {
+    throw buildLessonError('invalid_json', error?.message || 'Could not parse lesson JSON')
+  }
   if (!Array.isArray(parsed?.slides) || parsed.slides.length === 0) {
-    throw new Error('No slides generated')
+    throw buildLessonError('empty_slides', 'No slides generated')
   }
 
   const normalizedSlides = await Promise.all(parsed.slides.map(async (slide, index) => {
@@ -249,29 +265,4 @@ ${codeBlockRules}
   }))
 
   return { slides: normalizedSlides, quiz: parsed?.quiz || null }
-}
-
-export function buildFallbackLesson(concept) {
-  return {
-    slides: [
-      {
-        id: 1, title: 'Getting Started', type: 'intro',
-        content: `This lesson covers ${concept}. Let's explore the key ideas step by step. Use the resource link below the task for detailed reading material.`,
-        diagram: { type: 'none', nodes: [], connections: [] },
-        codeBlocks: [],
-        image: { query: `${concept} introduction`, alt: `Introduction to ${concept}`, caption: '', url: buildReliableImageUrl(`${concept} education`) },
-        keyTakeaway: 'Every expert was once a beginner.',
-      },
-      {
-        id: 2, title: 'Core Concept', type: 'concept',
-        content: `We could not generate a custom lesson right now. Please check the resource link for this task and come back to try again later.`,
-        diagram: { type: 'none', nodes: [], connections: [] },
-        codeBlocks: [],
-        image: { query: `${concept} fundamentals`, alt: `Core concept`, caption: '', url: buildReliableImageUrl(`${concept} fundamentals`) },
-        keyTakeaway: 'Check the resource link for detailed learning material.',
-      },
-    ],
-    quiz: null,
-    fallback: true,
-  }
 }

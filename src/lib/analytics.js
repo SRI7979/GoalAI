@@ -1,3 +1,5 @@
+import { getCanonicalTaskType } from '@/lib/taskTaxonomy'
+
 // ─── PathAI Analytics System ──────────────────────────────────────────────────
 // Lightweight client-side event tracking with Supabase persistence.
 // Events are buffered locally and flushed async — never blocks UI.
@@ -110,15 +112,14 @@ async function _flush() {
   // Development: log to console
   if (process.env.NODE_ENV === 'development') {
     batch.forEach(e => {
-      // eslint-disable-next-line no-console
       console.debug(`[analytics] ${e.event}`, { ...e.properties, user: e.user_id?.slice(0,8) })
     })
   }
 
   // Persist to Supabase analytics_events table (best-effort, swallow errors)
   try {
-    const { supabase } = await import('@/lib/supabase')
-    await supabase.from('analytics_events').insert(
+    const { supabaseData } = await import('@/lib/supabase')
+    await supabaseData.from('analytics_events').insert(
       batch.map(e => ({
         event_name:       e.event,
         user_id:          e.user_id,
@@ -145,7 +146,7 @@ if (typeof window !== 'undefined') {
 // ─── Convenience wrappers ─────────────────────────────────────────────────────
 
 export function trackTaskCompleted({ userId, goalId, missionId, taskId, taskType, xpEarned, energyMode, streakValue, xpBalance }) {
-  track(EVENTS.TASK_COMPLETED, { taskId, taskType, xpEarned }, { userId, goalId, missionId, energyMode, streakValue, xpBalance })
+  track(EVENTS.TASK_COMPLETED, { taskId, taskType: getCanonicalTaskType(taskType), xpEarned }, { userId, goalId, missionId, energyMode, streakValue, xpBalance })
 }
 
 export function trackMissionCompleted({ userId, goalId, missionId, totalXp, streakValue, energyMode, dayNumber }) {

@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import AIAssistant from './AIAssistant'
+import IconGlyph from '@/components/IconGlyph'
 
 export default function ProjectView({ task, goal, knowledge, onClose, onComplete }) {
   const [loading, setLoading]   = useState(true)
@@ -99,7 +100,7 @@ export default function ProjectView({ task, goal, knowledge, onClose, onComplete
               <div style={{ animation:'fadeIn 0.35s ease both' }}>
                 {/* Header */}
                 <div style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'5px 14px', marginBottom:16, background:'rgba(129,140,248,0.08)', border:'1px solid rgba(129,140,248,0.20)', borderRadius:9999, fontSize:11, fontWeight:700, color:'#818CF8', textTransform:'uppercase', letterSpacing:'1px' }}>
-                  🛠️ Mini Project
+                  <IconGlyph name="hammer" size={13} strokeWidth={2.3} color="#818CF8" /> Mini Project
                 </div>
                 <h1 style={{ fontSize:26, fontWeight:800, color:'#f5f5f7', letterSpacing:'-0.5px', lineHeight:1.25, marginBottom:10 }}>
                   {project.title}
@@ -178,7 +179,7 @@ export default function ProjectView({ task, goal, knowledge, onClose, onComplete
             }}>
               {completing ? (
                 <><div style={{width:14,height:14,border:'2px solid rgba(14,245,194,0.2)',borderTopColor:'#0ef5c2',borderRadius:'50%',animation:'spin 0.65s linear infinite'}}/>Saving…</>
-              ) : allChecked ? 'Complete ✓' : `Complete (${checkedCount}/${totalSteps} done)`}
+              ) : allChecked ? 'Complete' : `Complete (${checkedCount}/${totalSteps} done)`}
             </button>
           </div>
         </div>

@@ -1,4 +1,4 @@
-import { buildFlowSequence, LEGACY_TYPE_MAP, calculateMasteryScore } from '@/lib/learningEngine'
+import { buildFlowSequence, calculateMasteryScore } from '@/lib/learningEngine'
 import { getOpenAIModel } from '@/lib/openaiModels'
 import {
   buildAdaptivePlan,
@@ -17,42 +17,111 @@ import {
   courseOutlineNeedsRecovery,
 } from '@/lib/pathOutline.js'
 import {
+  getCourseOutlineStatus,
   getStoredCourseOutline,
   persistCourseOutline,
   stripStoredCourseOutlineConstraint,
+  withCourseOutlineMeta,
 } from '@/lib/courseOutlineStore'
+import {
+  CANONICAL_TASK_TYPES,
+  getCanonicalTaskType,
+  normalizeLearningTask,
+  normalizeLearningTasks,
+} from '@/lib/taskTaxonomy'
+import {
+  analyzeTaskQuality,
+  isBrokenTaskRow,
+  titleLooksGeneric,
+  descriptionLooksGeneric,
+} from '@/lib/taskQuality'
 
 // ─────────────────────────────────────────────
 // Constants & helpers
 // ─────────────────────────────────────────────
 
-// The 7 clean task types (concept replaces lesson/reading/video/flashcard)
-const TASK_SEQUENCE = ['concept', 'quiz']
+const TASK_SEQUENCE = ['concept', 'recall', 'quiz']
+const CLEAN_TASK_TYPES = [...CANONICAL_TASK_TYPES]
+const FALLBACK_MODULE_DAY_STAGES = [
+  'Foundations',
+  'Mental Model',
+  'Guided Practice',
+  'Pattern Recognition',
+  'Applied Practice',
+  'Independent Use',
+  'Integration',
+  'Refinement',
+]
 
-// All valid task types in the new system
-const CLEAN_TASK_TYPES = ['concept', 'guided_practice', 'challenge', 'explain', 'quiz', 'reflect', 'boss']
+function normalizeComparableTopic(value = '') {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]+/g, ' ')
+    .replace(/\s+/g, ' ')
+}
 
-// Legacy types kept for backward compat with existing DB data
-const LEGACY_TYPES = ['lesson', 'video', 'practice', 'exercise', 'reading', 'flashcard', 'discussion', 'review', 'ai_interaction', 'reflection', 'capstone']
-const EXTENDED_TASK_TYPES = [...CLEAN_TASK_TYPES, ...LEGACY_TYPES]
+function dedupeTopics(values = []) {
+  const seen = new Set()
+  const ordered = []
+  values.forEach((value) => {
+    const normalized = normalizeComparableTopic(value)
+    if (!normalized || seen.has(normalized)) return
+    seen.add(normalized)
+    ordered.push(String(value).trim())
+  })
+  return ordered
+}
 
-const typeVerbs = {
-  concept: 'Learn',
-  guided_practice: 'Practice',
-  challenge: 'Challenge',
-  explain: 'Explain',
-  quiz: 'Test',
-  reflect: 'Reflect',
-  boss: 'Battle',
-  // Legacy verbs (backward compat)
-  lesson: 'Learn',
-  video: 'Watch',
-  practice: 'Practice',
-  exercise: 'Build',
-  review: 'Review',
-  reading: 'Read',
-  ai_interaction: 'Explain',
-  reflection: 'Reflect',
+function buildFallbackDayIdentity(seed = '', dayIndex = 0, allocatedDays = 1) {
+  if (allocatedDays <= 1) {
+    return {
+      title: seed,
+      concepts: [seed],
+    }
+  }
+
+  const stageLabel = FALLBACK_MODULE_DAY_STAGES[dayIndex] || `Focus Lab ${dayIndex + 1}`
+  const title = `${seed}: ${stageLabel}`
+  const concepts = dedupeTopics([
+    title,
+    seed,
+    dayIndex === 0 ? 'Core ideas' : dayIndex === allocatedDays - 1 ? 'Application' : stageLabel,
+  ])
+
+  return {
+    title,
+    concepts,
+  }
+}
+
+function buildSequenceItemCoveredTopics(item = {}) {
+  return dedupeTopics([
+    item?.title,
+    ...(Array.isArray(item?.concepts) ? item.concepts : []),
+  ])
+}
+
+export function needsSequenceDayRepair(row = {}, item = null) {
+  if (!row || !item || item.type !== 'unit' || row?.completion_status === 'completed') return false
+
+  const expectedPrimary = normalizeComparableTopic(item.title)
+  const legacyPrimary = normalizeComparableTopic(item?.concepts?.[0] || '')
+  if (!expectedPrimary || !legacyPrimary || expectedPrimary === legacyPrimary) return false
+
+  const rowPrimary = normalizeComparableTopic(
+    Array.isArray(row?.covered_topics) && row.covered_topics.length > 0
+      ? row.covered_topics[0]
+      : '',
+  )
+  const taskPrimaryConcepts = normalizeLearningTasks(row?.tasks || [])
+    .map((task) => normalizeComparableTopic(task?._concept || task?.lessonSeed?.focusConcept || ''))
+    .filter(Boolean)
+
+  const usesExpectedPrimary = rowPrimary === expectedPrimary || taskPrimaryConcepts.includes(expectedPrimary)
+  const usesLegacyPrimary = rowPrimary === legacyPrimary || taskPrimaryConcepts.includes(legacyPrimary)
+
+  return usesLegacyPrimary && !usesExpectedPrimary
 }
 
 export const resourcesByCategory = {
@@ -163,7 +232,7 @@ function getFallbackModuleSeeds(goal = '') {
   ]
 }
 
-function buildStructuredFallbackOutline({ goal, days, minutesPerDay, skillLevel }) {
+function buildStructuredFallbackOutline({ goal, days, minutesPerDay, skillLevel, status = 'deterministic', source = 'deterministic' }) {
   const safeDays = Math.max(1, Number(days) || 30)
   const seeds = getFallbackModuleSeeds(goal)
   const targetModuleCount = Math.max(4, Math.min(seeds.length, safeDays >= 24 ? 10 : safeDays >= 15 ? 8 : safeDays >= 8 ? 6 : 4))
@@ -182,27 +251,12 @@ function buildStructuredFallbackOutline({ goal, days, minutesPerDay, skillLevel 
   const modules = selectedSeeds.map((seed, moduleIndex) => {
     const allocatedDays = moduleDayCounts[moduleIndex]
     const daysForModule = Array.from({ length: allocatedDays }, (_, dayIndex) => {
-      const partIndex = dayIndex + 1
-      const isFirst = partIndex === 1
-      const isLast = partIndex === allocatedDays
-      const title = allocatedDays === 1
-        ? seed
-        : isFirst
-          ? `${seed} Foundations`
-          : isLast
-            ? `${seed} Applied Practice`
-            : `${seed} Deeper Practice`
+      const dayIdentity = buildFallbackDayIdentity(seed, dayIndex, allocatedDays)
 
       return {
         day: dayNumber++,
-        title,
-        concepts: allocatedDays === 1
-          ? [seed]
-          : isFirst
-            ? [seed, 'Core ideas']
-            : isLast
-              ? [seed, 'Application']
-              : [seed, 'Practice'],
+        title: dayIdentity.title,
+        concepts: dayIdentity.concepts,
         estimatedMinutes: minutesPerDay || 30,
         difficulty: Math.max(1, Math.min(5, 1 + Math.floor((moduleIndex / Math.max(1, selectedSeeds.length - 1)) * 4))),
       }
@@ -233,7 +287,7 @@ function buildStructuredFallbackOutline({ goal, days, minutesPerDay, skillLevel 
     })
   })
 
-  return {
+  return withCourseOutlineMeta({
     version: 'v1',
     goal,
     skillLevel,
@@ -244,7 +298,38 @@ function buildStructuredFallbackOutline({ goal, days, minutesPerDay, skillLevel 
     modules,
     concepts,
     previous_version: null,
-  }
+  }, {
+    status,
+    source,
+    generatedAt: new Date().toISOString(),
+  })
+}
+
+export function buildDeterministicCourseOutline({ goal, knowledge, days, minutesPerDay, status = 'deterministic' }) {
+  return buildStructuredFallbackOutline({
+    goal,
+    days,
+    minutesPerDay,
+    skillLevel: inferSkillLevel(knowledge),
+    status,
+    source: 'deterministic',
+  })
+}
+
+function buildDeterministicExploreConcepts(goal = '', count = 5, afterConcepts = []) {
+  const seeds = getFallbackModuleSeeds(goal)
+  const covered = new Set((afterConcepts || []).map((concept) => String(concept?.name || '').trim().toLowerCase()))
+  const candidates = seeds.filter((seed) => !covered.has(seed.toLowerCase()))
+  const picked = (candidates.length > 0 ? candidates : seeds).slice(0, Math.max(1, count))
+
+  return picked.map((name, index) => ({
+    id: (afterConcepts?.length || 0) + index + 1,
+    name,
+    description: `Build working understanding of ${name.toLowerCase()} for ${goal}.`,
+    estimatedDays: 1,
+    dependencies: [],
+    difficulty: Math.max(1, Math.min(5, index + 1)),
+  }))
 }
 
 function getResources(goal, conceptName) {
@@ -323,157 +408,188 @@ export async function generateCourseOutline({ goal, knowledge, days, minutesPerD
   const skillLevel = inferSkillLevel(knowledge)
   const requestedDays = Math.max(1, Number(days) || 30)
   const minimumModuleCount = requestedDays >= 24 ? 6 : requestedDays >= 14 ? 5 : requestedDays >= 8 ? 4 : 3
+  const startedAt = Date.now()
+  let reason = 'missing_api_key'
 
-  try {
-    const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${openaiApiKey}`,
-      },
-      body: JSON.stringify({
-        model: getOpenAIModel('courseOutline'),
-        max_tokens: 4000,
-        temperature: 0.35,
-        messages: [
-          {
-            role: 'system',
-            content: `You are an expert curriculum designer and learning scientist. Design structured learning paths that feel like a real course — not a list of generic tasks. Every day should feel like a concrete step forward. Concepts must build logically with progressive difficulty.`,
-          },
-          {
-            role: 'user',
-            content: [
-              `Design a COMPLETE learning path for: "${goal}"`,
-              `Time per day: ${minutesPerDay || 30} minutes`,
-              `Total days available: ${days}`,
-              `Current skill level: ${skillLevel}`,
-              knowledge ? `Prior knowledge: ${knowledge}` : 'Starting from scratch.',
-              '',
-              'REQUIREMENTS:',
-              '1. Break the skill into 6-12 modules when possible, and make module titles concrete topics like Variables, Loops, Functions, Model Evaluation, or Neural Networks.',
-              '2. Each module contains multiple days',
-              '3. Each day must have: title, concepts array (1-3 key concepts), estimated time in minutes',
-              `4. Total days MUST equal exactly ${days}`,
-              `5. Each day must fit within ${minutesPerDay || 30} minutes`,
-              '6. Distribute difficulty progressively — start simple, build complexity',
-              '7. No fluff, no generic tasks — each day must teach something specific and concrete',
-              '8. Concepts must build logically — later days should depend on earlier ones',
-              knowledge ? '9. SKIP topics the learner already knows based on their prior knowledge' : '',
-              '',
-              'Return ONLY valid JSON:',
-              '{',
-              '  "modules": [',
-              '    {',
-              '      "title": "Module Name",',
-              '      "description": "What this module covers and why it matters",',
-              '      "days": [',
-              '        {',
-              '          "day": 1,',
-              '          "title": "Specific Day Title",',
-              '          "concepts": ["concept1", "concept2"],',
-              '          "estimatedMinutes": 30,',
-              '          "difficulty": 1',
-              '        }',
-              '      ]',
-              '    }',
-              '  ]',
-              '}',
-              '',
-              'Rules:',
-              '- Prefer 6-12 modules, each usually 1-4 days',
-              '- Day numbers must be sequential starting from 1',
-              '- difficulty: 1 (intro) to 5 (advanced)',
-              '- Every concept mentioned should be specific and actionable, not vague',
-              '- Module titles should be clear topic groupings and should map to the full curriculum from start to finish',
-              '- Avoid broad buckets like "Core Skills" unless absolutely necessary',
-            ].filter(Boolean).join('\n'),
-          },
-        ],
-      }),
+  if (!openaiApiKey) {
+    console.info('[PathAI] course_outline_generation', {
+      phase: 'outline_enrichment',
+      source: 'deterministic',
+      reason,
+      retries: 0,
+      duration_ms: Date.now() - startedAt,
     })
-
-    if (!openaiRes.ok) throw new Error(`OpenAI request failed with ${openaiRes.status}`)
-
-    const openaiData = await openaiRes.json()
-    const text = openaiData.choices?.[0]?.message?.content || ''
-    let jsonStr = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim()
-    const firstBrace = jsonStr.indexOf('{')
-    if (firstBrace >= 0) jsonStr = jsonStr.slice(firstBrace)
-
-    const parsed = JSON.parse(jsonStr)
-    if (!Array.isArray(parsed?.modules) || parsed.modules.length === 0) {
-      throw new Error('Invalid course outline: missing modules')
-    }
-
-    // Validate and normalize day numbers
-    let dayCounter = 1
-    const normalizedModules = parsed.modules.map(mod => ({
-      title: mod.title || 'Untitled Module',
-      description: mod.description || '',
-      days: (Array.isArray(mod.days) ? mod.days : []).map(d => {
-        const normalized = {
-          day: dayCounter++,
-          title: d.title || `Day ${dayCounter - 1}`,
-          concepts: Array.isArray(d.concepts) ? d.concepts : [d.title || 'General'],
-          estimatedMinutes: Math.min(minutesPerDay || 30, Number(d.estimatedMinutes) || minutesPerDay || 30),
-          difficulty: Math.max(1, Math.min(5, Number(d.difficulty) || 1)),
-        }
-        return normalized
-      }),
-    }))
-
-    // Compute totals
-    const totalOutlineDays = normalizedModules.reduce((sum, m) => sum + m.days.length, 0)
-    if (normalizedModules.length < minimumModuleCount || totalOutlineDays < requestedDays) {
-      throw new Error('Outline too shallow for a full start-to-finish curriculum')
-    }
-    const totalHours = Math.round(totalOutlineDays * (minutesPerDay || 30) / 60)
-    const { probability, recommendedDays } = calculateCompletionProbability({
-      totalDays: totalOutlineDays,
-      minutesPerDay: minutesPerDay || 30,
-      skillLevel,
-      targetDays: days,
-    })
-
-    // Extract flat concepts list for backward compatibility with buildDailyTasks
-    const concepts = []
-    let conceptId = 1
-    normalizedModules.forEach(mod => {
-      mod.days.forEach(d => {
-        concepts.push({
-          id: conceptId++,
-          name: d.concepts[0] || d.title,
-          description: `${mod.title}: ${d.title}. Concepts: ${d.concepts.join(', ')}`,
-          estimatedDays: 1,
-          dependencies: conceptId > 2 ? [conceptId - 2] : [],
-          difficulty: d.difficulty,
-          _moduleTitle: mod.title,
-          _dayTitle: d.title,
-          _allConcepts: d.concepts,
-        })
-      })
-    })
-
-    return {
-      version: 'v1',
-      goal,
-      skillLevel,
-      totalDays: totalOutlineDays,
-      estimatedHours: totalHours,
-      completionProbability: probability,
-      recommendedDays,
-      modules: normalizedModules,
-      concepts, // flat list for backward compat
-      previous_version: null,
-    }
-  } catch {
     return buildStructuredFallbackOutline({
       goal,
       days: requestedDays,
       minutesPerDay,
       skillLevel,
+      status: 'deterministic',
+      source: 'deterministic',
     })
   }
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${openaiApiKey}`,
+        },
+        signal: AbortSignal.timeout(9000),
+        body: JSON.stringify({
+          model: getOpenAIModel('courseOutline'),
+          max_tokens: 2600,
+          temperature: 0.28,
+          messages: [
+            {
+              role: 'system',
+              content: 'You are an expert curriculum designer. Produce a full structured course outline that feels specific, logically sequenced, and immediately usable for day-by-day learning.',
+            },
+            {
+              role: 'user',
+              content: [
+                `Design a complete learning path for "${goal}".`,
+                `Time per day: ${minutesPerDay || 30} minutes`,
+                `Total days available: ${days}`,
+                `Current skill level: ${skillLevel}`,
+                knowledge ? `Prior knowledge: ${knowledge}` : 'Starting from scratch.',
+                attempt > 0 ? 'Your previous response was too shallow or malformed. Return stricter valid JSON with enough modules and enough days.' : '',
+                '',
+                'REQUIREMENTS:',
+                '1. Break the skill into concrete modules and multiple specific days.',
+                '2. Each day must include title, concepts array, estimatedMinutes, and difficulty.',
+                `3. Total day count must equal at least ${days}.`,
+                `4. Each day must fit within ${minutesPerDay || 30} minutes.`,
+                '5. Use progressive difficulty from 1 to 5.',
+                '6. Avoid generic buckets like Core Skills or General Practice.',
+                knowledge ? '7. Skip or compress topics already implied by prior knowledge.' : '',
+                '',
+                'Return ONLY valid JSON:',
+                '{"modules":[{"title":"Module Name","description":"What this module covers","days":[{"day":1,"title":"Specific Day Title","concepts":["concept1","concept2"],"estimatedMinutes":30,"difficulty":1}]}]}',
+              ].filter(Boolean).join('\n'),
+            },
+          ],
+        }),
+      })
+
+      if (!openaiRes.ok) {
+        reason = 'provider_http_error'
+        continue
+      }
+
+      const openaiData = await openaiRes.json()
+      const text = openaiData.choices?.[0]?.message?.content || ''
+      let jsonStr = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim()
+      const firstBrace = jsonStr.indexOf('{')
+      if (firstBrace >= 0) jsonStr = jsonStr.slice(firstBrace)
+
+      let parsed
+      try {
+        parsed = JSON.parse(jsonStr)
+      } catch {
+        reason = 'malformed_json'
+        continue
+      }
+
+      if (!Array.isArray(parsed?.modules) || parsed.modules.length === 0) {
+        reason = 'empty'
+        continue
+      }
+
+      let dayCounter = 1
+      const normalizedModules = parsed.modules.map((mod) => ({
+        title: mod.title || 'Untitled Module',
+        description: mod.description || '',
+        days: (Array.isArray(mod.days) ? mod.days : []).map((d) => ({
+          day: dayCounter++,
+          title: d.title || `Day ${dayCounter - 1}`,
+          concepts: Array.isArray(d.concepts) && d.concepts.length > 0 ? d.concepts : [d.title || 'General'],
+          estimatedMinutes: Math.min(minutesPerDay || 30, Number(d.estimatedMinutes) || minutesPerDay || 30),
+          difficulty: Math.max(1, Math.min(5, Number(d.difficulty) || 1)),
+        })),
+      }))
+
+      const totalOutlineDays = normalizedModules.reduce((sum, module) => sum + module.days.length, 0)
+      if (normalizedModules.length < minimumModuleCount || totalOutlineDays < requestedDays) {
+        reason = 'validation_failed'
+        continue
+      }
+
+      const totalHours = Math.round(totalOutlineDays * (minutesPerDay || 30) / 60)
+      const { probability, recommendedDays } = calculateCompletionProbability({
+        totalDays: totalOutlineDays,
+        minutesPerDay: minutesPerDay || 30,
+        skillLevel,
+        targetDays: days,
+      })
+
+      const concepts = []
+      let conceptId = 1
+      normalizedModules.forEach((mod) => {
+        mod.days.forEach((d) => {
+          concepts.push({
+            id: conceptId++,
+            name: d.concepts[0] || d.title,
+            description: `${mod.title}: ${d.title}. Concepts: ${d.concepts.join(', ')}`,
+            estimatedDays: 1,
+            dependencies: conceptId > 2 ? [conceptId - 2] : [],
+            difficulty: d.difficulty,
+            _moduleTitle: mod.title,
+            _dayTitle: d.title,
+            _allConcepts: d.concepts,
+          })
+        })
+      })
+
+      const outline = withCourseOutlineMeta({
+        version: 'v1',
+        goal,
+        skillLevel,
+        totalDays: totalOutlineDays,
+        estimatedHours: totalHours,
+        completionProbability: probability,
+        recommendedDays,
+        modules: normalizedModules,
+        concepts,
+        previous_version: null,
+      }, {
+        status: 'ready',
+        source: attempt === 0 ? 'ai' : 'ai_retry',
+        generatedAt: new Date().toISOString(),
+      })
+
+      console.info('[PathAI] course_outline_generation', {
+        phase: 'outline_enrichment',
+        source: attempt === 0 ? 'ai' : 'ai_retry',
+        reason: 'success',
+        retries: attempt,
+        duration_ms: Date.now() - startedAt,
+      })
+
+      return outline
+    } catch (error) {
+      reason = error?.name === 'TimeoutError' ? 'timeout' : 'provider_http_error'
+    }
+  }
+
+  console.info('[PathAI] course_outline_generation', {
+    phase: 'outline_enrichment',
+    source: 'deterministic',
+    reason,
+    retries: 1,
+    duration_ms: Date.now() - startedAt,
+  })
+
+  return buildStructuredFallbackOutline({
+    goal,
+    days: requestedDays,
+    minutesPerDay,
+    skillLevel,
+    status: 'deterministic',
+    source: 'deterministic',
+  })
 }
 
 function parseDateOnly(value) {
@@ -540,16 +656,17 @@ function resolveDayDate(existingRows = [], targetDayNumber, preservedDate = null
 }
 
 function buildConceptFromSequenceItem(item) {
+  const coveredTopics = buildSequenceItemCoveredTopics(item)
   return {
     id: item.sequenceIndex || item.dayNumber,
-    name: item.concepts?.[0] || item.title,
-    description: `${item.moduleTitle}: ${item.title}. Concepts: ${(item.concepts || []).join(', ')}`,
+    name: item.title,
+    description: `${item.moduleTitle}: ${item.title}. Concepts: ${coveredTopics.join(', ')}`,
     estimatedDays: 1,
     dependencies: [],
     difficulty: Number(item.difficulty) || 2,
     _moduleTitle: item.moduleTitle,
     _dayTitle: item.title,
-    _allConcepts: Array.isArray(item.concepts) ? item.concepts : [item.title],
+    _allConcepts: coveredTopics.length > 0 ? coveredTopics : [item.title],
   }
 }
 
@@ -594,6 +711,7 @@ export async function buildGoalPlanDayFromSequenceItem({
   openaiApiKey = null,
   adaptiveProfile = null,
   existingRows = [],
+  generationPhase = 'next_day',
 }) {
   if (item.type === 'project') {
     return buildProjectDayPlan({ goalText: goalRow.goal_text, item, existingRows })
@@ -607,7 +725,7 @@ export async function buildGoalPlanDayFromSequenceItem({
     Number(goalRow.weekend_mins) || Number(goalRow.weekday_mins) || 30,
     item.dayNumber,
     1,
-    { knowledge, openaiApiKey, mode: 'goal', adaptiveProfile },
+    { knowledge, openaiApiKey, mode: 'goal', adaptiveProfile, generationPhase },
   )
 
   return {
@@ -615,7 +733,7 @@ export async function buildGoalPlanDayFromSequenceItem({
     day: item.dayNumber,
     date: resolveDayDate(existingRows, item.dayNumber, item.rawRow?.task_date || day?.date || null),
     conceptName: item.title,
-    coveredTopics: Array.isArray(item.concepts) && item.concepts.length > 0 ? item.concepts : [item.title],
+    coveredTopics: buildSequenceItemCoveredTopics(item),
     totalMinutes: Number(day?.totalMinutes) || item.estimatedMinutes || 30,
   }
 }
@@ -627,17 +745,25 @@ async function upsertDailyPlanDay({
   planDay,
   existingRow = null,
 }) {
+  const normalizedTasks = normalizeLearningTasks(planDay.tasks)
+  const completedCount = normalizedTasks.filter((task) => task.completed).length
+  const completionStatus = normalizedTasks.length > 0 && completedCount === normalizedTasks.length
+    ? 'completed'
+    : completedCount > 0
+      ? 'in_progress'
+      : 'pending'
+
   const payload = {
     goal_id: goalId,
     user_id: userId,
     day_number: planDay.day,
     task_date: planDay.date,
-    tasks: planDay.tasks,
+    tasks: normalizedTasks,
     covered_topics: Array.isArray(planDay.coveredTopics) && planDay.coveredTopics.length > 0
       ? planDay.coveredTopics
       : [planDay.conceptName],
-    completion_status: 'pending',
-    tasks_completed: 0,
+    completion_status: completionStatus,
+    tasks_completed: completedCount,
     mode: planDay.mode || 'goal',
   }
 
@@ -695,7 +821,8 @@ export async function recoverCourseOutlineIfNeeded({
 
   const requestedDays = getGoalRequestedDays(resolvedGoal, existingRows)
   const storedCourseOutline = getStoredCourseOutline(resolvedGoal)
-  const needsRecovery = courseOutlineNeedsRecovery(storedCourseOutline, requestedDays)
+  const outlineStatus = getCourseOutlineStatus(storedCourseOutline)
+  const needsRecovery = outlineStatus === 'pending' || courseOutlineNeedsRecovery(storedCourseOutline, requestedDays)
   let courseOutline = storedCourseOutline || null
 
   if (needsRecovery) {
@@ -864,9 +991,7 @@ function expandConceptTimeline(concepts, targetDays) {
 
 function normalizeTaskType(type, index) {
   if (!type) return TASK_SEQUENCE[index % TASK_SEQUENCE.length]
-  const normalized = String(type).toLowerCase().trim()
-  // Map legacy types to clean types
-  if (LEGACY_TYPE_MAP[normalized]) return LEGACY_TYPE_MAP[normalized]
+  const normalized = getCanonicalTaskType(type)
   if (CLEAN_TASK_TYPES.includes(normalized)) return normalized
   return TASK_SEQUENCE[index % TASK_SEQUENCE.length]
 }
@@ -892,154 +1017,526 @@ function uniqueTitle(title, usedTitles, dayNumber, index) {
 // Task generation
 // ─────────────────────────────────────────────
 
-function buildFallbackTasksForDay({ goal, concept, taskCount, durationMin, dayNumber, resources, usedTitles, adaptivePlan = null }) {
-  // Fallback generates concept tasks only — flow engine adds the rest
-  return Array.from({ length: taskCount }).map((_, idx) => {
-    const type = 'concept'
-    const resource = resources[idx % resources.length]
-    const action = `Learn one focused section on ${concept.name} and take concise notes.`
-    const outcome = `Produce a short summary and one practical takeaway for ${goal}.`
-    const title = uniqueTitle(`Learn ${concept.name} - Day ${dayNumber}`, usedTitles, dayNumber, idx)
+function normalizeGenerationReason(error) {
+  const code = String(error?.code || error?.message || '').toLowerCase()
+  if (!code) return 'unknown'
+  if (error?.name === 'TimeoutError' || code.includes('timeout')) return 'timeout'
+  if (code.includes('missing_api_key')) return 'missing_api_key'
+  if (code.includes('openai_request_failed') || code.includes('provider_http_error')) return 'provider_http_error'
+  if (code.includes('invalid_json')) return 'malformed_json'
+  if (code.includes('empty')) return 'empty'
+  if (code.includes('validation')) return 'validation_failed'
+  return 'unknown'
+}
 
-    return {
-      id: `d${dayNumber}t${idx + 1}`,
-      type,
+function inferPresentationFromResource(resource = null, fallback = 'lesson') {
+  const type = String(resource?.type || '').trim().toLowerCase()
+  if (type === 'video') return 'video'
+  if (type === 'article' || type === 'documentation') return 'reading'
+  return fallback
+}
+
+function chooseTaskResource(resources = [], type = 'concept', index = 0) {
+  const pool = Array.isArray(resources) && resources.length > 0
+    ? resources
+    : [{ title: 'Primary learning resource', url: '', type: 'article' }]
+
+  if (type === 'concept') {
+    return pool.find((resource) => ['documentation', 'article', 'video', 'course', 'interactive'].includes(resource.type)) || pool[0]
+  }
+  if (type === 'guided_practice') {
+    return pool.find((resource) => ['interactive', 'course', 'documentation'].includes(resource.type)) || pool[index % pool.length]
+  }
+  if (type === 'recall' || type === 'quiz') {
+    return pool.find((resource) => ['documentation', 'article', 'interactive'].includes(resource.type)) || pool[index % pool.length]
+  }
+  return pool[index % pool.length]
+}
+
+function getFocusConceptName({ type, concept, adaptivePlan = null }) {
+  const related = dedupeTopics([
+    concept?._dayTitle || '',
+    concept?.name || '',
+    ...(Array.isArray(concept?._allConcepts) ? concept._allConcepts : []),
+  ])
+  const reviewName = adaptivePlan?.reviewFocus?.[0]?.conceptName || ''
+  const primaryFocus = concept?._dayTitle || concept?.name || related[0] || 'the topic'
+
+  if (type === 'recall' || type === 'quiz') return reviewName || primaryFocus
+  if (type === 'boss') return concept?._moduleTitle || primaryFocus
+  return primaryFocus
+}
+
+function allocateTaskMinutes({ type, baseDuration, difficulty }) {
+  const multiplier = {
+    concept: 1,
+    guided_practice: 1.15,
+    challenge: 1.25,
+    explain: 0.95,
+    quiz: 0.95,
+    recall: 0.7,
+    reflect: 0.55,
+    boss: 1.5,
+  }[type] || 1
+
+  const baseline = Math.round(baseDuration * multiplier)
+  const difficultyLift = type === 'boss' || type === 'challenge'
+    ? Math.max(0, difficulty - 3)
+    : 0
+
+  return Math.max(5, baseline + (difficultyLift * 2))
+}
+
+function buildTaskLessonSeed({ type, concept, focusName, resource, goal, mode }) {
+  return {
+    type,
+    goal,
+    focusConcept: focusName,
+    concept: concept?.name || focusName,
+    moduleTitle: concept?._moduleTitle || '',
+    dayTitle: concept?._dayTitle || concept?.name || '',
+    allConcepts: Array.isArray(concept?._allConcepts) ? concept._allConcepts : [concept?.name || focusName],
+    resourceTitle: resource?.title || '',
+    resourceUrl: resource?.url || '',
+    mode,
+  }
+}
+
+function buildDeterministicTaskTemplate({
+  type,
+  concept,
+  focusName,
+  goal,
+  dayNumber,
+  resource,
+  baseDuration,
+  difficulty,
+  adaptivePlan = null,
+  index = 0,
+  mode = 'goal',
+}) {
+  const moduleTitle = concept?._moduleTitle || concept?.name || focusName
+  const dayTitle = concept?._dayTitle || focusName
+  const reviewName = adaptivePlan?.reviewFocus?.[0]?.conceptName || ''
+  const studyMode = mode === 'explore' ? 'explore' : 'move forward'
+  const resourceTitle = resource?.title || 'your main resource'
+  const resourceUrl = resource?.url || ''
+  const resourceType = resource?.type || 'article'
+  const lessonSeed = buildTaskLessonSeed({ type, concept, focusName, resource, goal, mode })
+
+  const common = {
+    durationMin: allocateTaskMinutes({ type, baseDuration, difficulty }),
+    resourceUrl,
+    resourceTitle,
+    resourceType,
+    _concept: focusName,
+    _moduleTitle: moduleTitle,
+    _allConcepts: Array.isArray(concept?._allConcepts) && concept._allConcepts.length > 0 ? concept._allConcepts : [focusName],
+    _difficulty: difficulty,
+    lessonSeed,
+    ...buildAdaptiveTaskMetadata({ taskType: type, plan: adaptivePlan }),
+    completed: false,
+  }
+
+  switch (type) {
+    case 'concept':
+      return {
+        ...common,
+        type,
+        presentation: inferPresentationFromResource(resource, 'lesson'),
+        title: `${focusName}: key ideas`,
+        action: `Study how ${focusName} works, capture one example, and note the mistake a beginner is most likely to make.`,
+        outcome: `Finish with a plain-language explanation of ${focusName} and one concrete reason it matters for ${goal}.`,
+        description: `Build a solid mental model for ${focusName} inside ${moduleTitle}. Use ${resourceTitle} to understand what it is, when it matters, and how to recognize it in real work before you ${studyMode} today.`,
+        _flowStage: 'understand',
+      }
+    case 'guided_practice':
+      return {
+        ...common,
+        type,
+        presentation: adaptivePlan?.state === 'struggling' ? 'practice' : 'exercise',
+        title: `${focusName}: guided practice`,
+        action: adaptivePlan?.state === 'struggling'
+          ? `Work through a scaffolded example on ${focusName}, stopping after each step to check why it works before moving on.`
+          : `Apply ${focusName} in one structured exercise with partial support, checking your choices only after you commit to them.`,
+        outcome: `Produce a worked example or short artifact that shows ${focusName} in use without copying the explanation verbatim.`,
+        description: adaptivePlan?.shouldReviewToday && reviewName
+          ? `Reinforce ${reviewName} while practicing ${focusName}. This task should feel hands-on and corrective, not passive: use ${resourceTitle} only as a reference when you get stuck.`
+          : `Turn ${focusName} into a usable skill with a guided application task. The goal is to complete a concrete example, not just reread the concept.`,
+        _flowStage: 'apply',
+      }
+    case 'challenge':
+      return {
+        ...common,
+        type,
+        title: `${focusName}: independent challenge`,
+        action: `Solve a fresh problem using ${focusName} without step-by-step guidance, and commit to your own approach before checking anything.`,
+        outcome: `Produce a finished solution that shows you can choose and apply the right pattern for ${focusName} independently.`,
+        description: adaptivePlan?.state === 'breezing'
+          ? `Push beyond the basics with a harder challenge on ${focusName}. This should feel like a real test of judgment, not a worksheet.`
+          : `Use ${focusName} on your own in a slightly uncomfortable but manageable challenge that forces real decision-making.`,
+        _flowStage: 'struggle',
+      }
+    case 'explain':
+      return {
+        ...common,
+        type,
+        presentation: adaptivePlan?.state === 'struggling' ? 'ai_interaction' : 'discussion',
+        title: `Explain ${focusName}`,
+        action: `Teach ${focusName} back in your own words, compare it with a nearby idea, and answer one “why” question out loud or in writing.`,
+        outcome: `Finish with a short explanation that proves you understand the reasoning behind ${focusName}, not just the term itself.`,
+        description: `Lock in understanding by explaining ${focusName} clearly. The best answer should sound like you are coaching someone one step behind you.`,
+        _flowStage: 'explain',
+      }
+    case 'recall':
+      return {
+        ...common,
+        type,
+        presentation: adaptivePlan?.shouldReviewToday ? 'review' : 'flashcard',
+        title: `Recall ${reviewName || focusName}`,
+        action: `Use rapid retrieval to pull the key terms, patterns, and signals for ${reviewName || focusName} out of memory before rereading anything.`,
+        outcome: `Finish with a quick memory check that reveals what still feels shaky so the rest of the day can target it.`,
+        description: adaptivePlan?.shouldReviewToday && reviewName
+          ? `This is an intentional review pass on ${reviewName}. Bring it back into working memory first, then connect it to today’s core focus.`
+          : `Strengthen memory for ${focusName} with short retrieval loops so the concept is easier to use later in the session.`,
+        _flowStage: 'recall',
+      }
+    case 'quiz':
+      return {
+        ...common,
+        type,
+        title: `Check ${reviewName || focusName}`,
+        action: `Answer scored questions on ${reviewName || focusName} without notes, then review why each answer was right or wrong.`,
+        outcome: `Leave with a clear signal on whether ${reviewName || focusName} is actually sticking or needs another pass.`,
+        description: adaptivePlan?.shouldReviewToday && reviewName
+          ? `Verify that ${reviewName} is back on solid ground while also checking the new learning from today.`
+          : `Use a short, scored check to confirm you can recognize and apply ${focusName} under light pressure.`,
+        _flowStage: 'prove',
+      }
+    case 'reflect':
+      return {
+        ...common,
+        type,
+        title: `Reflect on ${focusName}`,
+        action: `Write what clicked, where you hesitated, how confident you feel, and what you would revisit before tomorrow.`,
+        outcome: `End the day with one honest note about what is getting stronger and one next step for continued progress.`,
+        description: `Use reflection to turn the day into usable signal. This task should make tomorrow’s learning easier by naming what still needs attention.`,
+        _flowStage: 'reflect',
+      }
+    case 'boss':
+      return {
+        ...common,
+        type,
+        title: `${moduleTitle}: mastery checkpoint`,
+        action: `Combine the main ideas from ${moduleTitle} into one higher-pressure checkpoint with no filler and no low-value repetition.`,
+        outcome: `Finish with a single integrated output that proves you can connect the module’s concepts instead of treating them as isolated facts.`,
+        description: `This checkpoint is the proof layer for ${moduleTitle}. Expect to combine multiple ideas from ${dayTitle} and adjacent units in one focused evaluation.`,
+        xpReward: 200,
+        _flowStage: 'prove',
+      }
+    default:
+      return {
+        ...common,
+        type: 'concept',
+        presentation: inferPresentationFromResource(resource, 'lesson'),
+        title: `${focusName}: key ideas`,
+        action: `Study the core ideas behind ${focusName}.`,
+        outcome: `Finish with one concrete takeaway for ${goal}.`,
+        description: `Build understanding of ${focusName} with a focused lesson and one usable output.`,
+        _flowStage: 'understand',
+      }
+  }
+}
+
+function buildDeterministicDayBundle({
+  goal,
+  concept,
+  dayNumber,
+  flowSequence,
+  baseDuration,
+  resources,
+  difficulty,
+  adaptivePlan = null,
+  mode = 'goal',
+  usedTitles,
+}) {
+  const titleRegistry = usedTitles || new Set()
+
+  return flowSequence
+    .filter((flowItem) => !['project', 'final_exam'].includes(flowItem?.type))
+    .map((flowItem, index) => {
+      const type = normalizeTaskType(flowItem?.type, index)
+      const focusName = getFocusConceptName({
+        type,
+        concept,
+        adaptivePlan,
+      })
+      const resource = chooseTaskResource(resources, type, index)
+      const template = buildDeterministicTaskTemplate({
+        type,
+        concept,
+        focusName,
+        goal,
+        dayNumber,
+        resource,
+        baseDuration,
+        difficulty,
+        adaptivePlan,
+        index,
+        mode,
+      })
+
+      return normalizeLearningTask({
+        ...template,
+        id: `d${dayNumber}${type.replace(/[^a-z]/g, '').slice(0, 4)}${index + 1}`,
+        title: uniqueTitle(template.title, titleRegistry, dayNumber, index),
+      }, index)
+    })
+}
+
+function validateGeneratedDayBundle(tasks, flowSequence) {
+  const normalizedTasks = normalizeLearningTasks(tasks)
+  const expectedTypes = flowSequence
+    .filter((flowItem) => !['project', 'final_exam'].includes(flowItem?.type))
+    .map((flowItem, index) => normalizeTaskType(flowItem?.type, index))
+  const quality = analyzeTaskQuality(normalizedTasks)
+  const reasons = [...quality.reasons]
+
+  if (normalizedTasks.length !== expectedTypes.length) reasons.push('wrong_task_count')
+  expectedTypes.forEach((expectedType, index) => {
+    if (normalizedTasks[index]?.type !== expectedType) reasons.push(`wrong_task_type_${index + 1}`)
+  })
+
+  if (normalizedTasks.filter((task) => task.type === 'concept' && task.presentation === 'reading').length > 1) {
+    reasons.push('too_many_concept_reading_tasks')
+  }
+
+  normalizedTasks.forEach((task) => {
+    if (titleLooksGeneric(task.title)) reasons.push('generic_title')
+    if (descriptionLooksGeneric(task.description)) reasons.push('generic_description')
+    if (!String(task.action || '').trim()) reasons.push('missing_action')
+    if (!String(task.outcome || '').trim()) reasons.push('missing_outcome')
+  })
+
+  return {
+    valid: reasons.length === 0,
+    reasons: Array.from(new Set(reasons)),
+    tasks: normalizedTasks,
+  }
+}
+
+function mergeAiTasksWithBundle({ aiTasks, deterministicTasks, dayNumber }) {
+  const titleRegistry = new Set()
+
+  return deterministicTasks.map((baseTask, index) => {
+    const aiTask = aiTasks[index] || {}
+    const title = uniqueTitle(
+      normalizeTitle(aiTask?.title, baseTask.title),
+      titleRegistry,
+      dayNumber,
+      index,
+    )
+    const action = String(aiTask?.action || '').trim() || String(baseTask.action || '').trim()
+    const outcome = String(aiTask?.outcome || '').trim() || String(baseTask.outcome || '').trim()
+    const description = String(aiTask?.description || '').trim()
+      || (action && outcome ? `Action: ${action} Outcome: ${outcome}` : baseTask.description)
+
+    return normalizeLearningTask({
+      ...baseTask,
+      presentation: String(aiTask?.presentation || '').trim() || baseTask.presentation,
       title,
       action,
       outcome,
-      description: `Action: ${action} Outcome: ${outcome}`,
-      durationMin,
-      resourceUrl: resource.url,
-      resourceTitle: resource.title,
-      resourceType: resource.type,
-      _concept: concept.name,
-      _flowStage: 'understand',
-      ...buildAdaptiveTaskMetadata({ taskType: type, plan: adaptivePlan }),
-      completed: false,
-    }
+      description,
+      durationMin: Math.max(5, Number(aiTask?.durationMin) || Number(baseTask.durationMin) || Number(baseTask.estimatedTimeMin) || 12),
+      resourceUrl: String(aiTask?.resourceUrl || '').trim() || baseTask.resourceUrl,
+      resourceTitle: String(aiTask?.resourceTitle || '').trim() || baseTask.resourceTitle,
+      resourceType: String(aiTask?.resourceType || '').trim() || baseTask.resourceType,
+      lessonSeed: {
+        ...(baseTask.lessonSeed || {}),
+        source: 'ai',
+      },
+    }, index)
   })
 }
 
-async function generateTeachingTasksForDay({
+async function generateDayTaskBundle({
   goal,
   knowledge,
   concept,
   dayNumber,
-  taskCount,
-  durationMin,
+  baseDuration,
   resources,
   openaiApiKey,
-  usedTitles,
   adaptivePlan = null,
-  mode = 'goal', // 'goal' | 'explore'
+  mode = 'goal',
+  flowSequence = [],
+  totalMinutes = 30,
+  usedTitles,
+  phase = 'next_day',
 }) {
+  const difficulty = adaptivePlan?.difficulty || concept?.difficulty || 2
+  const startedAt = Date.now()
+  const deterministicTasks = buildDeterministicDayBundle({
+    goal,
+    concept,
+    dayNumber,
+    flowSequence,
+    baseDuration,
+    resources,
+    difficulty,
+    adaptivePlan,
+    mode,
+    usedTitles,
+  })
+
   if (!openaiApiKey) {
-    return buildFallbackTasksForDay({ goal, concept, taskCount, durationMin, dayNumber, resources, usedTitles, adaptivePlan })
+    console.info('[PathAI] daily_task_bundle', {
+      phase,
+      dayNumber,
+      source: 'deterministic',
+      reason: 'missing_api_key',
+      retries: 0,
+      taskCount: deterministicTasks.length,
+      duration_ms: Date.now() - startedAt,
+    })
+    return deterministicTasks
   }
 
-  // AI generates only concept tasks — the flow engine adds guided_practice,
-  // challenge, explain, quiz, reflect, boss deterministically
-  const conceptTaskCount = Math.max(1, Math.min(taskCount, adaptivePlan?.conceptTaskCount || 2)) // Max 2 concept tasks per day
+  const modeInstruction = mode === 'explore'
+    ? 'This is Explore Mode (no deadline pressure). Make tasks feel curiosity-driven and discovery-led.'
+    : 'This is Goal Mode (deadline-driven). Make tasks efficient, concrete, and progress-oriented.'
 
-  try {
-    const modeInstruction = mode === 'explore'
-      ? 'This is Explore Mode (no deadline pressure). Make tasks feel discovery-oriented and curiosity-driven.'
-      : 'This is Goal Mode (deadline-driven). Make tasks focused, efficient, and progress-oriented.'
-    const adaptivePromptContext = buildAdaptivePromptContext(adaptivePlan)
+  const expectedTypes = flowSequence
+    .filter((flowItem) => !['project', 'final_exam'].includes(flowItem?.type))
+    .map((flowItem, index) => normalizeTaskType(flowItem?.type, index))
 
-    const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${openaiApiKey}`,
-      },
-      body: JSON.stringify({
-        model: getOpenAIModel('dailyTasks'),
-        temperature: 0.4,
-        max_tokens: 1800,
-        messages: [{
-          role: 'user',
-          content: [
-            `Generate ${conceptTaskCount} concept lesson tasks that teach a new idea.`,
-            `Goal: ${goal}`,
-            `Prior knowledge: ${knowledge || 'Beginner'}`,
-            `Day: ${dayNumber}`,
-            concept._moduleTitle ? `Module: ${concept._moduleTitle}` : '',
-            concept._dayTitle ? `Day topic: ${concept._dayTitle}` : '',
-            `Concept: ${concept.name}`,
-            `Concept description: ${concept.description || 'N/A'}`,
-            concept._allConcepts?.length > 1 ? `Related concepts for today: ${concept._allConcepts.join(', ')}` : '',
-            `Each task should be ~${durationMin} minutes.`,
-            modeInstruction,
-            adaptivePromptContext,
-            'Task type must be "concept" — these are pure teaching/explanation tasks.',
-            'A concept task introduces and explains one idea with examples, visuals, and key terms.',
-            'It must NOT include quizzes, practice problems, or interactive exercises.',
-            `Resource candidates JSON: ${JSON.stringify(resources)}`,
-            'Return ONLY strict JSON: {"tasks":[{"type":"concept","title":"...","action":"...","outcome":"...","description":"...","durationMin":15,"resourceUrl":"https://...","resourceTitle":"...","resourceType":"article"}]}',
-            'Rules: tasks must be practical and specific. Titles must be distinct. No generic fluff.',
-          ].filter(Boolean).join('\n'),
-        }],
-      }),
-    })
+  let failureReasons = []
 
-    if (!openaiRes.ok) throw new Error(`OpenAI tasks request failed with ${openaiRes.status}`)
-
-    const openaiData = await openaiRes.json()
-    const text = openaiData.choices?.[0]?.message?.content || ''
-    let jsonStr = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim()
-    const firstBrace = jsonStr.indexOf('{')
-    if (firstBrace >= 0) jsonStr = jsonStr.slice(firstBrace)
-    const parsed = JSON.parse(jsonStr)
-    const aiTasks = Array.isArray(parsed?.tasks) ? parsed.tasks : []
-
-    if (aiTasks.length === 0) throw new Error('AI response missing tasks array')
-
-    const normalized = aiTasks.slice(0, conceptTaskCount).map((task, idx) => {
-      const type = normalizeTaskType(task?.type, idx)
-      const resource = resources[idx % resources.length]
-      const fallbackTitle = `${typeVerbs[type] || 'Learn'} ${concept.name} - Day ${dayNumber}`
-      const title = uniqueTitle(normalizeTitle(task?.title, fallbackTitle), usedTitles, dayNumber, idx)
-      const action = String(task?.action || '').trim() || `Learn ${concept.name} and produce a concrete artifact.`
-      const outcome = String(task?.outcome || '').trim() || `Demonstrate understanding of ${concept.name} in one output.`
-      const description = String(task?.description || '').trim() || `Action: ${action} Outcome: ${outcome}`
-
-      return {
-        id: `d${dayNumber}t${idx + 1}`,
-        type,
-        title,
-        action,
-        outcome,
-        description,
-        durationMin: Math.max(8, Math.min(durationMin * 2, Number(task?.durationMin) || durationMin)),
-        resourceUrl: String(task?.resourceUrl || '').trim() || resource.url,
-        resourceTitle: String(task?.resourceTitle || '').trim() || resource.title,
-        resourceType: String(task?.resourceType || '').trim() || resource.type,
-        _concept: concept.name,
-        _flowStage: 'understand',
-        ...buildAdaptiveTaskMetadata({ taskType: type, plan: adaptivePlan }),
-        completed: false,
-      }
-    })
-
-    if (normalized.length < conceptTaskCount) {
-      const fallback = buildFallbackTasksForDay({
-        goal,
-        concept,
-        taskCount: conceptTaskCount - normalized.length,
-        durationMin,
-        dayNumber,
-        resources,
-        usedTitles,
-        adaptivePlan,
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${openaiApiKey}`,
+        },
+        signal: AbortSignal.timeout(9000),
+        body: JSON.stringify({
+          model: getOpenAIModel('dailyTasks'),
+          temperature: 0.45,
+          max_tokens: 2200,
+          messages: [{
+            role: 'user',
+            content: [
+              `Generate one complete learning day with exactly ${expectedTypes.length} tasks in this order: ${expectedTypes.join(', ')}.`,
+              `Goal: ${goal}`,
+              `Prior knowledge: ${knowledge || 'Beginner'}`,
+              `Day number: ${dayNumber}`,
+              `Module: ${concept._moduleTitle || concept.name}`,
+              `Day topic: ${concept._dayTitle || concept.name}`,
+              `Core concept: ${concept.name}`,
+              concept._allConcepts?.length > 1 ? `Related concepts: ${concept._allConcepts.join(', ')}` : '',
+              `Difficulty: ${difficulty}/5`,
+              `Time budget: ${totalMinutes} minutes total`,
+              modeInstruction,
+              buildAdaptivePromptContext(adaptivePlan),
+              `Resource candidates JSON: ${JSON.stringify(resources)}`,
+              attempt > 0 && failureReasons.length > 0
+                ? `Your previous attempt failed validation for these reasons: ${failureReasons.join(', ')}. Fix every issue and keep the task sequence exact.`
+                : '',
+              'Every task must include: type, optional presentation, title, action, outcome, description, durationMin, resourceUrl, resourceTitle, resourceType.',
+              'Task contracts:',
+              '- concept: explanation-focused, why it matters, one takeaway, no quiz or practice inside it',
+              '- guided_practice: scaffolded doing with partial support',
+              '- challenge: independent application with less scaffolding',
+              '- explain: learner teaches the concept back',
+              '- recall: fast retrieval and spaced memory reinforcement',
+              '- quiz: scored correctness check',
+              '- reflect: metacognitive review of what clicked and what remains weak',
+              '- boss: integrated mastery checkpoint',
+              'Rules:',
+              '- No generic titles or descriptions',
+              '- No placeholders like "Concept Task 1", "Getting Started", "Core Concept", or "Learn X - Day Y"',
+              '- Titles must be distinct and describe different sub-angles of the same learning day',
+              '- Descriptions must contain a concrete learner action and output',
+              '- Do not repeat the same presentation more than twice',
+              '- Return ONLY strict JSON: {"tasks":[...]}',
+            ].filter(Boolean).join('\n'),
+          }],
+        }),
       })
-      return normalized.concat(fallback)
-    }
 
-    return normalized
-  } catch {
-    return buildFallbackTasksForDay({ goal, concept, taskCount: conceptTaskCount, durationMin, dayNumber, resources, usedTitles, adaptivePlan })
+      if (!openaiRes.ok) {
+        const error = new Error(`provider_http_error_${openaiRes.status}`)
+        error.code = 'provider_http_error'
+        throw error
+      }
+
+      const openaiData = await openaiRes.json()
+      const text = openaiData.choices?.[0]?.message?.content || ''
+      let jsonStr = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim()
+      const firstBrace = jsonStr.indexOf('{')
+      if (firstBrace >= 0) jsonStr = jsonStr.slice(firstBrace)
+
+      let parsed = null
+      try {
+        parsed = JSON.parse(jsonStr)
+      } catch (error) {
+        error.code = 'invalid_json'
+        throw error
+      }
+
+      const aiTasks = Array.isArray(parsed?.tasks) ? parsed.tasks : []
+      if (aiTasks.length !== expectedTypes.length) {
+        failureReasons = ['wrong_task_count']
+        continue
+      }
+
+      const typesValid = aiTasks.every((task, index) => (
+        getCanonicalTaskType(task?.type, task) === expectedTypes[index]
+      ))
+      if (!typesValid) {
+        failureReasons = ['wrong_task_types']
+        continue
+      }
+
+      const mergedTasks = mergeAiTasksWithBundle({
+        aiTasks,
+        deterministicTasks,
+        dayNumber,
+      })
+      const validation = validateGeneratedDayBundle(mergedTasks, flowSequence)
+      if (!validation.valid) {
+        failureReasons = validation.reasons
+        continue
+      }
+
+      console.info('[PathAI] daily_task_bundle', {
+        phase,
+        dayNumber,
+        source: attempt === 0 ? 'ai' : 'ai_retry',
+        reason: 'success',
+        retries: attempt,
+        taskCount: validation.tasks.length,
+        duration_ms: Date.now() - startedAt,
+      })
+      return validation.tasks
+    } catch (error) {
+      failureReasons = [normalizeGenerationReason(error)]
+    }
   }
+
+  console.info('[PathAI] daily_task_bundle', {
+    phase,
+    dayNumber,
+    source: 'deterministic',
+    reason: failureReasons[0] || 'validation_failed',
+    retries: 1,
+    taskCount: deterministicTasks.length,
+    duration_ms: Date.now() - startedAt,
+  })
+  return deterministicTasks
 }
 
 // ─────────────────────────────────────────────
@@ -1047,7 +1544,7 @@ async function generateTeachingTasksForDay({
 // ─────────────────────────────────────────────
 
 export async function buildDailyTasks(goal, concepts, weekdayMins, weekendMins, startDay, numDays, options = {}) {
-  const { knowledge = '', openaiApiKey = null, mode = 'goal', adaptiveProfile = null } = options
+  const { knowledge = '', openaiApiKey = null, mode = 'goal', adaptiveProfile = null, generationPhase = 'next_day' } = options
   const days = []
   const timeline = expandConceptTimeline(concepts, numDays)
 
@@ -1056,7 +1553,6 @@ export async function buildDailyTasks(goal, concepts, weekdayMins, weekendMins, 
 
   const startDate = new Date()
   startDate.setDate(startDate.getDate() + (startDay - 1))
-  const usedTitles = new Set()
 
   for (let offset = 0; offset < numDays; offset++) {
     const dayNumber = startDay + offset
@@ -1078,11 +1574,6 @@ export async function buildDailyTasks(goal, concepts, weekdayMins, weekendMins, 
     })
 
     const adjustedTotalMinutes = adaptivePlan.totalMinutes || totalMinutes
-    const taskCount = Math.max(2, Math.min(6, Math.round(adjustedTotalMinutes / 12)))
-    // FIX: durationMin now always fits within totalMinutes
-    const durationMin = Math.max(8, Math.floor(adjustedTotalMinutes / taskCount))
-
-    // Determine flow-based task sequence for this day
     const isBossDay = dayNumber % 7 === 0 && dayNumber > 0
     const difficulty = adaptivePlan.difficulty
     const condensed = adaptivePlan.condensed || adjustedTotalMinutes < 20
@@ -1093,132 +1584,25 @@ export async function buildDailyTasks(goal, concepts, weekdayMins, weekendMins, 
       mastery,
       isReviewDay: adaptivePlan.shouldReviewToday,
     })
+    const taskCount = Math.max(2, flowSequence.length)
+    const durationMin = Math.max(8, Math.floor(adjustedTotalMinutes / taskCount))
+    const usedTitles = new Set()
 
-    // Core AI-generated tasks (lessons, quizzes, etc.)
-    const coreTasks = await generateTeachingTasksForDay({
+    const tasks = await generateDayTaskBundle({
       goal,
       knowledge,
       concept,
       dayNumber,
-      taskCount,
-      durationMin,
+      baseDuration: durationMin,
       resources,
       openaiApiKey,
-      usedTitles,
       adaptivePlan,
       mode,
+      flowSequence,
+      totalMinutes: adjustedTotalMinutes,
+      usedTitles,
+      phase: generationPhase,
     })
-
-    // Inject flow engine tasks based on sequence
-    // coreTasks = AI-generated concept tasks; flow adds the rest deterministically
-    const tasks = [...coreTasks]
-    const coreTypes = new Set(coreTasks.map(t => t.type))
-
-    for (const flowItem of flowSequence) {
-      // Skip if a task of this type already exists from AI generation
-      if (coreTypes.has(flowItem.type)) continue
-
-      if (flowItem.type === 'concept') {
-        // Concept tasks come from AI generation, skip if already present
-        continue
-      } else if (flowItem.type === 'guided_practice') {
-        tasks.push({
-          id: `d${dayNumber}gp${tasks.length}`,
-          type: 'guided_practice',
-          title: uniqueTitle(`Practice: ${concept.name}`, usedTitles, dayNumber, tasks.length),
-          description: adaptivePlan.state === 'struggling'
-            ? `Break ${concept.name} into smaller steps with scaffolded hints and examples.`
-            : adaptivePlan.shouldReviewToday && adaptivePlan.reviewFocus?.length
-            ? `Reinforce weak spots while practicing ${concept.name}, with extra focus on ${adaptivePlan.reviewFocus[0].conceptName}.`
-            : `Guided practice with scaffolded hints for ${concept.name}`,
-          durationMin: Math.max(8, Math.round(durationMin * 1.2)),
-          _concept: concept.name,
-          _difficulty: difficulty,
-          _flowStage: 'apply',
-          ...buildAdaptiveTaskMetadata({ taskType: 'guided_practice', plan: adaptivePlan }),
-          completed: false,
-        })
-      } else if (flowItem.type === 'challenge') {
-        tasks.push({
-          id: `d${dayNumber}ch`,
-          type: 'challenge',
-          title: uniqueTitle(`Challenge: ${concept.name}`, usedTitles, dayNumber, tasks.length),
-          description: adaptivePlan.state === 'breezing'
-            ? `Skip the basics and tackle a harder independent challenge on ${concept.name}.`
-            : `Solve independently with minimal help — prove your understanding of ${concept.name}`,
-          durationMin: Math.max(10, Math.round(durationMin * 1.5)),
-          _concept: concept.name,
-          _difficulty: Math.min(5, difficulty + 1),
-          _flowStage: 'struggle',
-          ...buildAdaptiveTaskMetadata({ taskType: 'challenge', plan: adaptivePlan }),
-          completed: false,
-        })
-      } else if (flowItem.type === 'explain') {
-        tasks.push({
-          id: `d${dayNumber}ex`,
-          type: 'explain',
-          title: uniqueTitle(`Explain: ${concept.name}`, usedTitles, dayNumber, tasks.length),
-          description: `Teach the concept back, debug scenarios, and predict outcomes for ${concept.name}`,
-          durationMin: Math.max(8, durationMin),
-          _concept: concept.name,
-          _difficulty: difficulty,
-          _flowStage: 'explain',
-          ...buildAdaptiveTaskMetadata({ taskType: 'explain', plan: adaptivePlan }),
-          completed: false,
-        })
-      } else if (flowItem.type === 'quiz') {
-        tasks.push({
-          id: `d${dayNumber}qz`,
-          type: 'quiz',
-          title: uniqueTitle(
-            adaptivePlan.shouldReviewToday && adaptivePlan.reviewFocus?.length
-              ? `Review Quiz: ${adaptivePlan.reviewFocus[0].conceptName}`
-              : `Quiz: ${concept.name}`,
-            usedTitles,
-            dayNumber,
-            tasks.length,
-          ),
-          description: adaptivePlan.shouldReviewToday && adaptivePlan.reviewFocus?.length
-            ? `Target weak concepts first, then prove your understanding of ${concept.name}.`
-            : `Test your recall and retention of ${concept.name}`,
-          durationMin: Math.max(8, durationMin),
-          _concept: concept.name,
-          _difficulty: difficulty,
-          _flowStage: 'prove',
-          ...buildAdaptiveTaskMetadata({ taskType: 'quiz', plan: adaptivePlan }),
-          completed: false,
-        })
-      } else if (flowItem.type === 'reflect') {
-        tasks.push({
-          id: `d${dayNumber}ref`,
-          type: 'reflect',
-          title: uniqueTitle(`Reflect: ${concept.name}`, usedTitles, dayNumber, tasks.length),
-          description: `Reflect on what you learned about ${concept.name} — what clicked, what's fuzzy`,
-          durationMin: 5,
-          _concept: concept.name,
-          _difficulty: difficulty,
-          _flowStage: 'reflect',
-          ...buildAdaptiveTaskMetadata({ taskType: 'reflect', plan: adaptivePlan }),
-          completed: false,
-        })
-      } else if (flowItem.type === 'boss' && isBossDay) {
-        tasks.push({
-          id: `d${dayNumber}boss`,
-          type: 'boss',
-          title: uniqueTitle(`Boss Challenge: ${concept._moduleTitle || concept.name}`, usedTitles, dayNumber, tasks.length),
-          description: `Multi-phase boss battle — prove your mastery of everything in this module`,
-          durationMin: 15,
-          _concept: concept.name,
-          _moduleName: concept._moduleTitle || concept.name,
-          _concepts: concept._allConcepts || [concept.name],
-          _difficulty: Math.min(5, difficulty + 1),
-          _flowStage: 'prove',
-          ...buildAdaptiveTaskMetadata({ taskType: 'boss', plan: adaptivePlan }),
-          xpReward: 200,
-          completed: false,
-        })
-      }
-    }
 
     days.push({
       day: dayNumber,
@@ -1242,7 +1626,7 @@ export async function buildDailyTasks(goal, concepts, weekdayMins, weekendMins, 
 // ─────────────────────────────────────────────
 
 export async function buildExploreDayTask(goal, concept, minsPerDay, dayNumber, options = {}) {
-  const { knowledge = '', openaiApiKey = null, adaptiveProfile = null } = options
+  const { knowledge = '', openaiApiKey = null, adaptiveProfile = null, generationPhase = 'next_day' } = options
   const resources = getResources(goal, concept.name)
   const adaptivePlan = buildAdaptivePlan({
     profile: adaptiveProfile,
@@ -1252,22 +1636,29 @@ export async function buildExploreDayTask(goal, concept, minsPerDay, dayNumber, 
     mode: 'explore',
   })
   const adjustedMinutes = adaptivePlan.totalMinutes || minsPerDay
-  const taskCount = Math.max(2, Math.min(6, Math.round(adjustedMinutes / 12)))
+  const flowSequence = buildFlowSequence(dayNumber, adaptivePlan.difficulty, {
+    condensed: adaptivePlan.condensed || adjustedMinutes < 20,
+    mastery: adaptiveProfile?.conceptSummaries?.find((entry) => entry.conceptName === concept.name)?.masteryScore ?? null,
+    isReviewDay: adaptivePlan.shouldReviewToday,
+    isBossDay: dayNumber % 7 === 0 && dayNumber > 0,
+  })
+  const taskCount = Math.max(2, flowSequence.length)
   const durationMin = Math.max(8, Math.floor(adjustedMinutes / taskCount))
   const usedTitles = new Set()
-
-  const tasks = await generateTeachingTasksForDay({
+  const tasks = await generateDayTaskBundle({
     goal,
     knowledge,
     concept,
     dayNumber,
-    taskCount,
-    durationMin,
+    baseDuration: durationMin,
     resources,
     openaiApiKey,
-    usedTitles,
     adaptivePlan,
     mode: 'explore',
+    flowSequence,
+    totalMinutes: adjustedMinutes,
+    usedTitles,
+    phase: generationPhase,
   })
 
   const today = new Date()
@@ -1290,19 +1681,26 @@ export async function buildExploreDayTask(goal, concept, minsPerDay, dayNumber, 
 // ─────────────────────────────────────────────
 
 export async function saveDailyTasks({ supabase, goalId, userId, dailyPlan }) {
-  const rows = dailyPlan.map((day) => ({
+  const rows = dailyPlan.map((day) => {
+    const normalizedTasks = normalizeLearningTasks(Array.isArray(day.tasks) ? day.tasks : [])
+    return {
     goal_id: goalId,
     user_id: userId,
     day_number: day.day,
     task_date: day.date,
-    tasks: day.tasks,
+    tasks: normalizedTasks,
     covered_topics: Array.isArray(day.coveredTopics) && day.coveredTopics.length > 0
       ? day.coveredTopics
       : [day.conceptName],
-    completion_status: 'pending',
-    tasks_completed: 0,
+    completion_status: normalizedTasks.length > 0 && normalizedTasks.every((task) => task.completed)
+      ? 'completed'
+      : normalizedTasks.some((task) => task.completed)
+        ? 'in_progress'
+        : 'pending',
+    tasks_completed: normalizedTasks.filter((task) => task.completed).length,
     mode: day.mode || 'goal',
-  }))
+    }
+  })
 
   const { data, error } = await supabase.from('daily_tasks').insert(rows).select('*')
   if (error) throw new Error(`Failed to save tasks: ${error.message}`)
@@ -1420,6 +1818,165 @@ export async function updateConceptMastery({ supabase, userId, goalId, conceptId
   if (error) throw new Error(`Failed to update concept mastery: ${error.message}`)
 }
 
+export function preserveCompletedTasksOnRepair(existingTasks = [], repairedTasks = []) {
+  const sourceCompleted = normalizeLearningTasks(existingTasks).filter((task) => task.completed)
+  if (sourceCompleted.length === 0) return normalizeLearningTasks(repairedTasks)
+
+  const consumed = new Set()
+  const merged = normalizeLearningTasks(repairedTasks).map((task) => {
+    let matchedIndex = sourceCompleted.findIndex((candidate, index) => (
+      !consumed.has(index)
+      && candidate.type === task.type
+      && String(candidate.presentation || '') === String(task.presentation || '')
+    ))
+
+    if (matchedIndex < 0) {
+      matchedIndex = sourceCompleted.findIndex((candidate, index) => (
+        !consumed.has(index)
+        && candidate.type === task.type
+      ))
+    }
+
+    if (matchedIndex < 0) return task
+
+    consumed.add(matchedIndex)
+    const matchedTask = sourceCompleted[matchedIndex]
+    return {
+      ...task,
+      completed: true,
+      _adaptive: matchedTask?._adaptive || task._adaptive,
+      completed_at: matchedTask?.completed_at || task?.completed_at,
+    }
+  })
+
+  return normalizeLearningTasks(merged)
+}
+
+export async function repairBrokenIncompleteDays({
+  supabase,
+  goalId,
+  userId,
+  goalRow = null,
+  progressRow = null,
+  existingRows = [],
+  rowIds = null,
+}) {
+  let resolvedGoal = goalRow
+  let resolvedProgress = progressRow
+  let resolvedRows = Array.isArray(existingRows) ? existingRows : []
+
+  if (!resolvedGoal) {
+    const { data, error } = await supabase
+      .from('goals')
+      .select('*')
+      .eq('id', goalId)
+      .eq('user_id', userId)
+      .single()
+    if (error) throw new Error(`Failed to load goal for repair: ${error.message}`)
+    resolvedGoal = data
+  }
+
+  if (!resolvedProgress) {
+    const { data, error } = await supabase
+      .from('user_progress')
+      .select('total_days')
+      .eq('goal_id', goalId)
+      .eq('user_id', userId)
+      .maybeSingle()
+    if (error) throw new Error(`Failed to load progress for repair: ${error.message}`)
+    resolvedProgress = data
+  }
+
+  if (resolvedRows.length === 0) {
+    const { data, error } = await supabase
+      .from('daily_tasks')
+      .select('*')
+      .eq('goal_id', goalId)
+      .eq('user_id', userId)
+      .order('day_number', { ascending: true })
+    if (error) throw new Error(`Failed to load task rows for repair: ${error.message}`)
+    resolvedRows = data || []
+  }
+
+  const { courseOutline, sequenceDayCount } = await recoverCourseOutlineIfNeeded({
+    supabase,
+    goalId,
+    userId,
+    goalRow: resolvedGoal,
+    progressRow: resolvedProgress,
+    existingRows: resolvedRows,
+  })
+
+  const scopedRows = filterRowsForCourseWindow(resolvedRows, sequenceDayCount)
+  const sequence = buildCourseSequence({ courseOutline, goalText: resolvedGoal.goal_text })
+  const sequenceByDay = new Map(sequence.flatItems.map((item) => [Number(item.dayNumber), item]))
+  const rowIdSet = rowIds && rowIds.length > 0
+    ? new Set(rowIds.map((value) => String(value)))
+    : null
+  const candidates = scopedRows.filter((row) => (
+    row?.completion_status !== 'completed'
+    && (!rowIdSet || rowIdSet.has(String(row.id)))
+    && (
+      isBrokenTaskRow(row)
+      || needsSequenceDayRepair(row, sequenceByDay.get(Number(row.day_number)))
+    )
+  ))
+
+  if (candidates.length === 0) {
+    return { repairedCount: 0, rows: [] }
+  }
+
+  const { data: masteryRows, error: masteryError } = await supabase
+    .from('concept_mastery')
+    .select('concept_id,mastery_score,last_review,review_interval')
+    .eq('goal_id', goalId)
+    .eq('user_id', userId)
+  if (masteryError) throw new Error(`Failed to load mastery rows for repair: ${masteryError.message}`)
+
+  const adaptiveProfile = buildAdaptiveProfile(resolvedRows, masteryRows || [])
+  const knowledge = normalizeKnowledge(resolvedGoal.constraints)
+  const repairedRows = []
+
+  for (const row of candidates) {
+    const item = sequenceByDay.get(Number(row.day_number))
+    if (!item || item.type === 'project') continue
+
+    const planDay = await buildGoalPlanDayFromSequenceItem({
+      goalRow: { ...resolvedGoal, course_outline: courseOutline },
+      item,
+      knowledge,
+      openaiApiKey: process.env.OPENAI_API_KEY,
+      adaptiveProfile,
+      existingRows: resolvedRows,
+      generationPhase: 'repair',
+    })
+
+    const repairedTasks = preserveCompletedTasksOnRepair(row.tasks, planDay.tasks)
+    const savedRow = await upsertDailyPlanDay({
+      supabase,
+      goalId,
+      userId,
+      planDay: { ...planDay, tasks: repairedTasks },
+      existingRow: row,
+    })
+
+    repairedRows.push(savedRow)
+    console.info('[PathAI] day_repair', {
+      goalId,
+      userId,
+      rowId: row.id,
+      dayNumber: row.day_number,
+      reasons: analyzeTaskQuality(row.tasks).reasons,
+      repairedTaskCount: repairedTasks.length,
+    })
+  }
+
+  return {
+    repairedCount: repairedRows.length,
+    rows: repairedRows,
+  }
+}
+
 // ─────────────────────────────────────────────
 // Goal Mode: generate next week of tasks
 // ─────────────────────────────────────────────
@@ -1451,16 +2008,32 @@ export async function generateNextTasksIfNeeded({ supabase, goalId, userId }) {
 
   if (existingError) throw new Error(`Failed to inspect existing tasks: ${existingError.message}`)
 
+  let sourceRows = existingRows || []
+  const repairResult = await repairBrokenIncompleteDays({
+    supabase,
+    goalId,
+    userId,
+    goalRow,
+    progressRow,
+    existingRows: sourceRows,
+  })
+  if (repairResult.repairedCount > 0) {
+    const rowMap = new Map()
+    sourceRows.forEach((row) => rowMap.set(Number(row.day_number), row))
+    repairResult.rows.forEach((row) => rowMap.set(Number(row.day_number), row))
+    sourceRows = Array.from(rowMap.values()).sort((left, right) => Number(left.day_number) - Number(right.day_number))
+  }
+
   const { courseOutline, sequenceDayCount } = await recoverCourseOutlineIfNeeded({
     supabase,
     goalId,
     userId,
     goalRow,
     progressRow,
-    existingRows: existingRows || [],
+    existingRows: sourceRows,
   })
 
-  const scopedRows = filterRowsForCourseWindow(existingRows || [], sequenceDayCount)
+  const scopedRows = filterRowsForCourseWindow(sourceRows, sequenceDayCount)
   const tracker = buildPathOutlineTracker({
     courseOutline,
     rows: scopedRows,
@@ -1541,14 +2114,15 @@ export async function generateNextTasksIfNeeded({ supabase, goalId, userId }) {
     return { generated: false, reason: 'course_boundary_reached' }
   }
 
-  const existingSlotRow = (existingRows || []).find((row) => Number(row?.day_number) === Number(nextItem.dayNumber)) || null
+  const existingSlotRow = sourceRows.find((row) => Number(row?.day_number) === Number(nextItem.day_number ?? nextItem.dayNumber)) || null
   const planDay = await buildGoalPlanDayFromSequenceItem({
     goalRow: { ...goalRow, course_outline: courseOutline },
     item: nextItem,
     knowledge,
     openaiApiKey: process.env.OPENAI_API_KEY,
     adaptiveProfile,
-    existingRows: existingRows || [],
+    existingRows: sourceRows,
+    generationPhase: 'next_day',
   })
 
   const savedRow = await upsertDailyPlanDay({
@@ -1627,7 +2201,7 @@ export async function generateNextExploreDay({ supabase, goalId, userId }) {
     nextConcept,
     minsPerDay,
     maxDay + 1,
-    { knowledge, openaiApiKey: process.env.OPENAI_API_KEY, adaptiveProfile },
+    { knowledge, openaiApiKey: process.env.OPENAI_API_KEY, adaptiveProfile, generationPhase: 'next_day' },
   )
 
   const insertedRows = await saveDailyTasks({ supabase, goalId, userId, dailyPlan: [nextDay] })

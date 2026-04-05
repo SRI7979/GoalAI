@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo } from 'react'
+import IconGlyph from '@/components/IconGlyph'
 
 // ─── Confetti ─────────────────────────────────────────────────────────────────
 const CONFETTI_COLORS = [
@@ -286,7 +287,7 @@ export default function MissionComplete({ isVisible, data, onDoLater, onStartTom
               alignItems:    'center',
               gap:           12,
             }}>
-              <span style={{ fontSize: 22 }}>🔥</span>
+              <IconGlyph name="flame" size={22} strokeWidth={2.2} color="#FF6B35" />
               <div>
                 <div style={{ fontSize: 15, fontWeight: 800, color: '#FF6B35' }}>
                   {newStreak}-day streak

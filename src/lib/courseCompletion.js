@@ -30,7 +30,7 @@ function parseDateOnly(value) {
 }
 
 export function isCourseFinalExamTask(task = {}) {
-  return Boolean(task?.isCourseFinalExam || task?._courseFinal)
+  return Boolean(task?.isCourseFinalExam || task?._courseFinal || task?.type === 'final_exam')
 }
 
 export function getCourseFinalExamDayNumber(totalDays) {
@@ -139,10 +139,14 @@ export function buildCourseFinalExamTask({
 
   return {
     id: existingTask?.id || `d${dayNumber}final`,
-    type: 'quiz',
+    type: 'final_exam',
     title,
     description: `Comprehensive assessment across ${moduleTitles.length > 0 ? moduleTitles.length : 'all'} course sections. You have ${COURSE_FINAL_EXAM_MAX_ATTEMPTS} total attempts.`,
     durationMin: estimateFinalExamMinutes(totalDays, courseConcepts.length),
+    estimatedTimeMin: estimateFinalExamMinutes(totalDays, courseConcepts.length),
+    effortWeight: 5,
+    difficultyLevel: 4,
+    difficultyLabel: 'Hard',
     _concept: 'Final Course Exam',
     _difficulty: 4,
     _courseTopics: courseConcepts,

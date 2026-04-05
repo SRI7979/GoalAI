@@ -3,6 +3,7 @@
 import { useCallback, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import LessonViewer from '@/components/LessonView'
+import IconGlyph from '@/components/IconGlyph'
 
 const DEMO_LESSON = {
   slides: [
@@ -104,7 +105,11 @@ export default function DemoPage() {
           WebkitBackdropFilter:'blur(40px) saturate(220%)',
           textAlign:'center',
         }}>
-          <div style={{ fontSize:56, marginBottom:12 }}>🎉</div>
+          <div style={{ display:'flex', justifyContent:'center', marginBottom:12 }}>
+            <div style={{ width: 64, height: 64, borderRadius: 20, background:'linear-gradient(135deg, rgba(14,245,194,0.16), rgba(0,212,255,0.12))', border:'1px solid rgba(14,245,194,0.24)', display:'grid', placeItems:'center' }}>
+              <IconGlyph name="badge" size={30} strokeWidth={2.2} color="#0ef5c2" />
+            </div>
+          </div>
           <div style={{ fontSize:30, fontWeight:900, color:'#f5f5f7', letterSpacing:'-0.9px', marginBottom:8 }}>
             Great job! You earned 30 XP
           </div>

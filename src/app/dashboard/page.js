@@ -3,7 +3,15 @@
 
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
+import { getLocalGoalBundleWithRepairs, isLocalAccessUser } from '@/lib/localGoalStore'
+import { clearStoredSupabaseSession, getSafeSupabaseSession, getSafeSupabaseUser, supabaseData } from '@/lib/supabase'
+import {
+  claimDailyReward,
+  claimModuleReward,
+  completeLearningTask,
+  generateNextLearningDay,
+  rerollLearningTask,
+} from '@/lib/progressionClient'
 import LessonViewer from '@/components/LessonView'
 import VideoView from '@/components/VideoView'
 import ProjectView from '@/components/ProjectView'
@@ -27,6 +35,7 @@ import StreakFlame from '@/components/StreakFlame'
 import BadgeShowcase from '@/components/BadgeShowcase'
 import { getLevelProgress, xpForTask, missionXpReward, computeTotalXpFromRows } from '@/lib/xp'
 import { track, EVENTS } from '@/lib/analytics'
+import { needsSequenceDayRepair } from '@/lib/learningPlan'
 import { buildPathOutlineTracker, courseOutlineNeedsRecovery } from '@/lib/pathOutline.js'
 import { hydrateGoalCourseOutline } from '@/lib/courseOutlineStore'
 import {
@@ -47,6 +56,15 @@ import {
 } from '@/lib/shopInventory'
 import { getStoredMaxHearts, setStoredMaxHearts } from '@/lib/shopStorage'
 import { HEARTS_BASE, HEARTS_MAX_CAP } from '@/lib/tokens'
+import { generateDailyQuests } from '@/lib/quests'
+import {
+  getCanonicalTaskType,
+  getTaskDisplayConfig,
+  normalizeLearningTask,
+  normalizeLearningTasks,
+  normalizeTaskRows,
+} from '@/lib/taskTaxonomy'
+import { isBrokenTaskRow } from '@/lib/taskQuality'
 
 // ─── Design tokens ─────────────────────────────────────────────────────────────
 const T = {
@@ -144,29 +162,21 @@ const KEYFRAMES = `
 
 // ─── Task type config ──────────────────────────────────────────────────────────
 const TASK_STYLE = {
-  // ── Clean 7-type system ──
   concept:          {color:'var(--theme-primary)',bg:'var(--theme-primary-dim)',  border:'var(--theme-primary-border)',  label:'CONCEPT'   },
   guided_practice:  {color:'#00d4ff',bg:'rgba(0,212,255,0.10)',   border:'rgba(0,212,255,0.22)',   label:'PRACTICE'  },
   challenge:        {color:'#F59E0B',bg:'rgba(245,158,11,0.10)',  border:'rgba(245,158,11,0.22)',  label:'CHALLENGE' },
   explain:          {color:'#818CF8',bg:'rgba(129,140,248,0.10)', border:'rgba(129,140,248,0.22)', label:'EXPLAIN'   },
   quiz:             {color:'#FF453A',bg:'rgba(255,69,58,0.10)',   border:'rgba(255,69,58,0.22)',   label:'QUIZ'      },
+  recall:           {color:'#C084FC',bg:'rgba(192,132,252,0.10)', border:'rgba(192,132,252,0.22)', label:'RECALL'    },
   reflect:          {color:'#A78BFA',bg:'rgba(167,139,250,0.10)', border:'rgba(167,139,250,0.22)', label:'REFLECT'   },
   boss:             {color:'#EC4899',bg:'rgba(236,72,153,0.12)',  border:'rgba(236,72,153,0.30)',  label:'BOSS'      },
   project:          {color:'#EC4899',bg:'rgba(236,72,153,0.10)',  border:'rgba(236,72,153,0.22)',  label:'PROJECT'   },
-  // ── Legacy types (backward compat for existing DB tasks) ──
-  lesson:           {color:'var(--theme-primary)',bg:'var(--theme-primary-dim)',  border:'var(--theme-primary-border)',  label:'LESSON'    },
-  video:            {color:'#FBBF24',bg:'rgba(251,191,36,0.10)',  border:'rgba(251,191,36,0.22)',  label:'VIDEO'     },
-  practice:         {color:'var(--theme-secondary)',bg:'rgba(0,212,255,0.10)',   border:'var(--theme-primary-border)',  label:'PRACTICE'  },
-  exercise:         {color:'var(--theme-mastery)',bg:'var(--theme-mastery-dim)', border:'var(--theme-mastery-border)', label:'EXERCISE'  },
-  reading:          {color:'#34D399',bg:'rgba(52,211,153,0.10)',  border:'rgba(52,211,153,0.22)',  label:'READING'   },
-  flashcard:        {color:'#A78BFA',bg:'rgba(167,139,250,0.10)', border:'rgba(167,139,250,0.22)', label:'FLASHCARDS'},
-  discussion:       {color:'#60A5FA',bg:'rgba(96,165,250,0.10)',  border:'rgba(96,165,250,0.22)',  label:'DISCUSSION'},
-  capstone:         {color:'#F97316',bg:'rgba(249,115,22,0.10)',  border:'rgba(249,115,22,0.22)',  label:'CAPSTONE'  },
-  review:           {color:'#FF6B35',bg:'rgba(255,107,53,0.10)',  border:'rgba(255,107,53,0.22)',  label:'REVIEW'    },
-  ai_interaction:   {color:'#818CF8',bg:'rgba(129,140,248,0.10)', border:'rgba(129,140,248,0.22)', label:'EXPLAIN'   },
-  reflection:       {color:'#A78BFA',bg:'rgba(167,139,250,0.10)', border:'rgba(167,139,250,0.22)', label:'REFLECT'   },
+  final_exam:       {color:'#FBBF24',bg:'rgba(251,191,36,0.12)',  border:'rgba(251,191,36,0.24)',  label:'FINAL EXAM'},
 }
-const taskStyle = (type) => TASK_STYLE[type] || TASK_STYLE.concept
+const taskStyle = (taskOrType) => TASK_STYLE[getCanonicalTaskType(
+  typeof taskOrType === 'string' ? taskOrType : taskOrType?.type,
+  typeof taskOrType === 'string' ? null : taskOrType,
+)] || TASK_STYLE.concept
 
 // Helper: current week's Monday as YYYY-MM-DD
 function getWeekStartStr() {
@@ -192,20 +202,20 @@ const ENERGY_OPTIONS = [
 ]
 function getFilteredTasks(tasks, energy) {
   if (!tasks?.length) return tasks || []
+  const normalizedTasks = tasks.map((task, index) => normalizeLearningTask(task, index))
   if (energy === 'energized' || energy === 'good') return tasks
   if (energy === 'okay') {
-    // Hide exercise, quiz, challenge, boss — show the rest
-    return tasks.filter(t => !['exercise','quiz','challenge','boss'].includes(t.type))
+    return normalizedTasks.filter((task) => !['challenge', 'boss', 'final_exam'].includes(task.type) && task.effortWeight <= 3)
   }
   if (energy === 'tired') {
-    // Show only lessons, reviews, and reflections (low-effort), max 2
-    const easy = tasks.filter(t => ['lesson','review','reflection'].includes(t.type))
+    const easy = normalizedTasks.filter((task) => ['concept', 'recall', 'reflect'].includes(task.type) && task.effortWeight <= 2)
     return easy.slice(0, 2)
   }
   if (energy === 'drained') {
-    // Just 1 review or the first task
-    const review = tasks.find(t => t.type === 'review') || tasks[0]
-    return review ? [review] : []
+    const safestTask = normalizedTasks.find((task) => ['recall', 'reflect'].includes(task.type))
+      || normalizedTasks.find((task) => task.effortWeight <= 2)
+      || normalizedTasks[0]
+    return safestTask ? [safestTask] : []
   }
   return tasks
 }
@@ -502,7 +512,7 @@ function MissionHeroCard({ todayRow, tasks, dayNumber }) {
   const pct       = total > 0 ? completed / total : 0
   const allDone   = completed === total && total > 0
   const reward    = missionXpReward(tasks)
-  const totalMin  = tasks.reduce((s,t) => s + (Number(t.durationMin)||0), 0)
+  const totalMin  = tasks.reduce((s, t) => s + (Number(t.estimatedTimeMin || t.durationMin) || 0), 0)
   const concept   = todayRow.covered_topics?.[0] || `Day ${dayNumber}`
 
   return (
@@ -1151,9 +1161,9 @@ function PathModuleCard({ module, expanded, onToggle, expandedUnits, onToggleUni
 // ─── Energy Selector ───────────────────────────────────────────────────────────
 function EnergySelector({ value, onChange }) {
   return (
-    <div style={{maxWidth:600,margin:'0 auto',padding:'0 20px'}}>
+    <div style={{maxWidth:600,margin:'0 auto',padding:'10px 20px 0'}}>
       <div style={{fontSize:11,fontWeight:700,color:T.textMuted,
-        textTransform:'uppercase',letterSpacing:'1.2px',marginBottom:8}}>
+        textTransform:'uppercase',letterSpacing:'1.2px',marginBottom:12}}>
         Energy today
       </div>
       <div style={{display:'flex',gap:6,overflowX:'auto',paddingBottom:2}}>
@@ -1184,50 +1194,21 @@ function EnergySelector({ value, onChange }) {
   )
 }
 
-// ─── Task type descriptions (for preview) ───────────────────────────────────
-const TASK_TYPE_INFO = {
-  lesson:     { icon:'book',         what:'Interactive slideshow lesson with quizzes woven in to test understanding as you learn.' },
-  video:      { icon:'clapperboard', what:'Watch a curated video on this topic, then reflect on the key takeaways.' },
-  practice:   { icon:'hammer',       what:'Hands-on practice project with step-by-step guidance to build something real.' },
-  exercise:   { icon:'dumbbell',     what:'Structured exercise with clear steps to work through and check off as you go.' },
-  quiz:       { icon:'message_question', what:'Multi-question quiz to test your knowledge and get instant feedback on every answer.' },
-  review:     { icon:'repeat',       what:'Review previously learned concepts to strengthen your understanding.' },
-  reading:    { icon:'scroll',       what:'In-depth article with key terms highlighted so you can read at your own pace.' },
-  flashcard:  { icon:'layers',       what:'Flip through cards to memorize key concepts and track what is landing.' },
-  discussion: { icon:'message',      what:'Thought-provoking reflection prompts to deepen understanding through writing.' },
-  challenge:  { icon:'timer',        what:'Timed challenge that tests your skills under pressure, with hints if you get stuck.' },
-  capstone:   { icon:'folder_kanban', what:'Multi-step capstone project with milestones so you build something portfolio-worthy.' },
-  project:    { icon:'rocket',       what:'Portfolio project that turns what you learned into something real you can share.' },
-}
-
-const LESSON_LABELS = {
-  lesson:     'Start Lesson',
-  video:      'Watch Video',
-  practice:   'Start Practice',
-  exercise:   'Start Exercise',
-  quiz:       'Take Quiz',
-  review:     'Start Review',
-  reading:    'Read Article',
-  flashcard:  'Study Cards',
-  discussion: 'Start Discussion',
-  challenge:  'Begin Challenge',
-  capstone:   'Open Project',
-  project:    'Start Project',
-}
-
 function canRerollTask(task) {
-  return Boolean(task) && !task.completed && !['project', 'boss', 'capstone', 'quiz'].includes(task.type)
+  const normalized = normalizeLearningTask(task)
+  return Boolean(task) && !normalized.completed && !['project', 'boss', 'quiz', 'final_exam'].includes(normalized.type)
 }
 
 // ─── Task Preview Modal ────────────────────────────────────────────────────────
 function TaskPreview({ task, onClose, onStart, onComplete, onReroll, rerollCount = 0, isCompleting, rerollingTaskId = null }) {
-  const ts   = taskStyle(task.type)
-  const xp   = xpForTask(task.type)
-  const info = TASK_TYPE_INFO[task.type] || TASK_TYPE_INFO.lesson
+  const normalizedTask = normalizeLearningTask(task)
+  const ts   = taskStyle(normalizedTask)
+  const xp   = xpForTask(normalizedTask)
+  const info = getTaskDisplayConfig(normalizedTask)
   const me   = isCompleting === task.id
   const anyCompleting = Boolean(isCompleting)
   const canUseReroll = canRerollTask(task) && rerollCount > 0 && !anyCompleting && rerollingTaskId !== task.id
-  const label = LESSON_LABELS[task.type] || 'Start Lesson'
+  const label = info.actionLabel || 'Start'
 
   return (
     <div onClick={onClose} style={{
@@ -1269,11 +1250,11 @@ function TaskPreview({ task, onClose, onStart, onComplete, onReroll, rerollCount
           <span style={{
             padding:'4px 11px', background:ts.bg, border:`1px solid ${ts.border}`,
             borderRadius:9999, fontSize:11, fontWeight:800, color:ts.color, letterSpacing:'0.8px',
-          }}>{ts.label}</span>
+          }}>{info.chipLabel}</span>
           <div style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:10}}>
             <span style={{fontSize:12,color:T.textMuted,fontWeight:600,display:'flex',alignItems:'center',gap:4}}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-              {task.durationMin||0} min
+              {normalizedTask.estimatedTimeMin || normalizedTask.durationMin || 0} min
             </span>
             <span style={{fontSize:12,fontWeight:700,color:'#FBBF24',display:'flex',alignItems:'center',gap:3}}>
               <BoltIcon sz={12}/>+{xp} XP
@@ -1283,13 +1264,13 @@ function TaskPreview({ task, onClose, onStart, onComplete, onReroll, rerollCount
 
         {/* Title */}
         <h2 style={{fontSize:20,fontWeight:800,color:T.text,lineHeight:1.3,marginBottom:10,letterSpacing:'-0.3px'}}>
-          {task.title}
+          {normalizedTask.title}
         </h2>
 
         {/* Description */}
-        {task.description && (
+        {normalizedTask.description && (
           <p style={{fontSize:14,color:T.textSec,lineHeight:1.65,marginBottom:16}}>
-            {task.description}
+            {normalizedTask.description}
           </p>
         )}
 
@@ -1302,18 +1283,18 @@ function TaskPreview({ task, onClose, onStart, onComplete, onReroll, rerollCount
             What to expect
           </div>
           <p style={{fontSize:13,color:T.textSec,lineHeight:1.6,margin:0}}>
-            {info.what}
+            {info.summary}
           </p>
         </div>
 
         {/* Resource link */}
-        {task.resourceUrl && (
-          <a href={task.resourceUrl} target="_blank" rel="noopener noreferrer" style={{
+        {normalizedTask.resourceUrl && (
+          <a href={normalizedTask.resourceUrl} target="_blank" rel="noopener noreferrer" style={{
             display:'inline-flex', alignItems:'center', gap:5,
             fontSize:13, color:T.blue, fontWeight:600,
             textDecoration:'none', marginBottom:16,
           }}>
-            {task.resourceTitle||'Open resource'} <ArrowRight sz={12}/>
+            {normalizedTask.resourceTitle || 'Open resource'} <ArrowRight sz={12}/>
           </a>
         )}
 
@@ -1324,7 +1305,7 @@ function TaskPreview({ task, onClose, onStart, onComplete, onReroll, rerollCount
             border:'1px solid rgba(14,245,194,0.18)', borderRadius:14,
             textAlign:'center', fontSize:15, fontWeight:700, color:T.teal,
           }}>
-            ✓ Completed
+            Completed
           </div>
         ) : (
           <div style={{display:'flex',flexDirection:'column',gap:10}}>
@@ -1404,8 +1385,10 @@ function TaskPreview({ task, onClose, onStart, onComplete, onReroll, rerollCount
 
 // ─── Task Item (with optimistic completion) ────────────────────────────────────
 function TaskItem({ task, onPreview, index }) {
-  const ts      = taskStyle(task.type)
-  const xp      = xpForTask(task.type)
+  const normalizedTask = normalizeLearningTask(task)
+  const ts      = taskStyle(normalizedTask)
+  const xp      = xpForTask(normalizedTask)
+  const info    = getTaskDisplayConfig(normalizedTask)
   const isCourseFinalTask = isCourseFinalExamTask(task)
   const finalExamMeta = task?._courseFinal || {}
   const finalExamAttemptsRemaining = Math.max(0, (Number(finalExamMeta.maxAttempts) || 3) - (Number(finalExamMeta.attemptsUsed) || 0))
@@ -1435,9 +1418,9 @@ function TaskItem({ task, onPreview, index }) {
         <span style={{
           padding:'3px 9px', background:ts.bg, border:`1px solid ${ts.border}`,
           borderRadius:9999, fontSize:10, fontWeight:800, color:ts.color, letterSpacing:'0.8px',
-        }}>{ts.label}</span>
+        }}>{info.chipLabel}</span>
         <span style={{fontSize:11,color:T.textMuted,fontWeight:600}}>
-          {task.durationMin||0} min
+          {normalizedTask.estimatedTimeMin || normalizedTask.durationMin || 0} min
         </span>
         <span style={{
           marginLeft:'auto', fontSize:11, fontWeight:700,
@@ -1445,7 +1428,7 @@ function TaskItem({ task, onPreview, index }) {
           display:'flex', alignItems:'center', gap:3,
         }}>
           {task.completed
-            ? <span style={{animation:'checkPop 0.3s cubic-bezier(0.34,1.56,0.64,1)'}}>✓ Done</span>
+            ? <span style={{display:'inline-flex',alignItems:'center',gap:4,animation:'checkPop 0.3s cubic-bezier(0.34,1.56,0.64,1)'}}><IconGlyph name="check" size={12} strokeWidth={2.7} color={T.teal}/>Done</span>
             : <><BoltIcon />+{xp} XP</>}
         </span>
       </div>
@@ -1454,17 +1437,17 @@ function TaskItem({ task, onPreview, index }) {
       <div style={{
         fontSize:15, fontWeight:700,
         color: task.completed ? T.textMuted : T.text,
-        lineHeight:1.35, marginBottom: task.description ? 6 : 0,
+        lineHeight:1.35, marginBottom: normalizedTask.description ? 6 : 0,
         textDecoration: task.completed ? `line-through ${T.textDead}` : 'none',
       }}>
-        {task.title}
+        {normalizedTask.title}
       </div>
 
       {/* Description (hidden once done) */}
-      {task.description && !task.completed && (
+      {normalizedTask.description && !task.completed && (
         <p style={{fontSize:13,color:T.textMuted,lineHeight:1.6,
           marginBottom:0}}>
-          {task.description.length>110 ? task.description.slice(0,110)+'…' : task.description}
+          {normalizedTask.description.length > 110 ? `${normalizedTask.description.slice(0, 110)}…` : normalizedTask.description}
         </p>
       )}
 
@@ -1586,13 +1569,17 @@ function applyCompletedTaskFloor(rows, completionFloor) {
 
 function mergeRowsByDayNumber(existingRows, incomingRows) {
   const byDayNumber = new Map()
-  ;(Array.isArray(existingRows) ? existingRows : []).forEach((row) => {
+  normalizeTaskRows(existingRows).forEach((row) => {
     byDayNumber.set(Number(row.day_number), row)
   })
-  ;(Array.isArray(incomingRows) ? incomingRows : []).forEach((row) => {
+  normalizeTaskRows(incomingRows).forEach((row) => {
     byDayNumber.set(Number(row.day_number), row)
   })
   return [...byDayNumber.values()].sort((a, b) => (Number(a.day_number) || 0) - (Number(b.day_number) || 0))
+}
+
+function normalizeTaskList(tasks) {
+  return normalizeLearningTasks(Array.isArray(tasks) ? tasks : [])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1768,9 +1755,11 @@ export default function Dashboard() {
 
     holdCompletedDayRef.current = false
     currentDayRowIdRef.current = nextRow.id || null
-    setTodayRow(nextRow)
-    setTasks(Array.isArray(nextRow.tasks) ? nextRow.tasks : [])
-    setMissionDone(nextRow.completion_status === 'completed')
+    const normalizedNextTasks = normalizeTaskList(nextRow.tasks)
+    const normalizedNextRow = { ...nextRow, tasks: normalizedNextTasks }
+    setTodayRow(normalizedNextRow)
+    setTasks(normalizedNextTasks)
+    setMissionDone(normalizedNextRow.completion_status === 'completed')
     setTomorrowRow(followingRow)
     setShowMissionConfetti(false)
   }, [allRows])
@@ -1783,13 +1772,162 @@ export default function Dashboard() {
     const preferredDayNumber = Number.isFinite(options?.preferredDayNumber) ? Number(options.preferredDayNumber) : null
     if (!silent) setLoading(true)
     setError('')
+    try {
 
-    const { data: authData } = await supabase.auth.getUser()
-    const me = authData?.user
+    const { user: me } = await getSafeSupabaseUser()
     if (!me) { router.push('/login'); return }
+
+    if (isLocalAccessUser(me)) {
+      const localBundle = await getLocalGoalBundleWithRepairs(me.id)
+      setUser(me)
+
+      if (!localBundle?.goal) {
+        setGoal(null)
+        setAllGoals([])
+        setAllRows([])
+        setTodayRow(null)
+        setTomorrowRow(null)
+        setTasks([])
+        setLoading(false)
+        return null
+      }
+
+      const localGoal = hydrateGoalCourseOutline(localBundle.goal)
+      const localProgress = localBundle.progress || {}
+      const localTransactions = Array.isArray(localBundle.gemTransactions) ? localBundle.gemTransactions : []
+      const localClaimedModuleRewardIds = getClaimedModuleRewardIds(localTransactions)
+      const localSourceRows = normalizeTaskRows(filterRowsForCourseWindow(
+        localBundle.rows || [],
+        Number(localProgress.total_days) || Number(localGoal.total_days) || 0,
+      ))
+      const localTaskRows = applyCompletedTaskFloor(localSourceRows, completedTaskIdsByRowRef.current)
+      const nextCompletionFloor = new Map(completedTaskIdsByRowRef.current)
+      localTaskRows.forEach((row) => {
+        const completedIds = (Array.isArray(row.tasks) ? row.tasks : [])
+          .filter((task) => task.completed)
+          .map((task) => String(task.id))
+        if (completedIds.length === 0) return
+        nextCompletionFloor.set(row.id, new Set([...(nextCompletionFloor.get(row.id) || []), ...completedIds]))
+      })
+      completedTaskIdsByRowRef.current = nextCompletionFloor
+
+      const localTracker = buildPathOutlineTracker({
+        courseOutline: localGoal?.course_outline,
+        rows: localTaskRows,
+        goalText: localGoal?.goal_text || '',
+        claimedModuleRewardIds: localClaimedModuleRewardIds,
+      })
+
+      const heldCompletedDay = holdCompletedDayRef.current && currentDayRowIdRef.current
+        ? localTaskRows.find((row) => row.id === currentDayRowIdRef.current) || null
+        : null
+      const shouldPreserveCompletedDay = heldCompletedDay?.completion_status === 'completed'
+      const preferredRow = !shouldPreserveCompletedDay
+        ? (preferredRowId
+            ? localTaskRows.find((row) => row.id === preferredRowId) || null
+            : preferredDayNumber != null
+            ? localTaskRows.find((row) => Number(row.day_number) === preferredDayNumber) || null
+            : null)
+        : null
+      const localToday = shouldPreserveCompletedDay
+        ? heldCompletedDay
+        : preferredRow
+          || localTracker.currentGeneratedRow
+          || localTracker.lastCompletedRow
+          || localTaskRows.find((row) => row.completion_status !== 'completed')
+          || localTaskRows[localTaskRows.length - 1]
+          || null
+      if (!shouldPreserveCompletedDay) holdCompletedDayRef.current = false
+
+      const localTodayTasks = normalizeTaskList(localToday?.tasks)
+      const localTodayRow = localToday ? { ...localToday, tasks: localTodayTasks } : null
+      const localTodayIndex = localTaskRows.findIndex((row) => row.id === localToday?.id)
+      const localTomorrow = shouldPreserveCompletedDay
+        ? localTracker.currentGeneratedRow || null
+        : localToday?.id === localTracker.currentGeneratedRow?.id
+          ? localTracker.nextGeneratedRow || null
+          : localTodayIndex >= 0
+            ? localTaskRows[localTodayIndex + 1] || null
+            : null
+      const localInventoryCounts = buildInventoryCountsFromTransactions(localTransactions)
+      const localOwnedThemes = Array.from(new Set([
+        ...getStoredOwnedThemes(),
+        ...localTransactions
+          .map((row) => THEME_REASON_TO_ID[String(row?.reason || '')])
+          .filter(Boolean),
+      ]))
+      const localRewardCalendar = localProgress.reward_calendar?.week_start === getWeekStartStr()
+        ? localProgress.reward_calendar
+        : { week_start: getWeekStartStr(), days_claimed: [] }
+      let localGems = Number(localProgress.gems) || 0
+      if (preserveGemFloor != null) localGems = Math.max(localGems, preserveGemFloor)
+      const resolvedMaxHearts = Math.min(
+        HEARTS_MAX_CAP,
+        Math.max(getStoredMaxHearts(), HEARTS_BASE, Number(localProgress.hearts_remaining) || HEARTS_BASE),
+      )
+      const localCourseSpan = Math.max(
+        Number(localProgress.total_days) || 0,
+        Number(localGoal.total_days) || 0,
+        Number(localTracker.plannedDayCount) || 0,
+      )
+
+      setGoal(localGoal)
+      setAllGoals([localGoal])
+      setAllRows(localTaskRows)
+      setTodayRow(localTodayRow)
+      setTomorrowRow(localTomorrow)
+      setTasks(localTodayTasks)
+      setMissionDone(localToday?.completion_status === 'completed')
+      const localDayDone = localToday?.completion_status === 'completed'
+      const localIsCompletedFinalExamDay = localTodayTasks.some(isCourseFinalExamTask)
+      if (localDayDone && !localIsCompletedFinalExamDay && !localTracker.courseCompleted) {
+        setShowNextDayCTA(true)
+      } else {
+        setShowNextDayCTA(false)
+      }
+      setShowMissionConfetti(false)
+      setXpDisplay(getLevelProgress(Number(localProgress.total_xp) || 0))
+      setStreakData({
+        current: Number(localProgress.current_streak) || 0,
+        longest: Number(localProgress.longest_streak) || 0,
+      })
+      setFreezeCount(Number(localProgress.freeze_count) || 0)
+      setHeartsRemaining(Number(localProgress.hearts_remaining) || HEARTS_BASE)
+      setPrevHearts(Number(localProgress.hearts_remaining) || HEARTS_BASE)
+      setHeartsRefillAt(localProgress.hearts_refill_at || null)
+      setGems(localGems)
+      setTotalDaysPlanned(localCourseSpan || localTaskRows.length || 1)
+      setRewardCalendar(localRewardCalendar)
+      setQuests(
+        Array.isArray(localToday?.quests) && localToday.quests.length > 0
+          ? localToday.quests
+          : localToday
+            ? generateDailyQuests(localToday.day_number || 1, localTodayTasks.length || 3)
+            : [],
+      )
+      setStoredOwnedThemes(localOwnedThemes)
+      setOwnedThemes(localOwnedThemes)
+      setActiveTheme(getStoredActiveTheme(localOwnedThemes))
+      setInventoryCounts(localInventoryCounts)
+      setClaimedModuleRewardIds(localClaimedModuleRewardIds)
+      setEarnedBadgeIds(new Set(localBundle.achievements || []))
+      setWeeklyChallenge(null)
+      setChallengeDaysLeft(0)
+      setDecayingConcepts([])
+      setStoredMaxHearts(resolvedMaxHearts)
+      setMaxHearts(resolvedMaxHearts)
+      setLoading(false)
+      return {
+        today: localTodayRow,
+        tomorrow: localTomorrow,
+        rows: localTaskRows,
+        goal: localGoal,
+      }
+    }
+
     setUser(me)
 
-    const { data: activeGoal, error: ge } = await supabase
+    const { data: activeGoal, error: ge } = await supabaseData
       .from('goals').select('*').eq('user_id', me.id).eq('status', 'active')
       .order('created_at', { ascending: false }).limit(1).maybeSingle()
     if (ge) { setError(ge.message); setLoading(false); return }
@@ -1798,17 +1936,17 @@ export default function Dashboard() {
     setGoal(hydratedGoal)
 
     // Load all goals for sidebar
-    const { data: goalsList } = await supabase
+    const { data: goalsList } = await supabaseData
       .from('goals').select('id,goal_text,status,created_at,mode')
       .eq('user_id', me.id).order('created_at', { ascending: false })
     setAllGoals(goalsList || [])
 
     const [{ data: rows, error: re }, { data: prog, error: progError }] = await Promise.all([
-      supabase
+      supabaseData
         .from('daily_tasks').select('*')
         .eq('goal_id', hydratedGoal.id).eq('user_id', me.id)
         .order('day_number', { ascending: true }),
-      supabase
+      supabaseData
         .from('user_progress').select('total_xp,current_streak,longest_streak,freeze_count,hearts_remaining,hearts_refill_at,total_days,gems,xp_boost_until')
         .eq('goal_id', hydratedGoal.id).eq('user_id', me.id).maybeSingle(),
     ])
@@ -1817,7 +1955,57 @@ export default function Dashboard() {
     // If a newer load() was started while we were awaiting, bail out — it will handle state
     if (thisLoadId !== loadIdRef.current) { setLoading(false); return }
 
-    const scopedSourceRows = filterRowsForCourseWindow(rows || [], Number(prog?.total_days) || 0)
+    let sourceRows = rows || []
+    const scopedRowsForRepair = normalizeTaskRows(filterRowsForCourseWindow(sourceRows, Number(prog?.total_days) || 0))
+    const repairTracker = buildPathOutlineTracker({
+      courseOutline: hydratedGoal?.course_outline,
+      rows: scopedRowsForRepair,
+      goalText: hydratedGoal?.goal_text || '',
+      claimedModuleRewardIds: getClaimedModuleRewardIds(txRows || []),
+    })
+    const repairSequenceByDay = new Map(
+      (Array.isArray(repairTracker.sequenceItems) ? repairTracker.sequenceItems : [])
+        .map((item) => [Number(item?.dayNumber), item]),
+    )
+    const rowsNeedingRepair = scopedRowsForRepair.filter((row) => (
+      isBrokenTaskRow(row)
+      || needsSequenceDayRepair(row, repairSequenceByDay.get(Number(row.day_number)))
+    ))
+
+    if (hydratedGoal.mode !== 'explore' && rowsNeedingRepair.length > 0) {
+      try {
+        const { session } = await getSafeSupabaseSession()
+        const repairRes = await fetch('/api/repair-days', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+          },
+          body: JSON.stringify({
+            goalId: hydratedGoal.id,
+            userId: me.id,
+            rowIds: rowsNeedingRepair.map((row) => row.id),
+            accessToken: session?.access_token || null,
+          }),
+        })
+
+        if (repairRes.ok) {
+          const repairData = await repairRes.json()
+          if (Array.isArray(repairData?.rows) && repairData.rows.length > 0) {
+            sourceRows = mergeRowsByDayNumber(sourceRows, repairData.rows)
+          }
+        } else {
+          const repairError = await repairRes.json().catch(() => ({}))
+          console.warn('[PathAI] repair_days_failed', repairError?.error || 'unknown_error')
+        }
+      } catch (repairError) {
+        console.warn('[PathAI] repair_days_failed', repairError?.message || 'unknown_error')
+      }
+    }
+
+    if (thisLoadId !== loadIdRef.current) { setLoading(false); return }
+
+    const scopedSourceRows = normalizeTaskRows(filterRowsForCourseWindow(sourceRows, Number(prog?.total_days) || 0))
     const taskRows = applyCompletedTaskFloor(scopedSourceRows, completedTaskIdsByRowRef.current)
     const nextCompletionFloor = new Map(completedTaskIdsByRowRef.current)
     taskRows.forEach((row) => {
@@ -1863,9 +2051,10 @@ export default function Dashboard() {
       || taskRows.find(r => r.completion_status !== 'completed')
       || taskRows[taskRows.length-1]
     if (!shouldPreserveCompletedDay) holdCompletedDayRef.current = false
-    setTodayRow(today || null)
     if (today) {
-      const dayTasks = Array.isArray(today.tasks) ? today.tasks : []
+      const dayTasks = normalizeTaskList(today.tasks)
+      const normalizedToday = { ...today, tasks: dayTasks }
+      setTodayRow(normalizedToday)
       // Use functional updater so we never uncomplete a task that's already completed in UI
       setTasks(prevTasks => {
         if (!prevTasks.length) return dayTasks
@@ -1876,7 +2065,7 @@ export default function Dashboard() {
           if (!t.completed && prevCompletedIds.has(String(t.id))) { patched = true; return { ...t, completed: true } }
           return t
         })
-        return patched ? merged : dayTasks
+        return patched ? normalizeTaskList(merged) : dayTasks
       })
       const dayDone = today.completion_status === 'completed'
       const isCompletedFinalExamDay = dayTasks.some(isCourseFinalExamTask)
@@ -1886,7 +2075,7 @@ export default function Dashboard() {
         setShowNextDayCTA(true)
       }
       else if (isCompletedFinalExamDay) setShowNextDayCTA(false)
-    }
+    } else setTodayRow(null)
 
     const todayIdx   = taskRows.findIndex(r => r.id === today?.id)
     const tomorrowR  = shouldPreserveCompletedDay
@@ -1899,7 +2088,7 @@ export default function Dashboard() {
     setTomorrowRow(tomorrowR)
 
     try {
-      const { data: themePurchaseData } = await supabase
+      const { data: themePurchaseData } = await supabaseData
         .from('gem_transactions')
         .select('reason')
         .eq('user_id', me.id)
@@ -1929,7 +2118,7 @@ export default function Dashboard() {
     }
 
     try {
-      const { data: utilityRows } = await supabase
+      const { data: utilityRows } = await supabaseData
         .from('gem_transactions')
         .select('reason')
         .eq('user_id', me.id)
@@ -1955,7 +2144,7 @@ export default function Dashboard() {
       const h = prog.hearts_remaining != null ? Number(prog.hearts_remaining) : HEARTS_BASE
       let resolvedMaxHearts = Math.min(HEARTS_MAX_CAP, Math.max(getStoredMaxHearts(), HEARTS_BASE, h))
       try {
-        const { data: heartUpgradeData } = await supabase
+        const { data: heartUpgradeData } = await supabaseData
           .from('gem_transactions')
           .select('id')
           .eq('user_id', me.id)
@@ -1985,7 +2174,7 @@ export default function Dashboard() {
         // DB is behind — compute correct balance accounting for spent gems
         let totalSpent = 0
         try {
-          const { data: spentData } = await supabase
+          const { data: spentData } = await supabaseData
             .from('gem_transactions')
             .select('amount')
             .eq('user_id', me.id)
@@ -1996,7 +2185,7 @@ export default function Dashboard() {
 
         finalGems = Math.max(dbGems, minEarnedGems + totalSpent) // totalSpent is negative
         if (finalGems > dbGems) {
-          supabase
+          supabaseData
             .from('user_progress')
             .update({ gems: finalGems })
             .eq('user_id', me.id)
@@ -2021,7 +2210,7 @@ export default function Dashboard() {
 
     // Load new columns separately (won't break if columns don't exist yet)
     try {
-      const { data: extra } = await supabase
+      const { data: extra } = await supabaseData
         .from('user_progress').select('reward_calendar,last_event_date')
         .eq('goal_id', hydratedGoal.id).eq('user_id', me.id).maybeSingle()
       if (extra?.reward_calendar) {
@@ -2043,7 +2232,7 @@ export default function Dashboard() {
 
     // Load weekly challenge
     try {
-      const { data: { session: sess } } = await supabase.auth.getSession()
+      const { session: sess } = await getSafeSupabaseSession()
       const tok = sess?.access_token || null
       const chalRes = await fetch(`/api/weekly-challenge?goalId=${hydratedGoal.id}${tok ? `&token=${tok}` : ''}`, {
         headers: tok ? { Authorization: `Bearer ${tok}` } : {},
@@ -2069,7 +2258,7 @@ export default function Dashboard() {
 
     // Mastery decay check (non-blocking)
     try {
-      const { data: { session: decaySess } } = await supabase.auth.getSession()
+      const { session: decaySess } = await getSafeSupabaseSession()
       const dToken = decaySess?.access_token || null
       fetch('/api/decay-check', {
         method: 'POST',
@@ -2090,10 +2279,10 @@ export default function Dashboard() {
     } catch {}
 
     // Fetch earned badges (non-blocking)
-    supabase.from('achievements').select('badge_id').eq('user_id', me.id)
+    supabaseData.from('achievements').select('badge_id').eq('user_id', me.id)
       .then(({ data: badges }) => {
         if (badges) setEarnedBadgeIds(new Set(badges.map(b => b.badge_id)))
-      })
+      }).catch(() => {})
 
     setLoading(false)
     return {
@@ -2103,9 +2292,15 @@ export default function Dashboard() {
       rows: taskRows,
       goal: activeGoal,
     }
+    } catch (loadError) {
+      console.warn('[PathAI] dashboard_load_failed', loadError?.message || 'unknown_error')
+      setError('Could not load your dashboard right now. Please try again.')
+      setLoading(false)
+      return null
+    }
   }, [router])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { load().catch(() => {}) }, [load])
 
   // Hydrate theme + maxHearts from localStorage after mount (avoids SSR/client mismatch)
   useEffect(() => {
@@ -2136,7 +2331,7 @@ export default function Dashboard() {
     outlineRecoveryAttemptedRef.current.add(goal.id)
     ;(async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession()
+        const { session } = await getSafeSupabaseSession()
         const token = session?.access_token || null
         const res = await fetch('/api/course-outline-recover', {
           method: 'POST',
@@ -2202,18 +2397,12 @@ export default function Dashboard() {
     claimingModuleRewardRef.current.add(nextModuleReward.id)
     ;(async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession()
-        const token = session?.access_token || null
-        const res = await fetch('/api/module-mastery-claim', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify({ goalId: goal.id, moduleId: nextModuleReward.id, accessToken: token }),
+        const data = await claimModuleReward({
+          user,
+          goal,
+          moduleId: nextModuleReward.id,
         })
-        const data = await res.json()
-        if (!res.ok || data.alreadyClaimed) {
+        if (!data.ok || data.alreadyClaimed) {
           setClaimedModuleRewardIds((prev) => Array.from(new Set([...prev, nextModuleReward.id])))
           return
         }
@@ -2235,7 +2424,7 @@ export default function Dashboard() {
       }
       claimingModuleRewardRef.current.delete(nextModuleReward.id)
     })()
-  }, [goal?.id, pathTracker.modules, user?.id])
+  }, [goal, pathTracker.modules, user])
 
   useEffect(() => {
     currentDayRowIdRef.current = todayRow?.id || null
@@ -2297,7 +2486,7 @@ export default function Dashboard() {
         setShowBoostEvent(true)
         const boostEnd = new Date(Date.now() + 15 * 60 * 1000)
         setXpBoostUntil(boostEnd)
-        supabase.from('user_progress').update({
+        supabaseData.from('user_progress').update({
           xp_boost_until: boostEnd.toISOString(),
           last_event_date: todayStr,
         }).eq('user_id', user.id).eq('goal_id', goal.id).then(() => {}).catch(() => {})
@@ -2312,37 +2501,40 @@ export default function Dashboard() {
 
   // ─── Reward calendar claim handler ─────────────────────────────────────────
   const handleClaimReward = useCallback(async () => {
-    if (claimingReward || !goal) return
+    if (claimingReward || !goal || !user) return
     setClaimingReward(true)
     try {
-      const { data: { session } } = await supabase.auth.getSession()
-      const token = session?.access_token || null
-      const res = await fetch('/api/claim-reward', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ goalId: goal.id, accessToken: token }),
+      const data = await claimDailyReward({
+        user,
+        goal,
       })
-      const data = await res.json()
       if (data.ok) {
+        setError('')
         setRewardCalendar(data.calendar)
-        // Use additive gem update instead of absolute to avoid resetting
         const earned = (data.reward || 0) + (data.perfectWeekBonus || 0)
-        setGems(g => g + earned)
+        if (data.newGemTotal != null) setGems(data.newGemTotal)
+        else setGems((g) => g + earned)
         setGemPulse(true)
         pendingTimersRef.current.push(setTimeout(() => { if (isMountedRef.current) setGemPulse(false) }, 400))
         setGemToasts(prev => [...prev, { id: Date.now(), amount: earned }])
       } else if (data.error === 'Already claimed today') {
         // Silently update calendar to reflect claimed state
-        const todayIdx = new Date().getDay()
-        const calToday = todayIdx === 0 ? 6 : todayIdx - 1
-        setRewardCalendar(prev => ({
-          ...prev,
-          days_claimed: prev.days_claimed?.includes(calToday) ? prev.days_claimed : [...(prev.days_claimed || []), calToday],
-        }))
+        if (data.calendar) {
+          setRewardCalendar(data.calendar)
+        } else {
+          const todayIdx = new Date().getDay()
+          const calToday = todayIdx === 0 ? 6 : todayIdx - 1
+          setRewardCalendar(prev => ({
+            ...prev,
+            days_claimed: prev.days_claimed?.includes(calToday) ? prev.days_claimed : [...(prev.days_claimed || []), calToday],
+          }))
+        }
+      } else {
+        setError(data.error || 'Could not claim reward')
       }
     } catch { /* silent */ }
     setClaimingReward(false)
-  }, [claimingReward, goal])
+  }, [claimingReward, goal, user])
 
   // ─── XP toast helpers ───────────────────────────────────────────────────────
   const addXpToast    = useCallback((amount, x, y) => {
@@ -2356,6 +2548,7 @@ export default function Dashboard() {
   // ─── Optimistic task completion ─────────────────────────────────────────────
   const completeTask = useCallback(async (task, event, metrics = {}) => {
     if (task.completed || completing) return
+    const normalizedTask = normalizeLearningTask(task)
 
     if (taskReloadTimerRef.current) {
       clearTimeout(taskReloadTimerRef.current)
@@ -2363,11 +2556,11 @@ export default function Dashboard() {
     }
 
     const rowId = todayRow?.id
-    const prevTasks = tasks
+    const prevTasks = normalizeTaskList(tasks)
     const prevCompletedCount = countCompletedTasks(prevTasks)
     const prevRowStatus = deriveTaskRowStatus(prevTasks, todayRow?.completion_status || 'not_started')
-    const isCourseFinalTask = isCourseFinalExamTask(task)
-    const xpAmount  = xpForTask(task.type)
+    const isCourseFinalTask = isCourseFinalExamTask(normalizedTask)
+    const xpAmount  = xpForTask(normalizedTask)
     const optimisticTaskGems = 5
     let nextGemFloor = gems + optimisticTaskGems
 
@@ -2377,7 +2570,7 @@ export default function Dashboard() {
     const streakTapX = event?.clientX || (typeof window !== 'undefined' ? window.innerWidth / 2 : 200)
 
     // 1. Immediate optimistic update
-    const nextTasks = tasks.map(t => t.id === task.id ? { ...t, completed: true } : t)
+    const nextTasks = normalizeTaskList(prevTasks.map(t => t.id === task.id ? { ...t, completed: true } : t))
     const nextCompletedCount = countCompletedTasks(nextTasks)
     const nextRowStatus = deriveTaskRowStatus(nextTasks, todayRow?.completion_status || 'in_progress')
     setTasks(nextTasks)
@@ -2438,43 +2631,31 @@ export default function Dashboard() {
     // 4. API call (async, non-blocking)
     let apiOk = false
     try {
-      const { data: { session } } = await supabase.auth.getSession()
-      const token = session?.access_token || null
-
-      const res = await fetch('/api/complete', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          taskRowId: todayRow.id,
-          taskId: task.id,
-          completedTaskIds: prevTasks.filter((entry) => entry.completed).map((entry) => entry.id),
-          accessToken: token,
-          clientHour: new Date().getHours(),
-          attempts: metrics?.attempts,
-          accuracy: metrics?.accuracy,
-          correctCount: metrics?.correctCount,
-          questionCount: metrics?.questionCount,
-          confidenceLevel: metrics?.confidenceLevel,
-          assistantUsageCount: metrics?.assistantUsageCount,
-          completionTimeSec: metrics?.completionTimeSec,
-          lessonTimeSec: metrics?.completionTimeSec,
-          hintsUsed: metrics?.hintsUsed,
-          maxHints: metrics?.maxHints,
-          reflectionQuality: metrics?.reflectionQuality,
-          challengeScore: metrics?.challengeScore,
-          aiInteractionDepth: metrics?.aiInteractionDepth,
-          bossDefeated: metrics?.bossDefeated,
-          comboMax: metrics?.comboMax,
-          quizPerfect: metrics?.quizPerfect,
-        }),
+      const data = await completeLearningTask({
+        user,
+        goal,
+        taskRowId: todayRow.id,
+        taskId: task.id,
+        completedTaskIds: prevTasks.filter((entry) => entry.completed).map((entry) => entry.id),
+        clientHour: new Date().getHours(),
+        attempts: metrics?.attempts,
+        accuracy: metrics?.accuracy,
+        correctCount: metrics?.correctCount,
+        questionCount: metrics?.questionCount,
+        confidenceLevel: metrics?.confidenceLevel,
+        assistantUsageCount: metrics?.assistantUsageCount,
+        completionTimeSec: metrics?.completionTimeSec,
+        lessonTimeSec: metrics?.completionTimeSec,
+        hintsUsed: metrics?.hintsUsed,
+        maxHints: metrics?.maxHints,
+        reflectionQuality: metrics?.reflectionQuality,
+        challengeScore: metrics?.challengeScore,
+        aiInteractionDepth: metrics?.aiInteractionDepth,
+        bossDefeated: metrics?.bossDefeated,
+        comboMax: metrics?.comboMax,
+        quizPerfect: metrics?.quizPerfect,
       })
-
-      if (!res.ok) {
-        let failureData = null
-        try { failureData = await res.json() } catch {}
+      if (!data.ok) {
         setTasks(prevTasks)
         if (rowId) {
           const completedIds = new Set(completedTaskIdsByRowRef.current.get(rowId) || [])
@@ -2507,17 +2688,16 @@ export default function Dashboard() {
           setShowNextDayCTA(false)
           setMissionDone(false)
         }
-        setError(failureData?.error || 'Could not save. Try again.')
+        setError(data?.error || 'Could not save. Try again.')
         setCompleting(null)
         return
       }
-
-      const data = await res.json()
       // API succeeded — task is persisted. NEVER revert after this point.
       apiOk = true
+      setError('')
 
       if (isCourseFinalTask && data.finalExamPassed === false) {
-        const revertedTasks = Array.isArray(data.updatedTasks) ? data.updatedTasks : prevTasks
+        const revertedTasks = normalizeTaskList(Array.isArray(data.updatedTasks) ? data.updatedTasks : prevTasks)
         const revertedCompletedCount = countCompletedTasks(revertedTasks)
         const revertedStatus = data.completionStatus || deriveTaskRowStatus(revertedTasks, 'in_progress')
         setTasks(revertedTasks)
@@ -2643,7 +2823,7 @@ export default function Dashboard() {
 
         // Analytics: task completed
         track(EVENTS.TASK_COMPLETED, {
-          taskId: task.id, taskType: task.type, xpEarned: data.taskXp ?? xpAmount,
+          taskId: task.id, taskType: normalizedTask.type, xpEarned: data.taskXp ?? xpAmount,
         }, {
           userId: user?.id, goalId: goal?.id, missionId: todayRow?.id,
           streakValue: data.streakState?.current ?? streakData.current,
@@ -2764,60 +2944,50 @@ export default function Dashboard() {
   }, [tasks, completing, xpDisplay, todayRow, streakData, addXpToast, load, gems, user, goal, energy, resolveMissionCompletion, allRows])
 
   const handleTaskReroll = useCallback(async (task) => {
-    if (rerollingTaskId || !goal || !todayRow || !canRerollTask(task)) return
+    if (rerollingTaskId || !goal || !todayRow || !user || !canRerollTask(task)) return
     setRerollingTaskId(task.id)
     try {
-      const { data: { session } } = await supabase.auth.getSession()
-      const token = session?.access_token || null
-      const res = await fetch('/api/task-reroll', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          goalId: goal.id,
-          taskRowId: todayRow.id,
-          taskId: task.id,
-          accessToken: token,
-        }),
+      const data = await rerollLearningTask({
+        user,
+        goal,
+        taskRowId: todayRow.id,
+        taskId: task.id,
       })
-      const data = await res.json()
-      if (!res.ok) {
+      if (!data.ok) {
         setError(data.error || 'Could not reroll that task')
         return
       }
 
-      const nextTasks = (Array.isArray(todayRow.tasks) ? todayRow.tasks : tasks).map((entry) => (
-        String(entry.id) === String(task.id) ? data.replacementTask : entry
-      ))
-
-      setTasks((prev) => prev.map((entry) => (
-        String(entry.id) === String(task.id) ? data.replacementTask : entry
+      const replacementTask = normalizeLearningTask(data.replacementTask)
+      const nextTasks = normalizeTaskList((Array.isArray(todayRow.tasks) ? todayRow.tasks : tasks).map((entry) => (
+        String(entry.id) === String(task.id) ? replacementTask : entry
       )))
+
+      setTasks(nextTasks)
       setTodayRow((prev) => prev?.id === todayRow.id ? { ...prev, tasks: nextTasks } : prev)
       setAllRows((prev) => prev.map((row) => (
         row.id === todayRow.id ? { ...row, tasks: nextTasks } : row
       )))
+      setError('')
       if (data.inventoryCounts) setInventoryCounts(data.inventoryCounts)
       setModuleRewardToasts((prev) => [...prev, {
         id: `reroll-${task.id}-${Date.now()}`,
         title: 'Task refreshed',
-        message: `${task.title} was replaced with a new valid task.`,
+        message: `${normalizeLearningTask(task).title} was replaced with a new valid task.`,
       }])
     } catch {
       setError('Could not reroll that task')
     } finally {
       setRerollingTaskId(null)
     }
-  }, [goal, rerollingTaskId, tasks, todayRow])
+  }, [goal, rerollingTaskId, tasks, todayRow, user])
 
   // ─── Streak freeze ─────────────────────────────────────────────────────────
   const handleFreeze = useCallback(async () => {
     if (freezing || freezeCount <= 0 || !goal) return
     setFreezing(true)
     try {
-      const { data: { session } } = await supabase.auth.getSession()
+      const { session } = await getSafeSupabaseSession()
       const token = session?.access_token || null
       const res = await fetch('/api/streak-freeze', {
         method: 'POST',
@@ -2853,7 +3023,7 @@ export default function Dashboard() {
     setPrevHearts(prev)
     setHeartsRemaining(next)
     try {
-      const { data: { session } } = await supabase.auth.getSession()
+      const { session } = await getSafeSupabaseSession()
       const token = session?.access_token || null
       const res = await fetch('/api/wrong-answer', {
         method: 'POST',
@@ -2875,15 +3045,12 @@ export default function Dashboard() {
     setGeneratingNext(true)
     let generatedData = null
     try {
-      const { data: { session } } = await supabase.auth.getSession()
-      const token = session?.access_token || null
-      const res = await fetch('/api/generate-next', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ goalId: goal.id, userId: user.id, mode: goal.mode || 'goal', accessToken: token }),
+      generatedData = await generateNextLearningDay({
+        user,
+        goal,
+        preferredDayNumber: options?.preferredDayNumber,
       })
-      generatedData = await res.json().catch(() => null)
-      if (!res.ok) {
+      if (!generatedData?.ok) {
         throw new Error(generatedData?.error || 'Could not generate the next day')
       }
     } catch (error) {
@@ -2905,14 +3072,17 @@ export default function Dashboard() {
       activateDayRow(preferredInsertedRow, mergedRows)
       setShowNextDayCTA(false)
       setMissionDone(false)
+      setError('')
     } else if (generatedData?.reason === 'course_finished') {
       setShowNextDayCTA(false)
+      setError('')
     } else {
       const loadResult = await load(true, nextDayNumber != null ? { preferredDayNumber: nextDayNumber } : {})
       const loadedDayNumber = Number(loadResult?.today?.day_number) || null
       if (nextDayNumber != null && loadedDayNumber === nextDayNumber && loadResult?.today?.id) {
         setShowNextDayCTA(false)
         setMissionDone(false)
+        setError('')
       }
     }
     setGeneratingNext(false)
@@ -2952,6 +3122,7 @@ export default function Dashboard() {
         setAllRows(mergedRows)
         activateDayRow(immediateNextRowReady, mergedRows)
         setMissionDone(false)
+        setError('')
         return
       }
 
@@ -2980,6 +3151,7 @@ export default function Dashboard() {
         setAllRows(mergedRows)
         activateDayRow(tomorrowRow, mergedRows)
         setMissionDone(false)
+        setError('')
         return
       }
 
@@ -2991,6 +3163,7 @@ export default function Dashboard() {
       ) {
         activateDayRow(pathTracker.currentGeneratedRow, allRows)
         setMissionDone(false)
+        setError('')
         return
       }
 
@@ -3000,7 +3173,10 @@ export default function Dashboard() {
 
       // Check the actual loaded row instead of a ref that updates on the next render tick.
       const movedForward = Number(loadResult?.today?.day_number) === nextTargetDay
-      if (movedForward) return
+      if (movedForward) {
+        setError('')
+        return
+      }
 
       // Strategy 3: generate the exact next sequence item if it doesn't exist yet
       await handleGenerateNext({ preferredDayNumber: nextTargetDay })
@@ -3027,11 +3203,12 @@ export default function Dashboard() {
     if (switchingGoal || goalId === goal?.id) { setShowGoalsSidebar(false); return }
     setSwitchingGoal(goalId)
     try {
-      const userId = (await supabase.auth.getUser()).data?.user?.id
+      const { user } = await getSafeSupabaseUser()
+      const userId = user?.id
       if (!userId) return
       // Set all goals to paused, then activate the chosen one
-      await supabase.from('goals').update({ status: 'paused' }).eq('user_id', userId).neq('id', goalId)
-      await supabase.from('goals').update({ status: 'active' }).eq('id', goalId).eq('user_id', userId)
+      await supabaseData.from('goals').update({ status: 'paused' }).eq('user_id', userId).neq('id', goalId)
+      await supabaseData.from('goals').update({ status: 'active' }).eq('id', goalId).eq('user_id', userId)
       setShowGoalsSidebar(false)
       await load(true)
     } catch { /* silent */ }
@@ -3039,7 +3216,10 @@ export default function Dashboard() {
   }, [switchingGoal, goal, load])
 
   // ─── Computed ───────────────────────────────────────────────────────────────
-  const visibleTasks = useMemo(() => getFilteredTasks(tasks, energy), [tasks, energy])
+  const visibleTasks = useMemo(() => getFilteredTasks(normalizeTaskList(tasks), energy), [tasks, energy])
+  const activeViewerTask = showLesson ? normalizeLearningTask(showLesson) : null
+  const activeViewerType = activeViewerTask?.type || ''
+  const activeViewerPresentation = activeViewerTask?.presentation || ''
   const hiddenCount = tasks.length - visibleTasks.length
   const expectedCourseSpan = Math.max(
     Number(totalDaysPlanned) || 0,
@@ -3096,7 +3276,7 @@ export default function Dashboard() {
     : 'Your path'
   const totalMins  = allRows.reduce((acc,r) => {
     const t = Array.isArray(r.tasks)?r.tasks:[]
-    return acc + t.filter(tk=>tk.completed).reduce((s,tk)=>s+(Number(tk.durationMin)||0),0)
+    return acc + t.filter(tk => tk.completed).reduce((s, tk) => s + (Number(tk.estimatedTimeMin || tk.durationMin) || 0), 0)
   }, 0)
   const weekDays   = allRows.slice(-7).filter(r=>r.completion_status==='completed').length
   const dayNumber  = todayRow?.day_number || 1
@@ -3443,7 +3623,8 @@ export default function Dashboard() {
           onStart={t => {
             setPreviewTask(null)
             if (heartsRemaining === 0) { setShowNoHearts(true); return }
-            setShowLesson({ ...t, _concept: todayRow?.covered_topics?.[0] || t.title })
+            const normalizedPreviewTask = normalizeLearningTask(t)
+            setShowLesson(normalizeLearningTask({ ...normalizedPreviewTask, _concept: todayRow?.covered_topics?.[0] || normalizedPreviewTask.title }))
           }}
           onComplete={(t, e) => {
             setPreviewTask(null)
@@ -3465,147 +3646,132 @@ export default function Dashboard() {
         />
       )}
 
-      {/* Task viewer — routed by type (7-type system + legacy backward compat) */}
+      {/* Task viewer — routed by canonical task family */}
 
-      {/* ── CONCEPT (new) + LESSON/READING/VIDEO/FLASHCARD (legacy) → LessonViewer ── */}
-      {showLesson && ['concept', 'lesson'].includes(showLesson.type) && (
-        <LessonViewer
-          concept={showLesson._concept || showLesson.title}
-          taskTitle={showLesson.title}
+      {activeViewerTask && activeViewerType === 'concept' && activeViewerPresentation === 'video' && (
+        <VideoView
+          task={activeViewerTask}
+          goal={goal?.goal_text}
+          onClose={() => setShowLesson(null)}
+          onComplete={(payload) => handleLessonComplete(activeViewerTask, payload)}
+        />
+      )}
+      {activeViewerTask && activeViewerType === 'concept' && activeViewerPresentation === 'reading' && (
+        <ReadingView
+          task={activeViewerTask}
           goal={goal?.goal_text}
           knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
-          lessonKey={`${goal?.id || 'g'}::${showLesson.id || showLesson.title}`}
-          aiMode={showLesson._aiMode || 'hint'}
           onClose={() => setShowLesson(null)}
-          onComplete={(payload) => handleLessonComplete(showLesson, payload)}
+          onComplete={(payload) => handleLessonComplete(activeViewerTask, payload)}
+        />
+      )}
+      {activeViewerTask && activeViewerType === 'concept' && !['video', 'reading'].includes(activeViewerPresentation) && (
+        <LessonViewer
+          concept={activeViewerTask._concept || activeViewerTask.title}
+          taskTitle={activeViewerTask.title}
+          goal={goal?.goal_text}
+          knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
+          lessonKey={`${goal?.id || 'g'}::${activeViewerTask.id || activeViewerTask.title}`}
+          sourceTask={activeViewerTask}
+          aiMode={activeViewerTask._aiMode || 'hint'}
+          onClose={() => setShowLesson(null)}
+          onComplete={(payload) => handleLessonComplete(activeViewerTask, payload)}
           onHeartLost={handleHeartLost}
         />
       )}
-      {showLesson && showLesson.type === 'video' && (
-        <VideoView
-          task={showLesson}
-          goal={goal?.goal_text}
-          onClose={() => setShowLesson(null)}
-          onComplete={(payload) => handleLessonComplete(showLesson, payload)}
-        />
-      )}
-      {showLesson && showLesson.type === 'reading' && (
-        <ReadingView
-          task={showLesson}
-          goal={goal?.goal_text}
-          knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
-          onClose={() => setShowLesson(null)}
-          onComplete={(payload) => handleLessonComplete(showLesson, payload)}
-        />
-      )}
-      {showLesson && showLesson.type === 'flashcard' && (
-        <FlashcardView
-          task={showLesson}
-          goal={goal?.goal_text}
-          knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
-          onClose={() => setShowLesson(null)}
-          onComplete={(payload) => handleLessonComplete(showLesson, payload)}
-        />
-      )}
-
-      {/* ── GUIDED PRACTICE (clean) + PRACTICE/EXERCISE (legacy) ── */}
-      {showLesson && showLesson.type === 'guided_practice' && (
-        <GuidedPracticeView
-          task={showLesson}
-          goal={goal?.goal_text}
-          knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
-          onClose={() => setShowLesson(null)}
-          onComplete={(payload) => handleLessonComplete(showLesson, payload)}
-        />
-      )}
-      {showLesson && (showLesson.type === 'practice' || showLesson.type === 'exercise') && (
+      {activeViewerTask && activeViewerType === 'guided_practice' && activeViewerPresentation === 'exercise' && (
         <ProjectView
-          task={showLesson}
+          task={activeViewerTask}
           goal={goal?.goal_text}
           knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
           onClose={() => setShowLesson(null)}
-          onComplete={(payload) => handleLessonComplete(showLesson, payload)}
+          onComplete={(payload) => handleLessonComplete(activeViewerTask, payload)}
         />
       )}
-
-      {/* ── CHALLENGE (clean, 1:1) ── */}
-      {showLesson && showLesson.type === 'challenge' && (
+      {activeViewerTask && activeViewerType === 'guided_practice' && activeViewerPresentation !== 'exercise' && (
+        <GuidedPracticeView
+          task={activeViewerTask}
+          goal={goal?.goal_text}
+          knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
+          onClose={() => setShowLesson(null)}
+          onComplete={(payload) => handleLessonComplete(activeViewerTask, payload)}
+        />
+      )}
+      {activeViewerTask && activeViewerType === 'challenge' && (
         <ChallengeView
-          task={showLesson}
+          task={activeViewerTask}
           goal={goal?.goal_text}
           knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
           onClose={() => setShowLesson(null)}
-          onComplete={(payload) => handleLessonComplete(showLesson, payload)}
+          onComplete={(payload) => handleLessonComplete(activeViewerTask, payload)}
         />
       )}
-
-      {/* ── EXPLAIN (new) + AI_INTERACTION/DISCUSSION (legacy) → AIInteractionView ── */}
-      {showLesson && ['explain', 'ai_interaction', 'discussion'].includes(showLesson.type) && (
+      {activeViewerTask && activeViewerType === 'explain' && (
         <AIInteractionView
-          task={showLesson}
+          task={activeViewerTask}
           goal={goal?.goal_text}
           knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
           onClose={() => setShowLesson(null)}
-          onComplete={(payload) => handleLessonComplete(showLesson, payload)}
+          onComplete={(payload) => handleLessonComplete(activeViewerTask, payload)}
         />
       )}
-
-      {/* ── QUIZ (clean) + REVIEW (legacy) → MultiQuizView ── */}
-      {showLesson && ['quiz', 'review'].includes(showLesson.type) && (
+      {activeViewerTask && activeViewerType === 'recall' && activeViewerPresentation === 'flashcard' && (
+        <FlashcardView
+          task={activeViewerTask}
+          goal={goal?.goal_text}
+          knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
+          onClose={() => setShowLesson(null)}
+          onComplete={(payload) => handleLessonComplete(activeViewerTask, payload)}
+        />
+      )}
+      {activeViewerTask && ['quiz', 'recall', 'final_exam'].includes(activeViewerType) && !(activeViewerType === 'recall' && activeViewerPresentation === 'flashcard') && (
         <MultiQuizView
-          task={showLesson}
+          task={activeViewerTask}
           goal={goal?.goal_text}
           knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
           onClose={() => setShowLesson(null)}
-          onComplete={(payload) => handleLessonComplete(showLesson, payload)}
+          onComplete={(payload) => handleLessonComplete(activeViewerTask, payload)}
         />
       )}
-
-      {/* ── REFLECT (new) + REFLECTION (legacy) → ReflectionView ── */}
-      {showLesson && ['reflect', 'reflection'].includes(showLesson.type) && (
+      {activeViewerTask && activeViewerType === 'reflect' && (
         <ReflectionView
-          task={showLesson}
+          task={activeViewerTask}
           goal={goal?.goal_text}
           knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
           onClose={() => setShowLesson(null)}
-          onComplete={(payload) => handleLessonComplete(showLesson, payload)}
+          onComplete={(payload) => handleLessonComplete(activeViewerTask, payload)}
         />
       )}
-
-      {/* ── BOSS (clean) + CAPSTONE (legacy) → BossChallengeView ── */}
-      {showLesson && ['boss', 'capstone'].includes(showLesson.type) && (
+      {activeViewerTask && activeViewerType === 'boss' && (
         <BossChallengeView
-          task={showLesson}
+          task={activeViewerTask}
           goal={goal?.goal_text}
           knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
           onClose={() => setShowLesson(null)}
-          onComplete={(payload) => handleLessonComplete(showLesson, payload)}
+          onComplete={(payload) => handleLessonComplete(activeViewerTask, payload)}
         />
       )}
-
-      {/* ── PROJECT (separate system, unchanged) ── */}
-      {showLesson && showLesson.type === 'project' && (
+      {activeViewerTask && activeViewerType === 'project' && (
         <ProjectViewer
-          task={showLesson}
+          task={activeViewerTask}
           goal={goal?.goal_text}
           knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
           goalId={goal?.id}
           onClose={() => setShowLesson(null)}
-          onComplete={(payload) => handleLessonComplete(showLesson, payload)}
+          onComplete={(payload) => handleLessonComplete(activeViewerTask, payload)}
         />
       )}
-
-      {/* ── Fallback: unknown type → LessonViewer ── */}
-      {showLesson && !['concept','lesson','video','reading','flashcard','guided_practice','practice','exercise','challenge','explain','ai_interaction','discussion','quiz','review','reflect','reflection','boss','capstone','project'].includes(showLesson.type) && (
+      {activeViewerTask && !['concept', 'guided_practice', 'challenge', 'explain', 'quiz', 'recall', 'reflect', 'boss', 'project', 'final_exam'].includes(activeViewerType) && (
         <LessonViewer
-          concept={showLesson._concept || showLesson.title}
-          taskTitle={showLesson.title}
+          concept={activeViewerTask._concept || activeViewerTask.title}
+          taskTitle={activeViewerTask.title}
           goal={goal?.goal_text}
           knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
-          lessonKey={`${goal?.id || 'g'}::${showLesson.id || showLesson.title}`}
-          aiMode={showLesson._aiMode || 'hint'}
+          lessonKey={`${goal?.id || 'g'}::${activeViewerTask.id || activeViewerTask.title}`}
+          sourceTask={activeViewerTask}
+          aiMode={activeViewerTask._aiMode || 'hint'}
           onClose={() => setShowLesson(null)}
-          onComplete={(payload) => handleLessonComplete(showLesson, payload)}
+          onComplete={(payload) => handleLessonComplete(activeViewerTask, payload)}
           onHeartLost={handleHeartLost}
         />
       )}
@@ -3876,7 +4042,7 @@ export default function Dashboard() {
                               color: q.completed ? T.textMuted : T.text,
                               textDecoration: q.completed ? 'line-through' : 'none',
                             }}>
-                              {q.completed && <span style={{color:T.teal,marginRight:6}}>✓</span>}
+                              {q.completed && <span style={{display:'inline-flex',verticalAlign:'middle',marginRight:6}}><IconGlyph name="check" size={11} strokeWidth={2.8} color={T.teal}/></span>}
                               {q.description}
                             </span>
                             <span style={{
@@ -3978,9 +4144,9 @@ export default function Dashboard() {
                             boxShadow: claimed ? '0 0 10px rgba(14,245,194,0.30)' : 'none',
                           }}>
                             {claimed ? (
-                              <span style={{fontSize:14,color:T.ink,fontWeight:900}}>✓</span>
+                              <IconGlyph name="check" size={14} strokeWidth={2.8} color={T.ink}/>
                             ) : missed ? (
-                              <span style={{fontSize:11,color:T.textDead}}>✕</span>
+                              <IconGlyph name="x" size={12} strokeWidth={2.6} color={T.textDead}/>
                             ) : isSunday ? (
                               <IconGlyph name="trophy" size={14} strokeWidth={2.2} color="#FFD700"/>
                             ) : (
@@ -4118,11 +4284,12 @@ export default function Dashboard() {
               <div style={{maxWidth:600,margin:'0 auto',padding:'14px 20px 0',display:'grid',gap:10}}>
                 {todayRow ? visibleTasks.length > 0 ? (
                   visibleTasks.map((task, i) => (
-                    <TaskItem key={task.id} task={task} isCompleting={completing}
+                    <TaskItem key={`${String(task.id || 'task')}:${i}`} task={task} isCompleting={completing}
                       onComplete={completeTask}
                       onOpenLesson={t => {
                         if (heartsRemaining === 0) { setShowNoHearts(true); return }
-                        setShowLesson({ ...t, _concept: todayRow?.covered_topics?.[0] || t.title })
+                        const normalizedOpenTask = normalizeLearningTask(t)
+                        setShowLesson(normalizeLearningTask({ ...normalizedOpenTask, _concept: todayRow?.covered_topics?.[0] || normalizedOpenTask.title }))
                       }}
                       onPreview={t => setPreviewTask(t)}
                       index={i}/>
@@ -4550,7 +4717,7 @@ export default function Dashboard() {
             </div>
 
             {/* Sign out */}
-            <button onClick={async () => { await supabase.auth.signOut(); router.push('/login') }} style={{
+            <button onClick={() => { clearStoredSupabaseSession(); router.push('/login') }} style={{
               width:'100%',padding:'14px 18px',
               background:'rgba(255,69,58,0.07)',border:'1px solid rgba(255,69,58,0.18)',
               borderRadius:14,color:T.red,fontSize:14,fontWeight:700,
@@ -4573,6 +4740,8 @@ export default function Dashboard() {
         {activeTab === 'shop' && (
           <div className="shell-transition-fade">
             <GemShop
+              user={user}
+              goal={goal}
               gems={gems}
               goalId={goal?.id}
               activeTheme={activeTheme}

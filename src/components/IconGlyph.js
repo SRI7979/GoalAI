@@ -61,6 +61,7 @@ import {
   Timer,
   Trophy,
   Wrench,
+  X,
   Zap,
 } from 'lucide-react'
 
@@ -132,6 +133,7 @@ const ICONS = {
   timer: Timer,
   trophy: Trophy,
   wrench: Wrench,
+  x: X,
 }
 
 export default function IconGlyph({

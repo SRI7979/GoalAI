@@ -3,12 +3,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { useRouter } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
-import { getLevelProgress } from '@/lib/xp'
+import { getLocalGoalBundleWithRepairs, isLocalAccessUser } from '@/lib/localGoalStore'
+import { getSafeSupabaseSession, getSafeSupabaseUser, supabaseData } from '@/lib/supabase'
+import { getLevelProgress, xpForTask } from '@/lib/xp'
 import { trackMapViewed } from '@/lib/analytics'
 import { getDashboardThemeVars, getPathWorlds, getStoredActiveTheme, getStoredOwnedThemes } from '@/lib/appThemes'
 import { buildSkillGraph } from '@/lib/pathGraph'
 import { filterRowsForCourseWindow, getCourseVisibleDayCount } from '@/lib/courseCompletion'
+import { getTaskDisplayConfig, normalizeLearningTask, normalizeTaskRows } from '@/lib/taskTaxonomy'
+import { isBrokenTaskRow } from '@/lib/taskQuality'
 import IconGlyph from '@/components/IconGlyph'
 import Skeleton from '@/components/Skeleton'
 import SkillGraphNode from '@/components/path/SkillGraphNode'
@@ -60,39 +63,17 @@ const CSS = `
   }
 `
 
-const TASK_XP = {
-  concept: 20,
-  guided_practice: 30,
-  challenge: 40,
-  explain: 25,
-  quiz: 35,
-  reflect: 15,
-  boss: 200,
-  project: 100,
-  lesson: 20,
-  video: 15,
-  practice: 25,
-  exercise: 30,
-  review: 20,
-  reading: 20,
-  flashcard: 15,
-  ai_interaction: 25,
-  reflection: 15,
-  capstone: 0,
-}
-
 const TASK_STYLE = {
-  lesson:          { color: '#22D3A5', label: 'Lesson', icon: 'book' },
-  video:           { color: '#FBBF24', label: 'Video', icon: 'clapperboard' },
-  practice:        { color: '#60A5FA', label: 'Practice', icon: 'dumbbell' },
-  exercise:        { color: '#A78BFA', label: 'Exercise', icon: 'target' },
+  concept:         { color: '#22D3A5', label: 'Concept' },
+  guided_practice: { color: '#22D3EE', label: 'Practice' },
+  challenge:       { color: '#F59E0B', label: 'Challenge' },
+  explain:         { color: '#818CF8', label: 'Explain' },
   quiz:            { color: '#F87171', label: 'Quiz', icon: 'clipboard_check' },
-  review:          { color: '#FB923C', label: 'Review', icon: 'repeat' },
-  guided_practice: { color: '#22D3EE', label: 'Practice', icon: 'dumbbell' },
-  challenge:       { color: '#F59E0B', label: 'Challenge', icon: 'challenge' },
-  ai_interaction:  { color: '#818CF8', label: 'Explain', icon: 'message' },
-  reflection:      { color: '#A78BFA', label: 'Reflect', icon: 'brain' },
+  recall:          { color: '#C084FC', label: 'Recall' },
+  reflect:         { color: '#A78BFA', label: 'Reflect' },
   boss:            { color: '#EC4899', label: 'Boss', icon: 'trophy' },
+  project:         { color: '#FBBF24', label: 'Project' },
+  final_exam:      { color: '#FBBF24', label: 'Final Exam' },
 }
 
 function clamp(value, min, max, fallback = min) {
@@ -102,7 +83,7 @@ function clamp(value, min, max, fallback = min) {
 }
 
 function rowXP(tasks = []) {
-  return tasks.reduce((sum, task) => sum + (TASK_XP[task.type] || 20), 0)
+  return tasks.reduce((sum, task) => sum + xpForTask(task), 0)
 }
 
 function patchNodeTask(nodes, rowId, taskId) {
@@ -430,7 +411,9 @@ function DetailSheet({ node, world, onClose, onComplete, completing }) {
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {node.tasks.map((task, index) => {
-                  const style = TASK_STYLE[task.type] || TASK_STYLE.lesson
+                  const normalizedTask = normalizeLearningTask(task, index)
+                  const display = getTaskDisplayConfig(normalizedTask)
+                  const style = TASK_STYLE[normalizedTask.type] || TASK_STYLE.concept
                   const isCompleting = completing === task.id
                   return (
                     <div
@@ -460,10 +443,10 @@ function DetailSheet({ node, world, onClose, onComplete, completing }) {
                             textTransform: 'uppercase',
                           }}
                         >
-                          <IconGlyph name={style.icon} size={12} strokeWidth={2.3} color={style.color} />
-                          {style.label}
+                          <IconGlyph name={display.icon} size={12} strokeWidth={2.3} color={style.color} />
+                          {display.chipLabel}
                         </span>
-                        <span style={{ fontSize: 11, color: T.textMuted }}>{task.durationMin || 0} min</span>
+                        <span style={{ fontSize: 11, color: T.textMuted }}>{normalizedTask.estimatedTimeMin || normalizedTask.durationMin || 0} min</span>
                         {task.completed && <span style={{ fontSize: 11, fontWeight: 800, color: '#34D399' }}>Done</span>}
                       </div>
 
@@ -474,21 +457,21 @@ function DetailSheet({ node, world, onClose, onComplete, completing }) {
                           color: task.completed ? T.textMuted : T.text,
                           lineHeight: 1.35,
                           textDecoration: task.completed ? 'line-through rgba(100,116,139,0.8)' : 'none',
-                          marginBottom: task.description ? 6 : 0,
+                          marginBottom: normalizedTask.description ? 6 : 0,
                         }}
                       >
-                        {task.title}
+                        {normalizedTask.title}
                       </div>
 
-                      {task.description && (
+                      {normalizedTask.description && (
                         <div style={{ fontSize: 12, color: T.textMuted, lineHeight: 1.55, marginBottom: task.completed ? 0 : 10 }}>
-                          {task.description.length > 140 ? `${task.description.slice(0, 140)}…` : task.description}
+                          {normalizedTask.description.length > 140 ? `${normalizedTask.description.slice(0, 140)}…` : normalizedTask.description}
                         </div>
                       )}
 
                       {!task.completed && (
                         <button
-                          onClick={(event) => onComplete(node.id, task.id, task, event)}
+                          onClick={(event) => onComplete(node.id, task.id, normalizedTask, event)}
                           disabled={Boolean(isCompleting)}
                           style={{
                             width: '100%',
@@ -808,15 +791,99 @@ export default function PathPage() {
   const load = useCallback(async () => {
     setLoading(true)
     setError('')
+    try {
 
-    const { data: authData } = await supabase.auth.getUser()
-    const user = authData?.user
+    const { user } = await getSafeSupabaseUser()
     if (!user) {
       router.push('/login')
       return
     }
 
-    const { data: activeGoal } = await supabase
+    if (isLocalAccessUser(user)) {
+      const localBundle = await getLocalGoalBundleWithRepairs(user.id)
+      if (!localBundle?.goal) {
+        setGoal(null)
+        setAllNodes([])
+        setMasteryRows([])
+        setProgress({ xp: 0, streak: 0, totalDays: 0 })
+        setLoading(false)
+        return
+      }
+
+      const localGoal = localBundle.goal
+      const localRows = normalizeTaskRows(localBundle.rows || [])
+      const localProgress = localBundle.progress || {}
+      let foundActiveNode = false
+      const totalDays = getCourseVisibleDayCount(
+        Number(localProgress.total_days) || Number(localGoal.total_days) || 0,
+        localRows,
+      ) || Math.max(localRows.length, 7)
+
+      const realNodes = localRows.map((row) => {
+        const tasks = Array.isArray(row.tasks) ? row.tasks : []
+        const completed = tasks.filter((task) => task.completed).length
+        const isDone = row.completion_status === 'completed' || (tasks.length > 0 && completed === tasks.length)
+        let status = 'locked'
+        if (isDone) status = 'done'
+        else if (!foundActiveNode) {
+          status = 'active'
+          foundActiveNode = true
+        }
+
+        return {
+          id: row.id,
+          dayNumber: row.day_number,
+          conceptName: row.covered_topics?.[0] || `Day ${row.day_number}`,
+          tasks,
+          totalTasks: tasks.length,
+          completedTasks: completed,
+          status,
+          isBoss: row.day_number % 7 === 0,
+          isProject: false,
+          isPlaceholder: false,
+          totalMinutes: row.total_minutes || 30,
+        }
+      })
+
+      const maxGenerated = localRows.length > 0 ? Math.max(...localRows.map((row) => row.day_number)) : 0
+      const placeholders = []
+      for (let day = maxGenerated + 1; day <= totalDays; day += 1) {
+        placeholders.push({
+          id: `placeholder-${day}`,
+          dayNumber: day,
+          conceptName: `Future Concept ${day}`,
+          tasks: [],
+          totalTasks: 0,
+          completedTasks: 0,
+          status: 'locked',
+          isBoss: day % 7 === 0,
+          isProject: false,
+          isPlaceholder: true,
+          totalMinutes: 30,
+        })
+      }
+
+      setGoal(localGoal)
+      setAllNodes([...realNodes, ...placeholders])
+      setMasteryRows(localBundle.conceptMastery || [])
+      setProgress({
+        xp: Number(localProgress.total_xp) || 0,
+        streak: Number(localProgress.current_streak) || 0,
+        totalDays,
+      })
+
+      trackMapViewed({
+        userId: user.id,
+        goalId: localGoal.id,
+        completedDays: realNodes.filter((node) => node.status === 'done').length,
+        totalDays,
+      })
+
+      setLoading(false)
+      return
+    }
+
+    const { data: activeGoal } = await supabaseData
       .from('goals')
       .select('*')
       .eq('user_id', user.id)
@@ -834,19 +901,19 @@ export default function PathPage() {
     setGoal(activeGoal)
 
     const [{ data: prog }, { data: rows, error: rowsErr }, { data: mastery }] = await Promise.all([
-      supabase
+      supabaseData
         .from('user_progress')
         .select('total_xp,current_streak,total_days')
         .eq('user_id', user.id)
         .eq('goal_id', activeGoal.id)
         .maybeSingle(),
-      supabase
+      supabaseData
         .from('daily_tasks')
         .select('*')
         .eq('goal_id', activeGoal.id)
         .eq('user_id', user.id)
         .order('day_number', { ascending: true }),
-      supabase
+      supabaseData
         .from('concept_mastery')
         .select('concept_id,mastery_score,last_review,review_interval')
         .eq('user_id', user.id)
@@ -859,7 +926,45 @@ export default function PathPage() {
       return
     }
 
-    const taskRows = filterRowsForCourseWindow(rows || [], Number(prog?.total_days) || 0)
+    let sourceRows = rows || []
+    const scopedRowsForRepair = normalizeTaskRows(filterRowsForCourseWindow(sourceRows, Number(prog?.total_days) || 0))
+    const brokenRows = scopedRowsForRepair.filter((row) => isBrokenTaskRow(row))
+
+    if (activeGoal.mode !== 'explore' && brokenRows.length > 0) {
+      try {
+        const { session } = await getSafeSupabaseSession()
+        const repairRes = await fetch('/api/repair-days', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+          },
+          body: JSON.stringify({
+            goalId: activeGoal.id,
+            userId: user.id,
+            rowIds: brokenRows.map((row) => row.id),
+            accessToken: session?.access_token || null,
+          }),
+        })
+
+        if (repairRes.ok) {
+          const repairData = await repairRes.json()
+          if (Array.isArray(repairData?.rows) && repairData.rows.length > 0) {
+            const rowMap = new Map()
+            normalizeTaskRows(sourceRows).forEach((row) => rowMap.set(Number(row.day_number), row))
+            normalizeTaskRows(repairData.rows).forEach((row) => rowMap.set(Number(row.day_number), row))
+            sourceRows = Array.from(rowMap.values()).sort((left, right) => Number(left.day_number) - Number(right.day_number))
+          }
+        } else {
+          const repairError = await repairRes.json().catch(() => ({}))
+          console.warn('[PathAI] repair_days_failed', repairError?.error || 'unknown_error')
+        }
+      } catch (repairError) {
+        console.warn('[PathAI] repair_days_failed', repairError?.message || 'unknown_error')
+      }
+    }
+
+    const taskRows = normalizeTaskRows(filterRowsForCourseWindow(sourceRows, Number(prog?.total_days) || 0))
     const totalDays = getCourseVisibleDayCount(
       prog?.total_days || Number(activeGoal.days) || 0,
       taskRows,
@@ -922,10 +1027,15 @@ export default function PathPage() {
     })
 
     setLoading(false)
+    } catch (loadError) {
+      console.warn('[PathAI] path_load_failed', loadError?.message || 'unknown_error')
+      setError('Could not load your path right now. Please try again.')
+      setLoading(false)
+    }
   }, [router])
 
   useEffect(() => {
-    const timer = setTimeout(() => load(), 0)
+    const timer = setTimeout(() => load().catch(() => {}), 0)
     return () => clearTimeout(timer)
   }, [load])
 
@@ -1032,7 +1142,7 @@ export default function PathPage() {
       setXpPop({
         x: rect.left + (rect.width / 2),
         y: rect.top - 10,
-        xp: TASK_XP[task.type] || 20,
+        xp: xpForTask(task),
       })
     }
 
@@ -1055,7 +1165,7 @@ export default function PathPage() {
     }
 
     try {
-      const { data: { session } } = await supabase.auth.getSession()
+      const { session } = await getSafeSupabaseSession()
       const token = session?.access_token || null
       const currentSelectedNode = graph.graphNodes.find((node) => node.id === rowId)
 

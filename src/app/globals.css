@@ -6,6 +6,8 @@
    ──────────────────────────────────────────────────────────────────────────── */
 
 :root {
+  --font-display: 'DM Sans', -apple-system, 'SF Pro Display', 'SF Pro Text', system-ui, sans-serif;
+
   /* ── Background & depth ── */
   --bg:               #06060f;
   --bg-elevated:      rgba(255,255,255,0.04);
@@ -116,8 +118,8 @@
 @theme inline {
   --color-background: var(--bg);
   --color-foreground: var(--text-primary);
-  --font-sans: 'DM Sans', var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: 'DM Sans', var(--font-body);
+  --font-mono: var(--font-code);
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -134,6 +136,7 @@ html {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+  scroll-behavior: smooth;
 }
 
 body {
@@ -155,6 +158,11 @@ body {
     /* Indigo wash: center depth */
     radial-gradient(ellipse 120% 80% at 50% 40%,     rgba(20, 30, 80, 0.50) 0%, transparent 75%);
   background-attachment: fixed;
+}
+
+.font-display {
+  font-family: var(--font-display);
+  font-weight: 700;
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -711,4 +719,63 @@ a {
 
 .hide-scrollbar::-webkit-scrollbar {
   display: none;
+}
+
+.rb-frame {
+  position: relative;
+  overflow: hidden;
+  border-radius: 30px;
+  background:
+    radial-gradient(circle at top left, var(--rb-accent, rgba(14,245,194,0.18)) 0%, transparent 42%),
+    linear-gradient(180deg, rgba(10,16,23,0.96), rgba(7,11,18,0.92));
+  border: 1px solid rgba(255,255,255,0.10);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.08),
+    0 34px 72px rgba(0,0,0,0.34),
+    0 0 0 1px rgba(255,255,255,0.02);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+}
+
+.rb-frame::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(130deg, rgba(255,255,255,0.06), transparent 28%, transparent 66%, rgba(255,255,255,0.03)),
+    radial-gradient(circle at 78% 12%, rgba(255,255,255,0.06), transparent 26%);
+  pointer-events: none;
+}
+
+.rb-frame::after {
+  content: '';
+  position: absolute;
+  left: 18%;
+  right: 18%;
+  top: 0;
+  height: 1px;
+  background: var(--rb-highlight, linear-gradient(90deg, transparent, rgba(255,255,255,0.30), transparent));
+  opacity: 0.9;
+  pointer-events: none;
+}
+
+.rb-frame-inner {
+  position: relative;
+  z-index: 1;
+}
+
+.rb-scroll-reveal {
+  opacity: 0;
+  transform: translateY(var(--rb-reveal-distance, 28px));
+  filter: blur(10px);
+  transition:
+    opacity 720ms cubic-bezier(0.16, 1, 0.3, 1) var(--rb-reveal-delay, 0ms),
+    transform 720ms cubic-bezier(0.16, 1, 0.3, 1) var(--rb-reveal-delay, 0ms),
+    filter 720ms cubic-bezier(0.16, 1, 0.3, 1) var(--rb-reveal-delay, 0ms);
+}
+
+.rb-scroll-reveal.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+  filter: blur(0);
 }

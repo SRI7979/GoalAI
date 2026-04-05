@@ -2,11 +2,15 @@
 import { useEffect, useRef, useState } from 'react'
 import AIAssistant from './AIAssistant'
 import ConfidenceSelector from './ConfidenceSelector'
+import { getCanonicalTaskType } from '@/lib/taskTaxonomy'
+import IconGlyph from '@/components/IconGlyph'
 
 const font = "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif"
 
 export default function MultiQuizView({ task, goal, knowledge, onClose, onComplete }) {
-  const isCourseFinalExam = Boolean(task?.isCourseFinalExam || task?._courseFinal)
+  const canonicalTaskType = getCanonicalTaskType(task?.type, task)
+  const isCourseFinalExam = canonicalTaskType === 'final_exam' || Boolean(task?.isCourseFinalExam || task?._courseFinal)
+  const isRecallMode = canonicalTaskType === 'recall' && !isCourseFinalExam
   const examMeta = task?._courseFinal || {}
   const attemptsUsed = Number(examMeta.attemptsUsed) || 0
   const maxAttempts = Number(examMeta.maxAttempts) || 3
@@ -119,9 +123,9 @@ export default function MultiQuizView({ task, goal, knowledge, onClose, onComple
   }
 
   const q = questions?.[current]
-  const accent = isCourseFinalExam ? '#FBBF24' : '#FF453A'
-  const accentBg = isCourseFinalExam ? 'rgba(251,191,36,0.10)' : 'rgba(255,69,58,0.10)'
-  const accentBorder = isCourseFinalExam ? 'rgba(251,191,36,0.25)' : 'rgba(255,69,58,0.25)'
+  const accent = isCourseFinalExam ? '#FBBF24' : isRecallMode ? '#C084FC' : '#FF453A'
+  const accentBg = isCourseFinalExam ? 'rgba(251,191,36,0.10)' : isRecallMode ? 'rgba(192,132,252,0.10)' : 'rgba(255,69,58,0.10)'
+  const accentBorder = isCourseFinalExam ? 'rgba(251,191,36,0.25)' : isRecallMode ? 'rgba(192,132,252,0.25)' : 'rgba(255,69,58,0.25)'
 
   return (
     <>
@@ -171,7 +175,7 @@ export default function MultiQuizView({ task, goal, knowledge, onClose, onComple
               <span style={{ fontSize:12, fontWeight:700, color:accent }}>{current + 1}/{questions.length}</span>
             )}
             <div style={{ padding:'4px 12px', background:accentBg, border:`1px solid ${accentBorder}`, borderRadius:9999, fontSize:11, fontWeight:700, color:accent, textTransform:'uppercase', letterSpacing:'1px' }}>
-              {isCourseFinalExam ? 'Final Exam' : 'Quiz'}
+              {isCourseFinalExam ? 'Final Exam' : isRecallMode ? 'Recall' : 'Quiz'}
             </div>
           </div>
         </div>
@@ -183,16 +187,22 @@ export default function MultiQuizView({ task, goal, knowledge, onClose, onComple
             {loading ? (
               <div style={{ textAlign:'center', paddingTop:80 }}>
                 <div style={{ width:44, height:44, border:'3px solid rgba(255,255,255,0.06)', borderTopColor:accent, borderRadius:'50%', animation:'spin 0.65s linear infinite', margin:'0 auto 20px' }}/>
-                <p style={{ color:'#636366', fontSize:14 }}>{isCourseFinalExam ? 'Generating final exam…' : 'Generating quiz…'}</p>
+                <p style={{ color:'#636366', fontSize:14 }}>
+                  {isCourseFinalExam ? 'Generating final exam…' : isRecallMode ? 'Building your recall set…' : 'Generating quiz…'}
+                </p>
                 <p style={{ color:'#475569', fontSize:12, marginTop:8 }}>
                   {isCourseFinalExam
                     ? 'Pulling questions from across the full course.'
+                    : isRecallMode
+                      ? 'Preparing quick retrieval prompts to strengthen memory.'
                     : 'Preparing questions that test real understanding'}
                 </p>
               </div>
             ) : !questions ? (
               <div style={{ textAlign:'center', paddingTop:80 }}>
-                <p style={{ color:'#636366', marginBottom:16 }}>Could not load quiz.</p>
+                <p style={{ color:'#636366', marginBottom:16 }}>
+                  {isRecallMode ? 'Could not load recall prompts.' : 'Could not load quiz.'}
+                </p>
                 <button onClick={onClose} style={{ padding:'10px 24px', background:'rgba(255,255,255,0.07)', border:'1px solid rgba(255,255,255,0.12)', borderRadius:12, color:'#8e8e93', fontSize:14, cursor:'pointer', fontFamily:font }}>Go Back</button>
               </div>
             ) : done ? (
@@ -309,7 +319,10 @@ export default function MultiQuizView({ task, goal, knowledge, onClose, onComple
                       color: combo >= 5 ? '#FFD700' : '#0ef5c2',
                       animation:'comboPopIn 0.3s cubic-bezier(0.34,1.56,0.64,1)',
                     }}>
-                      🎯 {combo}x
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        <IconGlyph name="target" size={12} strokeWidth={2.4} color={combo >= 5 ? '#FFD700' : '#0ef5c2'} />
+                        Combo {combo}x
+                      </span>
                     </span>
                   )}
                   {score > 0 && (
@@ -358,7 +371,7 @@ export default function MultiQuizView({ task, goal, knowledge, onClose, onComple
                         onMouseLeave={e => { if (!answered) { e.currentTarget.style.background = bg; e.currentTarget.style.borderColor = border } }}
                       >
                         <span style={{ width:28, height:28, borderRadius:8, background:letterBg, display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:800, flexShrink:0, color:letterColor, transition:'all 0.18s' }}>
-                          {answered && isCorrect ? '✓' : answered && isSelected && !isCorrect ? '✗' : ['A','B','C','D'][i]}
+                          {answered && isCorrect ? <IconGlyph name="check" size={12} strokeWidth={2.8} color="#0ef5c2" /> : answered && isSelected && !isCorrect ? <IconGlyph name="x" size={12} strokeWidth={2.6} color="#FF453A" /> : ['A','B','C','D'][i]}
                         </span>
                         <span style={{ lineHeight:1.4 }}>{opt}</span>
                       </button>
@@ -375,7 +388,7 @@ export default function MultiQuizView({ task, goal, knowledge, onClose, onComple
                   }}>
                     <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
                       <div style={{ fontSize:12, fontWeight:800, color: selected === q.correctIndex ? '#0ef5c2' : '#FF453A', textTransform:'uppercase', letterSpacing:'1px' }}>
-                        {selected === q.correctIndex ? '✓ Correct' : '✗ Incorrect'}
+                        {selected === q.correctIndex ? 'Correct' : 'Incorrect'}
                       </div>
                     </div>
                     <p style={{ fontSize:14, color:'#9ca3af', margin:0, lineHeight:1.7 }}>{q.explanation}</p>
@@ -401,7 +414,7 @@ export default function MultiQuizView({ task, goal, knowledge, onClose, onComple
               }}>
                 {completing ? (
                   <><div style={{width:14,height:14,border:'2px solid rgba(14,245,194,0.2)',borderTopColor:'#0ef5c2',borderRadius:'50%',animation:'spin 0.65s linear infinite'}}/>Saving…</>
-                ) : confidenceLevel ? 'Complete ✓' : 'Choose confidence to continue'}
+                ) : confidenceLevel ? 'Complete' : 'Choose confidence to continue'}
               </button>
             ) : answered ? (
               <button onClick={handleNext} style={{

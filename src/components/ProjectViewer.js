@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { supabase } from '@/lib/supabase'
+import { getSafeSupabaseSession, getSafeSupabaseUser, supabaseData } from '@/lib/supabase'
 import { getSkillConfig, VERIFICATION_UI, getReferenceMaterialLabel } from '@/lib/skillTypes'
 import IconGlyph from '@/components/IconGlyph'
 import { buildProjectProofSummary, getAuthenticityLevel, getProjectCriteriaCards } from '@/lib/projectProof'
@@ -400,9 +400,9 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
 
   const refreshProject = useCallback(async (projectId = project?.id) => {
     if (!projectId) return null
-    const { data: { user } } = await supabase.auth.getUser()
+    const { user } = await getSafeSupabaseUser()
     if (!user) return null
-    const { data: existing } = await supabase
+    const { data: existing } = await supabaseData
       .from('projects')
       .select('*')
       .eq('id', projectId)
@@ -492,11 +492,11 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
   useEffect(() => {
     async function load() {
       try {
-        const { data: { user } } = await supabase.auth.getUser()
+        const { user } = await getSafeSupabaseUser()
         if (!user) throw new Error('Not authenticated')
 
         if (readOnly && task.id && !task.id.startsWith('d')) {
-          const { data: existing } = await supabase.from('projects').select('*').eq('id', task.id).eq('user_id', user.id).single()
+          const { data: existing } = await supabaseData.from('projects').select('*').eq('id', task.id).eq('user_id', user.id).single()
           if (existing) {
             applyProjectRecord(existing)
             setLoading(false)
@@ -508,7 +508,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
           const dayMatch = task.id.match(/d(\d+)/)
           const dayNumber = dayMatch ? parseInt(dayMatch[1]) : null
           if (dayNumber) {
-            const { data: existing } = await supabase.from('projects').select('*').eq('user_id', user.id).eq('goal_id', goalId).eq('day_number', dayNumber).limit(1).single()
+            const { data: existing } = await supabaseData.from('projects').select('*').eq('user_id', user.id).eq('goal_id', goalId).eq('day_number', dayNumber).limit(1).single()
             if (existing) {
               applyProjectRecord(existing)
               setLoading(false)
@@ -535,11 +535,11 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
       const dayNumber = dayMatch ? parseInt(dayMatch[1]) : null
       let conceptsCovered = []
       if (goalId) {
-        const { data: { user } } = await supabase.auth.getUser()
-        const { data: rows } = await supabase.from('daily_tasks').select('covered_topics').eq('goal_id', goalId).eq('user_id', user.id)
+        const { user } = await getSafeSupabaseUser()
+        const { data: rows } = await supabaseData.from('daily_tasks').select('covered_topics').eq('goal_id', goalId).eq('user_id', user.id)
         conceptsCovered = [...new Set((rows || []).flatMap(r => r.covered_topics || []))]
       }
-      const { data: { session } } = await supabase.auth.getSession()
+      const { session } = await getSafeSupabaseSession()
       const token = session?.access_token || null
       const res = await fetch('/api/project/generate', {
         method: 'POST',
@@ -562,7 +562,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
     setAiLoading(prev => ({ ...prev, [stepId]: true }))
     adapter.recordAiAsk(stepId)
     try {
-      const { data: { session } } = await supabase.auth.getSession()
+      const { session } = await getSafeSupabaseSession()
       const token = session?.access_token || null
       const res = await fetch('/api/project/assistant', {
         method: 'POST',
@@ -585,7 +585,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
     setStepErrors((prev) => ({ ...prev, [stepId]: null }))
     setLoadingMap((prev) => ({ ...prev, [stepId]: true }))
     try {
-      const { data: { session } } = await supabase.auth.getSession()
+      const { session } = await getSafeSupabaseSession()
       const token = session?.access_token || null
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -686,7 +686,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
     if (!project?.id) return
     setCheckpointLoading(prev => ({ ...prev, [stepId]: true }))
     try {
-      const { data: { session } } = await supabase.auth.getSession()
+      const { session } = await getSafeSupabaseSession()
       const token = session?.access_token || null
       const res = await fetch('/api/project/checkpoint', {
         method: 'POST',
@@ -705,7 +705,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
     if (!project?.id) return
     setCheckpointLoading(prev => ({ ...prev, [`${stepId}-${questionId}`]: true }))
     try {
-      const { data: { session } } = await supabase.auth.getSession()
+      const { session } = await getSafeSupabaseSession()
       const token = session?.access_token || null
       const res = await fetch('/api/project/checkpoint', {
         method: 'POST',
@@ -732,7 +732,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
     if (!project?.id || reviewing) return
     setReviewing(true)
     try {
-      const { data: { session } } = await supabase.auth.getSession()
+      const { session } = await getSafeSupabaseSession()
       const token = session?.access_token || null
       const res = await fetch('/api/project/review', {
         method: 'POST',
@@ -752,7 +752,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
   const calculateAuthenticity = useCallback(async (projectId = project?.id) => {
     if (!projectId) return null
     try {
-      const { data: { session } } = await supabase.auth.getSession()
+      const { session } = await getSafeSupabaseSession()
       const token = session?.access_token || null
       const res = await fetch('/api/project/authenticity', {
         method: 'POST',
@@ -789,7 +789,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
     if (verificationStatus !== 'verified') return
     setCompleting(true)
     if (authenticityScore == null) await calculateAuthenticity(project?.id)
-    await supabase
+    await supabaseData
       .from('projects')
       .update({ status: review ? 'reviewed' : 'completed' })
       .eq('id', project.id)
@@ -1055,7 +1055,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
                 <span style={{ padding: '4px 10px', borderRadius: 9999, fontSize: 10, fontWeight: 800, background: 'rgba(168,85,247,0.08)', border: '1px solid rgba(168,85,247,0.22)', color: T.purple, display:'inline-flex', alignItems:'center', gap:6 }}><IconGlyph name="bolt" size={12} strokeWidth={2.3} color={T.purple}/>BUILD</span>
               )}
               <span style={{ padding: '4px 10px', borderRadius: 9999, fontSize: 10, fontWeight: 800, background: `${getStepStateMeta(verificationStatus === 'verified' ? STEP_VERIFICATION_STATES.PASSED : verificationStatus === 'in_progress' ? STEP_VERIFICATION_STATES.RUNNING : STEP_VERIFICATION_STATES.NOT_STARTED).bg}`, border: `1px solid ${getStepStateMeta(verificationStatus === 'verified' ? STEP_VERIFICATION_STATES.PASSED : verificationStatus === 'in_progress' ? STEP_VERIFICATION_STATES.RUNNING : STEP_VERIFICATION_STATES.NOT_STARTED).border}`, color: getStepStateMeta(verificationStatus === 'verified' ? STEP_VERIFICATION_STATES.PASSED : verificationStatus === 'in_progress' ? STEP_VERIFICATION_STATES.RUNNING : STEP_VERIFICATION_STATES.NOT_STARTED).color }}>
-                {verificationStatus === 'verified' ? '✓ VERIFIED' : verificationStatus === 'in_progress' ? 'RUNNING' : 'NOT STARTED'}
+                {verificationStatus === 'verified' ? 'VERIFIED' : verificationStatus === 'in_progress' ? 'RUNNING' : 'NOT STARTED'}
               </span>
               <span style={{ padding: '4px 10px', borderRadius: 9999, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.8px', background: dc.bg, border: `1px solid ${dc.border}`, color: dc.color }}>{project.difficulty}</span>
               {!readOnly && (
@@ -1206,7 +1206,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
                       border: isActive ? `2px solid ${T.tealBorder}` : 'none',
                       animation: isDone ? 'checkPop 0.3s cubic-bezier(0.34,1.56,0.64,1)' : 'none',
                     }}>
-                      {isDone ? '✓' : isLocked ? <IconGlyph name="lock" size={14} strokeWidth={2.3} color={T.textMuted}/> : i + 1}
+                      {isDone ? <IconGlyph name="check" size={13} strokeWidth={2.8} color="#000" /> : isLocked ? <IconGlyph name="lock" size={14} strokeWidth={2.3} color={T.textMuted}/> : i + 1}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 13, fontWeight: 700, color: isDone ? 'rgba(255,255,255,0.6)' : T.text, textDecoration: isDone ? 'line-through' : 'none' }}>{step.title}</div>
@@ -1454,7 +1454,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
                                     return (
                                       <div key={itemIndex} onClick={(e) => { if (!readOnly) { e.stopPropagation(); togglePracticeCheck(step.id, itemIndex) } }} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', cursor: readOnly ? 'default' : 'pointer' }}>
                                         <div style={{ width: 20, height: 20, borderRadius: 6, flexShrink: 0, border: `1.5px solid ${checked ? T.purple : 'rgba(255,255,255,0.15)'}`, background: checked ? T.purple : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                          {checked && <span style={{ color: '#fff', fontSize: 11, fontWeight: 900 }}>✓</span>}
+                                          {checked && <IconGlyph name="check" size={11} strokeWidth={2.8} color="#fff" />}
                                         </div>
                                         <span style={{ fontSize: 12, color: checked ? 'rgba(255,255,255,0.65)' : T.text, textDecoration: checked ? 'line-through' : 'none' }}>{item}</span>
                                       </div>
@@ -1665,7 +1665,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
                 return (
                   <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
                     <div style={{ width: 20, height: 20, borderRadius: 6, flexShrink: 0, marginTop: 1, border: `1.5px solid ${done ? T.teal : 'rgba(255,255,255,0.15)'}`, background: done ? T.teal : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }}>
-                      {done && <span style={{ color: '#000', fontSize: 12, fontWeight: 900 }}>✓</span>}
+                      {done && <IconGlyph name="check" size={12} strokeWidth={2.8} color="#000" />}
                     </div>
                     <span style={{ fontSize: 13, lineHeight: 1.5, color: done ? 'rgba(255,255,255,0.55)' : T.text, textDecoration: done ? 'line-through' : 'none' }}>{d}</span>
                   </div>
@@ -1731,7 +1731,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 16 }}>
                     {criteriaCards.map(s => s.score ? (
                       <div key={s.label} style={{ padding: '10px', borderRadius: 12, background: T.card, border: `1px solid ${T.border}`, textAlign: 'center' }}>
-                        <div style={{ fontSize: 16, marginBottom: 4 }}>{s.icon}</div>
+                        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 4 }}><IconGlyph name={s.icon} size={16} strokeWidth={2.3} color={s.score >= 80 ? T.teal : s.score >= 60 ? T.amber : T.red} /></div>
                         <div style={{ fontSize: 16, fontWeight: 900, color: s.score >= 80 ? T.teal : s.score >= 60 ? T.amber : T.red }}>{s.score}</div>
                         <div style={{ fontSize: 9, fontWeight: 700, color: T.textMuted, textTransform: 'uppercase', marginTop: 2 }}>{s.label}</div>
                       </div>
@@ -1836,7 +1836,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
                   <div style={{ fontSize: 10, fontWeight: 800, color: T.green, textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 6 }}>Trust Signals</div>
                   {authenticityResult.positives.map((item, index) => (
                     <div key={index} style={{ display: 'flex', gap: 8, fontSize: 11, color: '#b0b0b8', marginBottom: 4 }}>
-                      <span style={{ color: T.green }}>✓</span>
+                      <IconGlyph name="check" size={12} strokeWidth={2.8} color={T.green} />
                       <span>{item}</span>
                     </div>
                   ))}
@@ -1847,7 +1847,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
                   <div style={{ fontSize: 10, fontWeight: 800, color: T.amber, textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 6 }}>Watchouts</div>
                   {authenticityResult.flags.map((item, index) => (
                     <div key={index} style={{ display: 'flex', gap: 8, fontSize: 11, color: '#b0b0b8', marginBottom: 4 }}>
-                      <span style={{ color: T.amber }}>⚠</span>
+                      <IconGlyph name="alert" size={12} strokeWidth={2.5} color={T.amber} />
                       <span>{item}</span>
                     </div>
                   ))}

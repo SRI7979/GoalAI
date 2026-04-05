@@ -2,6 +2,8 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import IconGlyph from '@/components/IconGlyph'
+import { buildDeterministicLesson } from '@/lib/deterministicLesson'
 
 // ─── Syntax Highlighter ───────────────────────────────────────────────────────
 const LANG_KEYWORDS = {
@@ -128,7 +130,7 @@ function CodeBlock({ language, code, caption }) {
           transition: 'color 0.18s',
           fontFamily: "inherit",
         }}>
-          {copied ? '✓ Copied' : 'Copy'}
+          {copied ? 'Copied' : 'Copy'}
         </button>
       </div>
 
@@ -301,7 +303,10 @@ function QuizView({ quiz, onComplete, onWrongAnswer, onCorrectAnswer, comboCount
             color: comboCount >= 5 ? '#FFD700' : '#0ef5c2',
             animation: 'comboPopIn 0.3s cubic-bezier(0.34,1.56,0.64,1)',
           }}>
-            🎯 {comboCount}x Combo!
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <IconGlyph name="target" size={12} strokeWidth={2.4} color={comboCount >= 5 ? '#FFD700' : '#0ef5c2'} />
+              Combo {comboCount}x
+            </span>
           </div>
         )}
       </div>
@@ -321,7 +326,7 @@ function QuizView({ quiz, onComplete, onWrongAnswer, onCorrectAnswer, comboCount
           return (
             <button key={i} onClick={() => handleSelect(i)} style={{ padding: '14px 18px', background: bg, border: `1.5px solid ${border}`, borderRadius: 16, color, fontSize: 15, fontWeight: 600, textAlign: 'left', cursor: revealed ? 'default' : 'pointer', fontFamily: "'DM Sans', sans-serif", transition: 'all 0.2s cubic-bezier(0.16,1,0.3,1)', display: 'flex', alignItems: 'center', gap: 12, backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', boxShadow: revealed && isCorrect ? 'inset 0 1px 0 rgba(14,245,194,0.22), 0 0 20px rgba(14,245,194,0.08)' : 'inset 0 1px 0 rgba(255,255,255,0.06)' }}>
               <div style={{ width: 30, height: 30, borderRadius: '26%', flexShrink: 0, background: revealed && isCorrect ? 'linear-gradient(135deg, #0ef5c2, #00d4ff)' : revealed && isSelected ? '#ff453a' : 'transparent', border: `2px solid ${revealed && isCorrect ? 'transparent' : revealed && isSelected ? 'transparent' : 'rgba(255,255,255,0.14)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: revealed && (isCorrect || isSelected) ? '#06060f' : '#636366', fontSize: 12, fontWeight: 800, boxShadow: revealed && isCorrect ? '0 0 14px rgba(14,245,194,0.35), inset 0 1px 0 rgba(255,255,255,0.45)' : 'inset 0 1px 0 rgba(255,255,255,0.08)' }}>
-                {revealed && isCorrect ? '✓' : revealed && isSelected ? '✗' : String.fromCharCode(65 + i)}
+                {revealed && isCorrect ? <IconGlyph name="check" size={12} strokeWidth={2.8} color="#06060f" /> : revealed && isSelected ? <IconGlyph name="x" size={12} strokeWidth={2.6} color="#06060f" /> : String.fromCharCode(65 + i)}
               </div>
               {opt}
             </button>
@@ -346,13 +351,15 @@ function QuizView({ quiz, onComplete, onWrongAnswer, onCorrectAnswer, comboCount
 
 
 // ─── Main Lesson Viewer ──────────────────────────────────────────────────────
-export default function LessonViewer({ concept, taskTitle, goal, knowledge, lessonKey, presetLesson = null, aiMode = 'hint', onClose, onComplete, onHeartLost }) {
+export default function LessonViewer({ concept, taskTitle, goal, knowledge, lessonKey, presetLesson = null, sourceTask = null, aiMode = 'hint', onClose, onComplete, onHeartLost }) {
   const [loading, setLoading]               = useState(true)
   const [error, setError]                   = useState('')
   const [slides, setSlides]                 = useState([])
   const [quiz, setQuiz]                     = useState(null)
   const [current, setCurrent]               = useState(0)
   const [showQuiz, setShowQuiz]             = useState(false)
+  const [, setLessonMeta]                   = useState({ generationMode: null, cacheable: false, resource: null, fallbackReason: '' })
+  const [reloadTick, setReloadTick]         = useState(0)
   const [assistantOpen, setAssistantOpen]   = useState(false)
   const [assistantInput, setAssistantInput] = useState('')
   const [assistantLoading, setAssistantLoading] = useState(false)
@@ -364,19 +371,40 @@ export default function LessonViewer({ concept, taskTitle, goal, knowledge, less
 
   const cacheKey = useMemo(() => {
     const fallbackKey = `${goal || 'goal'}::${concept || 'concept'}::${taskTitle || 'task'}`
-    return `pathai.lesson.v1::${lessonKey || fallbackKey}`
+    return `pathai.lesson.v4::${lessonKey || fallbackKey}`
   }, [goal, concept, taskTitle, lessonKey])
 
   // Stabilize knowledge reference to prevent unnecessary re-fetches
   const knowledgeKey = useMemo(() => JSON.stringify(knowledge), [knowledge])
+  const sourceTaskPayloadKey = useMemo(() => JSON.stringify({
+    description: sourceTask?.description || '',
+    action: sourceTask?.action || '',
+    outcome: sourceTask?.outcome || '',
+    resourceUrl: sourceTask?.resourceUrl || '',
+    resourceTitle: sourceTask?.resourceTitle || '',
+  }), [sourceTask?.description, sourceTask?.action, sourceTask?.outcome, sourceTask?.resourceUrl, sourceTask?.resourceTitle])
+  const fallbackResource = useMemo(() => {
+    if (!sourceTask?.resourceUrl) return null
+    return {
+      url: sourceTask.resourceUrl,
+      title: sourceTask.resourceTitle || 'Primary resource',
+    }
+  }, [sourceTask?.resourceUrl, sourceTask?.resourceTitle])
 
   useEffect(() => {
     async function load() {
       startTimeRef.current = Date.now()
       setLoading(true); setError(''); setShowQuiz(false); setCurrent(0)
+      setLessonMeta({ generationMode: null, cacheable: false, resource: fallbackResource, fallbackReason: '' })
       if (presetLesson && Array.isArray(presetLesson.slides) && presetLesson.slides.length > 0) {
         setSlides(presetLesson.slides)
         setQuiz(presetLesson.quiz || null)
+        setLessonMeta({
+          generationMode: presetLesson.generationMode || 'preset',
+          cacheable: false,
+          resource: presetLesson.resource || fallbackResource,
+          fallbackReason: '',
+        })
         setLoading(false)
         return
       }
@@ -386,25 +414,113 @@ export default function LessonViewer({ concept, taskTitle, goal, knowledge, less
           if (cachedRaw) {
             const cached = JSON.parse(cachedRaw)
             if (Array.isArray(cached?.slides) && cached.slides.length > 0) {
-              setSlides(cached.slides); setQuiz(cached.quiz || null); setLoading(false); return
+              setSlides(cached.slides)
+              setQuiz(cached.quiz || null)
+              setLessonMeta({
+                generationMode: cached.generationMode || 'ai',
+                cacheable: Boolean(cached.cacheable),
+                resource: cached.resource || fallbackResource,
+                fallbackReason: cached.fallbackReason || '',
+              })
+              console.info('[PathAI] lesson_load', { source: 'cache', lessonKey: cacheKey })
+              setLoading(false)
+              return
             }
           }
         } catch (_) {}
       }
       try {
         const lessonKnowledge = knowledgeKey ? JSON.parse(knowledgeKey) : null
-        const res = await fetch('/api/lesson', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ concept, taskTitle, goal, knowledge: lessonKnowledge }) })
+        const taskPayload = sourceTaskPayloadKey ? JSON.parse(sourceTaskPayloadKey) : {}
+        const res = await fetch('/api/lesson', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            concept,
+            taskTitle,
+            goal,
+            knowledge: lessonKnowledge,
+            taskDescription: taskPayload.description,
+            taskAction: taskPayload.action,
+            taskOutcome: taskPayload.outcome,
+            resourceUrl: taskPayload.resourceUrl,
+            resourceTitle: taskPayload.resourceTitle,
+          }),
+        })
         const data = await res.json()
-        if (data.slides) setSlides(data.slides)
-        if (data.quiz)   setQuiz(data.quiz)
-        if (typeof window !== 'undefined' && Array.isArray(data?.slides) && data.slides.length > 0) {
-          window.localStorage.setItem(cacheKey, JSON.stringify({ slides: data.slides, quiz: data.quiz || null, cachedAt: Date.now() }))
+        if (!res.ok) throw new Error(data?.error || 'Failed to load lesson')
+        if (!Array.isArray(data?.slides) || data.slides.length === 0) {
+          throw new Error('No lesson content available')
         }
-      } catch (e) { setError('Failed to load lesson') }
+        setSlides(data.slides)
+        setQuiz(data.quiz || null)
+        setLessonMeta({
+          generationMode: data.generationMode || 'ai',
+          cacheable: Boolean(data.cacheable),
+          resource: data.resource || fallbackResource,
+          fallbackReason: data.fallbackReason || '',
+        })
+        console.info('[PathAI] lesson_load', {
+          source: data.generationMode || 'ai',
+          lessonKey: cacheKey,
+          fallbackReason: data.fallbackReason || null,
+        })
+        if (typeof window !== 'undefined' && data.cacheable) {
+          window.localStorage.setItem(cacheKey, JSON.stringify({
+            slides: data.slides,
+            quiz: data.quiz || null,
+            generationMode: data.generationMode || 'ai',
+            cacheable: Boolean(data.cacheable),
+            resource: data.resource || fallbackResource,
+            cachedAt: Date.now(),
+          }))
+        }
+      } catch (e) {
+        const lessonKnowledge = knowledgeKey ? JSON.parse(knowledgeKey) : null
+        const taskPayload = sourceTaskPayloadKey ? JSON.parse(sourceTaskPayloadKey) : {}
+        const fallbackLesson = buildDeterministicLesson({
+          concept,
+          taskTitle,
+          goal,
+          knowledge: lessonKnowledge,
+          taskDescription: taskPayload.description,
+          taskAction: taskPayload.action,
+          taskOutcome: taskPayload.outcome,
+          resourceUrl: taskPayload.resourceUrl,
+          resourceTitle: taskPayload.resourceTitle,
+          fallbackReason: e?.message || 'client_fetch_failed',
+        })
+        setSlides(fallbackLesson.slides)
+        setQuiz(fallbackLesson.quiz || null)
+        setLessonMeta({
+          generationMode: 'deterministic',
+          cacheable: true,
+          resource: fallbackLesson.resource || fallbackResource,
+          fallbackReason: fallbackLesson.fallbackReason || e?.message || 'client_fetch_failed',
+        })
+        console.info('[PathAI] lesson_load', {
+          source: 'deterministic',
+          lessonKey: cacheKey,
+          message: e?.message || 'unknown',
+        })
+        if (typeof window !== 'undefined') {
+          try {
+            window.localStorage.setItem(cacheKey, JSON.stringify({
+              slides: fallbackLesson.slides,
+              quiz: fallbackLesson.quiz || null,
+              generationMode: 'deterministic',
+              cacheable: true,
+              resource: fallbackLesson.resource || fallbackResource,
+              fallbackReason: fallbackLesson.fallbackReason || e?.message || 'client_fetch_failed',
+              cachedAt: Date.now(),
+            }))
+          } catch (_) {}
+        }
+      }
       setLoading(false)
     }
     load()
-  }, [concept, taskTitle, goal, knowledgeKey, cacheKey, presetLesson])
+  }, [concept, taskTitle, goal, knowledgeKey, cacheKey, presetLesson, reloadTick, sourceTaskPayloadKey, fallbackResource])
 
   const totalSlides = slides.length
   const isLastSlide = current === totalSlides - 1
@@ -414,6 +530,12 @@ export default function LessonViewer({ concept, taskTitle, goal, knowledge, less
   const [comboMax, setComboMax] = useState(0)
   const [assistantUsageCount, setAssistantUsageCount] = useState(0)
   const startTimeRef = useRef(null)
+  function handleRetryLesson() {
+    if (typeof window !== 'undefined') {
+      try { window.localStorage.removeItem(cacheKey) } catch (_) {}
+    }
+    setReloadTick((value) => value + 1)
+  }
 
   const handleNext = () => {
     if (isLastSlide) {
@@ -463,7 +585,7 @@ export default function LessonViewer({ concept, taskTitle, goal, knowledge, less
     } finally { setAssistantLoading(false) }
   }
 
-  const slideTypeIcon = { intro: '📋', concept: '💡', diagram: '📊', example: '🔍', practice: '🛠️', summary: '✅' }
+  const slideTypeIcon = { intro: 'scroll', concept: 'lightbulb', diagram: 'chart', example: 'microscope', practice: 'wrench', summary: 'check_circle' }
 
   return (
     <>
@@ -508,7 +630,7 @@ export default function LessonViewer({ concept, taskTitle, goal, knowledge, less
           <button onClick={() => setAssistantOpen((v) => !v)} className="interactive-icon"
             style={{ width: 36, height: 36, background: assistantOpen ? 'rgba(14,245,194,0.12)' : 'rgba(255,255,255,0.07)', border: `1px solid ${assistantOpen ? 'rgba(14,245,194,0.35)' : 'rgba(255,255,255,0.10)'}`, color: assistantOpen ? '#0ef5c2' : '#8e8e93', borderRadius: 10, display: 'grid', placeItems: 'center', cursor: 'pointer', fontSize: 17, transition: 'all 0.2s', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', boxShadow: assistantOpen ? 'inset 0 1px 0 rgba(14,245,194,0.25)' : 'inset 0 1px 0 rgba(255,255,255,0.08)' }}
           >
-            ✦
+            <IconGlyph name="sparkles" size={16} strokeWidth={2.5} color={assistantOpen ? '#0ef5c2' : '#8e8e93'} />
           </button>
         </div>
 
@@ -526,7 +648,10 @@ export default function LessonViewer({ concept, taskTitle, goal, knowledge, less
               ) : error ? (
                 <div style={{ textAlign: 'center', paddingTop: 80 }}>
                   <p style={{ color: '#ff6961', marginBottom: 16 }}>{error}</p>
-                  <button onClick={onClose} style={{ padding: '10px 20px', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12, color: '#8e8e93', cursor: 'pointer', fontFamily: "'DM Sans', sans-serif", backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}>Go back</button>
+                  <div style={{ display: 'flex', justifyContent: 'center', gap: 10, flexWrap: 'wrap' }}>
+                    <button onClick={handleRetryLesson} style={{ padding: '10px 20px', background: 'linear-gradient(135deg, #0ef5c2, #00d4ff)', border: 'none', borderRadius: 12, color: '#06060f', cursor: 'pointer', fontFamily: "'DM Sans', sans-serif", fontWeight: 800, boxShadow: '0 0 20px rgba(14,245,194,0.18)' }}>Try Again</button>
+                    <button onClick={onClose} style={{ padding: '10px 20px', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12, color: '#8e8e93', cursor: 'pointer', fontFamily: "'DM Sans', sans-serif", backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}>Go back</button>
+                  </div>
                 </div>
               ) : showQuiz ? (
                 <QuizView
@@ -554,7 +679,7 @@ export default function LessonViewer({ concept, taskTitle, goal, knowledge, less
                 <div key={slide.id} style={{ animation: 'slideLeft 0.32s cubic-bezier(0.16,1,0.3,1)' }}>
                   {/* Slide type badge */}
                   <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '5px 14px', marginBottom: 18, background: 'rgba(14,245,194,0.08)', border: '1px solid rgba(14,245,194,0.20)', borderRadius: 9999, fontSize: 11, fontWeight: 700, color: '#0ef5c2', textTransform: 'uppercase', letterSpacing: '1px', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', boxShadow: 'inset 0 1px 0 rgba(14,245,194,0.20)' }}>
-                    {slideTypeIcon[slide.type] || '📄'} {slide.type}
+                    <IconGlyph name={slideTypeIcon[slide.type] || 'file'} size={13} strokeWidth={2.4} color="#0ef5c2" /> {slide.type}
                   </div>
 
                   {/* Title */}
@@ -598,7 +723,9 @@ export default function LessonViewer({ concept, taskTitle, goal, knowledge, less
           {assistantOpen && !isMobile && (
             <aside style={{ width: 340, flexShrink: 0, height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', margin: '16px 0', background: 'linear-gradient(145deg, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.04) 40%, rgba(110,170,255,0.06) 100%)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 22, backdropFilter: 'blur(32px) saturate(200%)', WebkitBackdropFilter: 'blur(32px) saturate(200%)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.20), 0 20px 44px rgba(0,0,0,0.30)', animation: 'fadeIn 0.3s cubic-bezier(0.16,1,0.3,1)' }}>
               <div style={{ padding: '14px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div style={{ width: 28, height: 28, borderRadius: '26%', background: 'rgba(14,245,194,0.10)', border: '1px solid rgba(14,245,194,0.22)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, boxShadow: 'inset 0 1px 0 rgba(14,245,194,0.22)' }}>✦</div>
+                <div style={{ width: 28, height: 28, borderRadius: '26%', background: 'rgba(14,245,194,0.10)', border: '1px solid rgba(14,245,194,0.22)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'inset 0 1px 0 rgba(14,245,194,0.22)' }}>
+                  <IconGlyph name="sparkles" size={13} strokeWidth={2.5} color="#0ef5c2" />
+                </div>
                 <span style={{ color: '#f5f5f7', fontWeight: 700, fontSize: 14 }}>Lesson Assistant</span>
               </div>
               <div style={{ flex: 1, overflow: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>

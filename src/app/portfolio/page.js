@@ -1,8 +1,9 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
+import { getSafeSupabaseUser, supabaseData } from '@/lib/supabase'
 import ProjectViewer from '@/components/ProjectViewer'
+import IconGlyph from '@/components/IconGlyph'
 import { buildProjectProofSummary, getAuthenticityLevel } from '@/lib/projectProof'
 
 const font = "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif"
@@ -20,8 +21,9 @@ function AuthBadge({ score }) {
   if (score === null || score === undefined) return null
   const level = getAuthenticityLevel(score)
   return (
-    <span style={{ padding: '3px 8px', borderRadius: 9999, fontSize: 8, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px', background: `${level.color}10`, border: `1px solid ${level.color}25`, color: level.color }}>
-      {score >= 85 ? '✓ ' : ''}{level.label}
+    <span style={{ padding: '3px 8px', borderRadius: 9999, fontSize: 8, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px', background: `${level.color}10`, border: `1px solid ${level.color}25`, color: level.color, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+      {score >= 85 && <IconGlyph name="shield_check" size={10} strokeWidth={2.4} color={level.color} />}
+      {level.label}
     </span>
   )
 }
@@ -35,18 +37,23 @@ export default function PortfolioPage() {
 
   useEffect(() => {
     async function load() {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { router.push('/login'); return }
-      setUserName(user.user_metadata?.full_name || user.email?.split('@')[0] || 'Learner')
+      try {
+        const { user } = await getSafeSupabaseUser()
+        if (!user) { router.push('/login'); return }
+        setUserName(user.user_metadata?.full_name || user.email?.split('@')[0] || 'Learner')
 
-      const { data } = await supabase
-        .from('projects').select('*').eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-      setProjects((data || []).filter((project) => (
-        project?.progress?.verification_status === 'verified'
-        || ['completed', 'reviewed'].includes(project?.status)
-      )))
-      setLoading(false)
+        const { data } = await supabaseData
+          .from('projects').select('*').eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+        setProjects((data || []).filter((project) => (
+          project?.progress?.verification_status === 'verified'
+          || ['completed', 'reviewed'].includes(project?.status)
+        )))
+        setLoading(false)
+      } catch (loadError) {
+        console.warn('[PathAI] portfolio_load_failed', loadError?.message || 'unknown_error')
+        setLoading(false)
+      }
     }
     load()
   }, [router])
@@ -98,7 +105,10 @@ export default function PortfolioPage() {
           <div style={{ fontSize: 12, color: T.textMuted }}>PathAI Developer Portfolio</div>
           {verifiedCount > 0 && (
             <div style={{ marginTop: 10, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 9999, background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.22)' }}>
-              <span style={{ fontSize: 10, fontWeight: 800, color: T.green }}>✓ {verifiedCount} Verified Project{verifiedCount !== 1 ? 's' : ''}</span>
+              <span style={{ fontSize: 10, fontWeight: 800, color: T.green, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                <IconGlyph name="shield_check" size={11} strokeWidth={2.4} color={T.green} />
+                {verifiedCount} Verified Project{verifiedCount !== 1 ? 's' : ''}
+              </span>
             </div>
           )}
         </div>
@@ -143,7 +153,9 @@ export default function PortfolioPage() {
           <div style={{ textAlign: 'center', padding: 40, color: T.textMuted }}>Loading portfolio...</div>
         ) : projects.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '48px 24px', borderRadius: 20, background: T.card, border: `1px solid ${T.border}` }}>
-            <div style={{ fontSize: 48, marginBottom: 12 }}>🧭</div>
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
+              <IconGlyph name="compass" size={40} strokeWidth={2.2} color={T.textMuted} />
+            </div>
             <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 8 }}>No proof entries yet</div>
             <div style={{ fontSize: 13, color: T.textMuted, lineHeight: 1.6, marginBottom: 20 }}>Complete a milestone project or finish a full course to start building your portfolio.</div>
             <button onClick={() => router.push('/dashboard')} style={{ padding: '12px 24px', borderRadius: 14, border: 'none', background: T.teal, color: '#000', fontSize: 14, fontWeight: 800, cursor: 'pointer', fontFamily: font }}>Go to Dashboard</button>
@@ -194,15 +206,15 @@ export default function PortfolioPage() {
                   {/* Bottom row */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                     <span style={{ padding: '3px 8px', borderRadius: 9999, fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.6px', color: dc, background: `${dc}12`, border: `1px solid ${dc}30` }}>{p.difficulty}</span>
-                    {isBuild && <span style={{ padding: '3px 8px', borderRadius: 9999, fontSize: 9, fontWeight: 800, background: 'rgba(168,85,247,0.08)', border: '1px solid rgba(168,85,247,0.22)', color: T.purple }}>⚡ Build</span>}
-                    {isVerified && <span style={{ padding: '3px 8px', borderRadius: 9999, fontSize: 9, fontWeight: 800, background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.2)', color: T.green }}>✓ Verified</span>}
+                    {isBuild && <span style={{ padding: '3px 8px', borderRadius: 9999, fontSize: 9, fontWeight: 800, background: 'rgba(168,85,247,0.08)', border: '1px solid rgba(168,85,247,0.22)', color: T.purple, display: 'inline-flex', alignItems: 'center', gap: 4 }}><IconGlyph name="bolt" size={10} strokeWidth={2.4} color={T.purple}/>Build</span>}
+                    {isVerified && <span style={{ padding: '3px 8px', borderRadius: 9999, fontSize: 9, fontWeight: 800, background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.2)', color: T.green, display: 'inline-flex', alignItems: 'center', gap: 4 }}><IconGlyph name="shield_check" size={10} strokeWidth={2.4} color={T.green}/>Verified</span>}
                     <AuthBadge score={p.authenticity_score} />
                     {proofSummary.verificationLayers?.filter((layer) => layer.passed).slice(0, 2).map((layer) => (
                       <span key={layer.id} style={{ padding: '3px 8px', borderRadius: 9999, fontSize: 9, fontWeight: 700, background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.2)', color: T.green }}>
                         {layer.title}
                       </span>
                     ))}
-                    {timeSpent && <span style={{ fontSize: 9, color: T.textMuted, fontWeight: 700 }}>⏱ {timeSpent}m</span>}
+                    {timeSpent && <span style={{ fontSize: 9, color: T.textMuted, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}><IconGlyph name="timer" size={10} strokeWidth={2.4} color={T.textMuted}/>{timeSpent}m</span>}
                     {(p.concepts_tested || []).slice(0, 2).map((c, ci) => (
                       <span key={ci} style={{ padding: '3px 8px', borderRadius: 9999, fontSize: 9, fontWeight: 700, background: 'rgba(255,255,255,0.04)', color: T.textMuted }}>{c}</span>
                     ))}

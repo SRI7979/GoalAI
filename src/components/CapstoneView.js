@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import AIAssistant from './AIAssistant'
+import IconGlyph from '@/components/IconGlyph'
 
 const font = "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif"
 
@@ -102,7 +103,10 @@ export default function CapstoneView({ task, goal, knowledge, onClose, onComplet
                 {/* Header */}
                 <div style={{ marginBottom: 28 }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: '#F97316', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 8 }}>
-                    🏗️ Capstone Project · {capstone.estimatedDays} day{capstone.estimatedDays !== 1 ? 's' : ''}
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                      <IconGlyph name="artifact" size={13} strokeWidth={2.3} color="#F97316" />
+                      Capstone Project · {capstone.estimatedDays} day{capstone.estimatedDays !== 1 ? 's' : ''}
+                    </span>
                   </div>
                   <h1 style={{ fontSize: 26, fontWeight: 900, color: '#f5f5f7', marginBottom: 12, letterSpacing: '-0.5px', lineHeight: 1.2 }}>{capstone.title}</h1>
                   <p style={{ fontSize: 15, color: '#8e8e93', lineHeight: 1.7, margin: 0 }}>{capstone.description}</p>
@@ -135,7 +139,7 @@ export default function CapstoneView({ task, goal, knowledge, onClose, onComplet
                           style={{ width: '100%', padding: '16px 18px', background: expandedMilestone === mi ? 'rgba(249,115,22,0.05)' : 'rgba(255,255,255,0.02)', border: 'none', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 14, fontFamily: font }}
                         >
                           <div style={{ width: 32, height: 32, borderRadius: '50%', background: milestoneComplete ? 'rgba(52,211,153,0.15)' : 'rgba(249,115,22,0.10)', border: `1.5px solid ${milestoneComplete ? '#34D399' : 'rgba(249,115,22,0.30)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: milestoneComplete ? '#34D399' : '#F97316', flexShrink: 0, transition: 'all 0.2s' }}>
-                            {milestoneComplete ? '✓' : mi + 1}
+                            {milestoneComplete ? <IconGlyph name="check" size={12} strokeWidth={2.8} color="#34D399" /> : mi + 1}
                           </div>
                           <div style={{ flex: 1 }}>
                             <div style={{ fontSize: 15, fontWeight: 700, color: '#f5f5f7' }}>{milestone.title}</div>
@@ -181,7 +185,7 @@ export default function CapstoneView({ task, goal, knowledge, onClose, onComplet
             }}>
               {completing ? (
                 <><div style={{width:14,height:14,border:'2px solid rgba(249,115,22,0.2)',borderTopColor:'#F97316',borderRadius:'50%',animation:'spin 0.65s linear infinite'}}/>Saving…</>
-              ) : pct === 100 ? 'Submit Capstone ✓' : `Mark Complete (${completedCount}/${allTasks.length} done)`}
+              ) : pct === 100 ? 'Submit Capstone' : `Mark Complete (${completedCount}/${allTasks.length} done)`}
             </button>
           </div>
         </div>

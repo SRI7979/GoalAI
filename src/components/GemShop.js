@@ -1,5 +1,6 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
+import { purchaseGemItem } from '@/lib/progressionClient'
 import { GEM_SHOP_ITEMS, HEARTS_MAX_CAP } from '@/lib/tokens'
 import { getStoredOwnedThemes, setStoredOwnedThemes, unlockStoredTheme } from '@/lib/appThemes'
 import { setStoredMaxHearts } from '@/lib/shopStorage'
@@ -215,21 +216,19 @@ function GemIcon({ sz = 18 }) {
   )
 }
 
-export default function GemShop({ gems, goalId, activeTheme, maxHearts, inventoryCounts = {}, onPurchase }) {
+export default function GemShop({ user, goal, gems, goalId, activeTheme, maxHearts, inventoryCounts = {}, onPurchase }) {
   const [buying, setBuying]         = useState(null)
   const [confirm, setConfirm]       = useState(null)
   const [success, setSuccess]       = useState(null)
   const [successMsg, setSuccessMsg] = useState(null)
   const [errorMsg, setErrorMsg]     = useState(null)
-  const [ownedThemes, setOwnedThemes] = useState([])
-
-  useEffect(() => {
+  const [ownedThemes, setOwnedThemes] = useState(() => {
     try {
-      setOwnedThemes(getStoredOwnedThemes())
+      return getStoredOwnedThemes()
     } catch {
-      setOwnedThemes([])
+      return []
     }
-  }, [])
+  })
 
   async function handleBuy(item) {
     if (buying) return
@@ -241,18 +240,14 @@ export default function GemShop({ gems, goalId, activeTheme, maxHearts, inventor
     setBuying(item.id)
     setErrorMsg(null)
     try {
-      const { data: { session } } = await (await import('@/lib/supabase')).supabase.auth.getSession()
-      const token = session?.access_token || null
-      const res = await fetch('/api/gem-purchase', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({ goalId, itemId: item.id, accessToken: token, clientGems: gems, clientMaxHearts: maxHearts }),
+      const data = await purchaseGemItem({
+        user,
+        goal: goal || (goalId ? { id: goalId } : null),
+        itemId: item.id,
+        clientGems: gems,
+        clientMaxHearts: maxHearts,
       })
-      const data = await res.json()
-      if (!res.ok) {
+      if (!data.ok) {
         if (Array.isArray(data.ownedThemes)) {
           setStoredOwnedThemes(data.ownedThemes)
           setOwnedThemes(data.ownedThemes)
@@ -274,7 +269,7 @@ export default function GemShop({ gems, goalId, activeTheme, maxHearts, inventor
       setSuccess(item.id)
       setSuccessMsg(data.effect || 'Purchase complete!')
       setTimeout(() => { setSuccess(null); setSuccessMsg(null) }, 3000)
-      onPurchase(data)
+      onPurchase?.(data)
     } catch {
       setErrorMsg('Network error')
     }
@@ -394,7 +389,7 @@ export default function GemShop({ gems, goalId, activeTheme, maxHearts, inventor
                     background:'rgba(14,245,194,0.06)',border:'1px solid rgba(14,245,194,0.18)',
                     fontSize:12,fontWeight:700,color:'#0ef5c2',
                   }}>
-                    {isActiveTheme ? '✓ Applied' : '✓ Owned'}
+                    {isActiveTheme ? 'Applied' : 'Owned'}
                   </div>
                 ) : isMaxed ? (
                   <div style={{

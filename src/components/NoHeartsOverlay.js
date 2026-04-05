@@ -94,7 +94,7 @@ export default function NoHeartsOverlay({ refillAt, onClose, onPractice }) {
               fontFamily: 'inherit',
               boxShadow: '0 0 28px rgba(14,245,194,0.35)',
             }}>
-              Continue Learning ✓
+              Continue Learning
             </button>
           ) : (
             <>
@@ -105,7 +105,7 @@ export default function NoHeartsOverlay({ refillAt, onClose, onPractice }) {
                 fontFamily: 'inherit',
                 boxShadow: '0 0 28px rgba(14,245,194,0.35)',
               }}>
-                Practice to Earn Hearts ❤️
+                Practice to Earn Hearts
               </button>
               <button onClick={onClose} style={{
                 padding: '12px', borderRadius: 16,

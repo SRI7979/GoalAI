@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import AIAssistant from './AIAssistant'
+import IconGlyph from '@/components/IconGlyph'
 
 const font = "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif"
 
@@ -117,7 +118,11 @@ export default function FlashcardView({ task, goal, knowledge, onClose, onComple
             </div>
           ) : done ? (
             <div style={{ textAlign: 'center', animation: 'popIn 0.45s cubic-bezier(0.34,1.56,0.64,1) both', maxWidth: 400 }}>
-              <div style={{ fontSize: 56, marginBottom: 16 }}>{known.size >= cards.length * 0.8 ? '🎉' : known.size >= cards.length * 0.5 ? '⭐' : '📚'}</div>
+              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
+                <div style={{ width: 68, height: 68, borderRadius: 22, background: 'rgba(167,139,250,0.08)', border: '1px solid rgba(167,139,250,0.18)', display: 'grid', placeItems: 'center' }}>
+                  <IconGlyph name={known.size >= cards.length * 0.8 ? 'badge' : known.size >= cards.length * 0.5 ? 'sparkles' : 'book'} size={30} strokeWidth={2.2} color="#A78BFA" />
+                </div>
+              </div>
               <h2 style={{ fontSize: 26, fontWeight: 900, color: '#f5f5f7', marginBottom: 8 }}>Deck complete!</h2>
               <p style={{ fontSize: 15, color: '#8e8e93', marginBottom: 6 }}>
                 You marked <strong style={{ color: '#34D399' }}>{known.size}/{cards.length}</strong> as known.
@@ -170,7 +175,7 @@ export default function FlashcardView({ task, goal, knowledge, onClose, onComple
               {/* Hint */}
               {!flipped && card.hint && (
                 <button onClick={(e) => { e.stopPropagation(); setShowHint(h => !h) }} style={{ background: showHint ? 'rgba(167,139,250,0.08)' : 'none', border: showHint ? '1px solid rgba(167,139,250,0.18)' : 'none', borderRadius: 12, cursor: 'pointer', fontSize: 13, color: showHint ? '#A78BFA' : '#636366', fontFamily: font, padding: showHint ? '8px 16px' : '4px 8px', transition: 'all 0.2s', maxWidth: 400, textAlign: 'center', lineHeight: 1.5 }}>
-                  {showHint ? card.hint : '💡 Show hint'}
+                  {showHint ? card.hint : 'Show hint'}
                 </button>
               )}
 
@@ -200,7 +205,7 @@ export default function FlashcardView({ task, goal, knowledge, onClose, onComple
                 }}>
                   {completing ? (
                     <><div style={{width:14,height:14,border:'2px solid rgba(167,139,250,0.2)',borderTopColor:'#A78BFA',borderRadius:'50%',animation:'spin 0.65s linear infinite'}}/>Saving…</>
-                  ) : 'Complete ✓'}
+                  ) : 'Complete'}
                 </button>
               </div>
             ) : !loading && cards.length > 0 ? (
@@ -227,7 +232,7 @@ export default function FlashcardView({ task, goal, knowledge, onClose, onComple
                 }}
                 onMouseEnter={e=>{e.currentTarget.style.background='rgba(52,211,153,0.12)'}}
                 onMouseLeave={e=>{e.currentTarget.style.background='rgba(52,211,153,0.06)'}}>
-                  Got it ✓
+                  Mark known
                 </button>
               </div>
             ) : null}

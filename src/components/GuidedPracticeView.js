@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import AIAssistant from './AIAssistant'
 import ConfidenceSelector from './ConfidenceSelector'
+import IconGlyph from '@/components/IconGlyph'
 
 const font = "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif"
 
@@ -135,7 +136,7 @@ export default function GuidedPracticeView({ task, goal, knowledge, onClose, onC
           </button>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 18 }}>🔧</span>
+            <IconGlyph name="wrench" size={18} strokeWidth={2.2} color="#00d4ff" />
             <span style={{ fontSize: 14, fontWeight: 700, color: '#00d4ff' }}>Guided Practice</span>
           </div>
 
@@ -145,7 +146,7 @@ export default function GuidedPracticeView({ task, goal, knowledge, onClose, onC
             border: '1px solid rgba(0,212,255,0.25)', borderRadius: 9999,
             fontSize: 11, fontWeight: 700, color: '#00d4ff',
           }}>
-            💡 {hintsRevealed}/{hints.length}
+            {hintsRevealed}/{hints.length}
           </div>
         </div>
 
@@ -238,7 +239,7 @@ export default function GuidedPracticeView({ task, goal, knowledge, onClose, onC
                         cursor: 'pointer', fontFamily: font,
                         animation: 'pulseGlow 2s ease infinite',
                       }}>
-                        💡 Reveal Hint {hintsRevealed + 1}
+                        Reveal Hint {hintsRevealed + 1}
                       </button>
                     )}
                   </div>
@@ -440,7 +441,7 @@ export default function GuidedPracticeView({ task, goal, knowledge, onClose, onC
               >
                 {submitting ? (
                   <><div style={{ width: 14, height: 14, border: '2px solid rgba(0,212,255,0.2)', borderTopColor: '#00d4ff', borderRadius: '50%', animation: 'spin 0.65s linear infinite' }}/>Saving...</>
-                ) : confidenceLevel ? 'Complete Practice ✓' : 'Choose confidence to continue'}
+                ) : confidenceLevel ? 'Complete Practice' : 'Choose confidence to continue'}
               </button>
             )}
           </div>

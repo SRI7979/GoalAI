@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import AIAssistant from './AIAssistant'
+import IconGlyph from '@/components/IconGlyph'
 
 const font = "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif"
 
@@ -94,7 +95,9 @@ export default function DiscussionView({ task, goal, knowledge, onClose, onCompl
                       style={{ width: '100%', padding: '16px 18px', background: expanded === i ? 'rgba(96,165,250,0.05)' : 'rgba(255,255,255,0.02)', border: 'none', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'flex-start', gap: 14, fontFamily: font }}
                     >
                       <div style={{ width: 28, height: 28, borderRadius: '50%', background: answers[i]?.trim().length > 10 ? 'rgba(96,165,250,0.15)' : 'rgba(255,255,255,0.06)', border: `1.5px solid ${answers[i]?.trim().length > 10 ? '#60A5FA' : 'rgba(255,255,255,0.12)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 12, fontWeight: 700, color: answers[i]?.trim().length > 10 ? '#60A5FA' : '#636366', transition: 'all 0.2s' }}>
-                        {answers[i]?.trim().length > 10 ? '✓' : i + 1}
+                        {answers[i]?.trim().length > 10 ? (
+                          <IconGlyph name="check" size={12} strokeWidth={2.6} color="#60A5FA" />
+                        ) : i + 1}
                       </div>
                       <p style={{ margin: 0, fontSize: 15, fontWeight: 600, color: '#f5f5f7', lineHeight: 1.5 }}>{p.question}</p>
                     </button>
@@ -102,9 +105,12 @@ export default function DiscussionView({ task, goal, knowledge, onClose, onCompl
                     {expanded === i && (
                       <div style={{ padding: '0 18px 18px' }}>
                         {p.followUp && (
-                          <p style={{ fontSize: 13, color: '#60A5FA', marginBottom: 14, paddingLeft: 42, lineHeight: 1.5 }}>
-                            💬 Follow-up: {p.followUp}
-                          </p>
+                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 14, paddingLeft: 42 }}>
+                            <IconGlyph name="message" size={14} strokeWidth={2.3} color="#60A5FA" style={{ marginTop: 2, flexShrink: 0 }} />
+                            <p style={{ fontSize: 13, color: '#60A5FA', lineHeight: 1.5, margin: 0 }}>
+                              Follow-up: {p.followUp}
+                            </p>
+                          </div>
                         )}
                         <textarea
                           value={answers[i] || ''}
@@ -141,7 +147,7 @@ export default function DiscussionView({ task, goal, knowledge, onClose, onCompl
             }}>
               {completing ? (
                 <><div style={{width:14,height:14,border:'2px solid rgba(96,165,250,0.2)',borderTopColor:'#60A5FA',borderRadius:'50%',animation:'spin 0.65s linear infinite'}}/>Saving…</>
-              ) : answeredCount === prompts.length && prompts.length > 0 ? 'Complete ✓' : answeredCount > 0 ? `Complete (${answeredCount}/${prompts.length} answered)` : 'Complete when ready'}
+              ) : answeredCount === prompts.length && prompts.length > 0 ? 'Complete' : answeredCount > 0 ? `Complete (${answeredCount}/${prompts.length} answered)` : 'Complete when ready'}
             </button>
           </div>
         </div>

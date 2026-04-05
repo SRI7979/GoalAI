@@ -1,7 +1,8 @@
 import { getOpenAIModel } from '@/lib/openaiModels'
 import { getSupabaseServerClient } from '@/lib/supabaseServer'
+import { getCanonicalTaskType, normalizeLearningTask, normalizeLearningTasks } from '@/lib/taskTaxonomy'
 
-const EXTRA_TASK_TYPES = ['practice', 'exercise', 'review', 'quiz', 'video', 'lesson']
+const EXTRA_TASK_TYPES = ['concept', 'guided_practice', 'recall', 'quiz', 'explain']
 
 function extractAccessToken(request) {
   const authHeader = request.headers.get('authorization') || request.headers.get('Authorization')
@@ -11,12 +12,13 @@ function extractAccessToken(request) {
 }
 
 function normalizeExtraTask(task, fallbackType, index, baseDuration, concept, goal) {
-  const type = String(task?.type || fallbackType).toLowerCase()
+  const type = getCanonicalTaskType(task?.type || fallbackType, task)
   const durationMin = Math.max(8, Number(task?.durationMin) || baseDuration)
   const title = String(task?.title || `Extra ${type} on ${concept}`).trim()
   const description = String(task?.description || `Go deeper on ${concept} with a concrete output for ${goal}.`).trim()
-  return {
+  return normalizeLearningTask({
     type,
+    presentation: String(task?.presentation || '').trim() || undefined,
     title,
     description,
     durationMin,
@@ -24,7 +26,7 @@ function normalizeExtraTask(task, fallbackType, index, baseDuration, concept, go
     resourceTitle: String(task?.resourceTitle || '').trim() || `Extra Practice ${index + 1}`,
     resourceType: String(task?.resourceType || '').trim() || 'article',
     completed: false,
-  }
+  })
 }
 
 async function generateExtraTasks({ goal, concept, count, baseDuration, openaiApiKey }) {
@@ -47,8 +49,8 @@ async function generateExtraTasks({ goal, concept, count, baseDuration, openaiAp
 Goal: ${goal}
 Concept: ${concept}
 Each task should be about ${baseDuration} minutes.
-Return ONLY JSON: {"tasks":[{"type":"practice","title":"...","description":"...","durationMin":12,"resourceUrl":"https://...","resourceTitle":"...","resourceType":"article"}]}
-Rules: practical, specific, no duplicate titles, include resource url/title.`,
+Return ONLY JSON: {"tasks":[{"type":"guided_practice","presentation":"exercise","title":"...","description":"...","durationMin":12,"resourceUrl":"https://...","resourceTitle":"...","resourceType":"article"}]}
+Rules: use only canonical task types (concept, guided_practice, explain, recall, quiz), practical, specific, no duplicate titles, include resource url/title.`,
         }],
       }),
     })
@@ -97,7 +99,7 @@ export async function POST(request) {
       .eq('user_id', userId)
       .maybeSingle()
 
-    const currentTasks = Array.isArray(row.tasks) ? row.tasks : []
+    const currentTasks = normalizeLearningTasks(row.tasks)
     const goalText = goalRow?.goal_text || 'your learning goal'
     const concept = row.covered_topics?.[0] || goalText
     const baseDuration = Math.max(10, Math.round((currentTasks.reduce((sum, t) => sum + (Number(t.durationMin || t.estimated_minutes) || 0), 0) || 30) / Math.max(1, currentTasks.length)))

@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { AI_INTERACTION_TYPES } from '@/lib/learningEngine'
 import ConfidenceSelector from './ConfidenceSelector'
+import IconGlyph from '@/components/IconGlyph'
 
 const font = "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif"
 
@@ -117,7 +118,7 @@ export default function AIInteractionView({ task, goal, knowledge, onClose, onCo
           </button>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 18 }}>💬</span>
+            <IconGlyph name="message" size={18} strokeWidth={2.2} color="#818CF8" />
             <span style={{ fontSize: 14, fontWeight: 700, color: '#818CF8' }}>AI Interaction</span>
           </div>
 
@@ -132,7 +133,11 @@ export default function AIInteractionView({ task, goal, knowledge, onClose, onCo
             {!selectedType && (
               <div style={{ animation: 'fadeIn 0.3s ease both' }}>
                 <div style={{ textAlign: 'center', marginBottom: 28 }}>
-                  <div style={{ fontSize: 48, marginBottom: 12 }}>💬</div>
+                  <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
+                    <div style={{ width: 64, height: 64, borderRadius: 20, background: 'rgba(129,140,248,0.10)', border: '1px solid rgba(129,140,248,0.22)', display: 'grid', placeItems: 'center' }}>
+                      <IconGlyph name="message" size={28} strokeWidth={2.2} color="#818CF8" />
+                    </div>
+                  </div>
                   <h1 style={{ fontSize: 24, fontWeight: 800, color: '#f5f5f7', marginBottom: 8 }}>
                     Choose Your Challenge
                   </h1>
@@ -157,7 +162,7 @@ export default function AIInteractionView({ task, goal, knowledge, onClose, onCo
                         background: 'rgba(129,140,248,0.10)',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         fontSize: 22, flexShrink: 0,
-                      }}>{config.icon}</div>
+                      }}><IconGlyph name={config.icon} size={22} strokeWidth={2.2} color="#818CF8" /></div>
                       <div>
                         <div style={{ fontSize: 16, fontWeight: 700, color: '#f5f5f7', marginBottom: 2 }}>
                           {config.label}
@@ -198,7 +203,7 @@ export default function AIInteractionView({ task, goal, knowledge, onClose, onCo
                   fontSize: 11, fontWeight: 700, color: '#818CF8',
                   textTransform: 'uppercase', letterSpacing: '1px',
                 }}>
-                  {interaction.typeConfig?.icon} {interaction.typeConfig?.label}
+                  <IconGlyph name={interaction.typeConfig?.icon || 'message'} size={13} strokeWidth={2.3} color="#818CF8" /> {interaction.typeConfig?.label}
                 </div>
 
                 {/* Scenario */}
@@ -294,7 +299,7 @@ export default function AIInteractionView({ task, goal, knowledge, onClose, onCo
                         }}>
                           {evaluating ? (
                             <><div style={{ width: 14, height: 14, border: '2px solid rgba(255,69,58,0.2)', borderTopColor: '#FF453A', borderRadius: '50%', animation: 'spin 0.65s linear infinite' }}/>Checking...</>
-                          ) : '🔍 Submit Debug Analysis →'}
+                          ) : 'Submit Debug Analysis →'}
                         </button>
                       </>
                     )}
@@ -344,7 +349,7 @@ export default function AIInteractionView({ task, goal, knowledge, onClose, onCo
                               display: 'flex', alignItems: 'center', justifyContent: 'center',
                               fontSize: 11, fontWeight: 800, flexShrink: 0,
                             }}>
-                              {predictRevealed && isCorrect ? '✓' : predictRevealed && isSelected ? '✗' : ['A','B','C','D'][i]}
+                              {predictRevealed && isCorrect ? <IconGlyph name="check" size={12} strokeWidth={2.8} color="#0ef5c2" /> : predictRevealed && isSelected ? <IconGlyph name="x" size={12} strokeWidth={2.6} color="#FF453A" /> : ['A','B','C','D'][i]}
                             </span>
                             {opt}
                           </button>
@@ -428,7 +433,7 @@ export default function AIInteractionView({ task, goal, knowledge, onClose, onCo
                         }}>
                           {evaluating ? (
                             <><div style={{ width: 14, height: 14, border: '2px solid rgba(251,191,36,0.2)', borderTopColor: '#FBBF24', borderRadius: '50%', animation: 'spin 0.65s linear infinite' }}/>Analyzing...</>
-                          ) : '🤔 Submit Analysis →'}
+                          ) : 'Submit Analysis →'}
                         </button>
                       </>
                     )}
@@ -536,7 +541,7 @@ export default function AIInteractionView({ task, goal, knowledge, onClose, onCo
               }}>
                 {completing ? (
                   <><div style={{ width: 14, height: 14, border: '2px solid rgba(129,140,248,0.2)', borderTopColor: '#818CF8', borderRadius: '50%', animation: 'spin 0.65s linear infinite' }}/>Saving...</>
-                ) : confidenceLevel ? 'Complete ✓' : 'Choose confidence to continue'}
+                ) : confidenceLevel ? 'Complete' : 'Choose confidence to continue'}
               </button>
             )}
           </div>

@@ -1,9 +1,27 @@
 import { getOpenAIModel } from '@/lib/openaiModels'
+import { buildDeterministicChallenge } from '@/lib/deterministicLesson'
 
 export async function POST(request) {
+  let body = null
+
   try {
-    const { concept, taskTitle, goal, knowledge } = await request.json()
-    if (!concept || !goal) return Response.json({ error: 'Missing concept or goal' }, { status: 400 })
+    body = await request.json()
+    const {
+      concept,
+      taskTitle,
+      goal,
+      knowledge,
+      taskDescription,
+      taskAction,
+      taskOutcome,
+      resourceUrl,
+      resourceTitle,
+      difficulty,
+    } = body || {}
+
+    if (!concept || !goal) {
+      return Response.json({ error: 'Missing concept or goal' }, { status: 400 })
+    }
 
     const prompt = `You are designing a timed challenge for a premium learning app. Create an engaging, practical challenge about "${taskTitle || concept}" for someone learning "${goal}".
 ${knowledge ? `The student already knows: ${knowledge}. Challenge them at their level, not below it.` : ''}
@@ -38,16 +56,79 @@ CHALLENGE QUALITY REQUIREMENTS:
 - The challenge should feel like a puzzle to solve, not homework to complete
 - Ground it in a real-world scenario when possible ("Build a function that a real app would use")`
 
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
-      body: JSON.stringify({ model: getOpenAIModel('challenge'), messages: [{ role: 'user', content: prompt }], temperature: 0.45, max_tokens: 1000 }),
-    })
-    const data = await res.json()
-    const raw = data.choices?.[0]?.message?.content?.trim() || ''
-    const clean = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
-    return Response.json(JSON.parse(clean))
+    const tryGenerate = async () => {
+      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: getOpenAIModel('challenge'),
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.45,
+          max_tokens: 1000,
+        }),
+      })
+
+      if (!res.ok) {
+        const error = new Error(`OpenAI challenge error: ${res.status}`)
+        error.code = 'openai_http_error'
+        throw error
+      }
+
+      const data = await res.json()
+      const raw = data.choices?.[0]?.message?.content?.trim() || ''
+      const clean = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
+      const parsed = JSON.parse(clean)
+
+      if (!parsed?.title || !parsed?.prompt) {
+        const error = new Error('Challenge payload missing fields')
+        error.code = 'invalid_json'
+        throw error
+      }
+
+      return parsed
+    }
+
+    try {
+      return Response.json(await tryGenerate())
+    } catch (primaryError) {
+      try {
+        return Response.json(await tryGenerate())
+      } catch (retryError) {
+        return Response.json(buildDeterministicChallenge({
+          concept,
+          taskTitle,
+          goal,
+          knowledge,
+          taskDescription,
+          taskAction,
+          taskOutcome,
+          resourceUrl,
+          resourceTitle,
+          difficulty,
+          fallbackReason: retryError?.code || primaryError?.code || 'challenge_generation_failed',
+        }))
+      }
+    }
   } catch (err) {
-    return Response.json({ error: err.message }, { status: 500 })
+    if (body?.goal) {
+      return Response.json(buildDeterministicChallenge({
+        concept: body?.concept,
+        taskTitle: body?.taskTitle,
+        goal: body?.goal,
+        knowledge: body?.knowledge,
+        taskDescription: body?.taskDescription,
+        taskAction: body?.taskAction,
+        taskOutcome: body?.taskOutcome,
+        resourceUrl: body?.resourceUrl,
+        resourceTitle: body?.resourceTitle,
+        difficulty: body?.difficulty,
+        fallbackReason: err?.code || err?.message || 'route_error',
+      }))
+    }
+
+    return Response.json({ error: err?.message || 'Unable to build challenge right now.' }, { status: 500 })
   }
 }

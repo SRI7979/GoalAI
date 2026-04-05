@@ -1,87 +1,86 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { useRouter } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
 import IconGlyph from '@/components/IconGlyph'
+import AtmosphericBackdrop from '@/components/premium/AtmosphericBackdrop'
+import GenerationStepList from '@/components/premium/GenerationStepList'
+import PremiumFrame from '@/components/premium/PremiumFrame'
+import ScrollReveal from '@/components/premium/ScrollReveal'
+import { createLocalGoalBundle, isLocalAccessUser } from '@/lib/localGoalStore'
+import { getSafeSupabaseSession, getSafeSupabaseUser, supabaseData } from '@/lib/supabase'
+import { consumeSupabaseAuthRedirect } from '@/lib/supabaseAuth'
 
-const STEP_TITLES = ['Goal', 'Style', 'Level', 'Path', 'Action', 'Launch']
-
-const GOAL_OPTIONS = [
-  { label: 'Learn Python', subtitle: 'Code, logic, and real builds', icon: 'code', accent: '#0ef5c2' },
-  { label: 'Master Machine Learning', subtitle: 'Models, evaluation, and projects', icon: 'brain', accent: '#60A5FA' },
-  { label: 'Prepare for a job', subtitle: 'Skill up toward a concrete outcome', icon: 'briefcase', accent: '#F59E0B' },
-  { label: 'Learn Spanish', subtitle: 'Conversation, grammar, and confidence', icon: 'message', accent: '#34D399' },
-  { label: 'Build real projects', subtitle: 'Create portfolio-ready proof', icon: 'hammer', accent: '#A855F7' },
-  { label: 'UI/UX Design', subtitle: 'Hierarchy, systems, and interface craft', icon: 'design', accent: '#F472B6' },
+const STEPS = [
+  'What do you want to learn?',
+  'How should we build your path?',
+  "Let's see where you're starting.",
+  'Building your path...',
 ]
 
-const INTENT_OPTIONS = [
-  { id: 'career', label: 'Career', hint: 'Get job-ready faster', icon: 'briefcase' },
-  { id: 'school', label: 'School', hint: 'Stay structured and exam-ready', icon: 'graduation' },
-  { id: 'curiosity', label: 'Curiosity', hint: 'Learn because it matters to you', icon: 'sparkles' },
+const GOAL_OPTIONS = [
+  { label: 'Learn JavaScript', description: 'Code, logic, and real builds', icon: 'code', accent: '#00e5c7' },
+  { label: 'Master Machine Learning', description: 'Models, evaluation, and projects', icon: 'brain', accent: '#84a3ff' },
+  { label: 'Learn Python', description: 'From zero to building real tools', icon: 'cpu', accent: '#60A5FA' },
+  { label: 'Learn Spanish', description: 'Conversation, grammar, and confidence', icon: 'message', accent: '#34D399' },
+  { label: 'UI/UX Design', description: 'Hierarchy, systems, and interface craft', icon: 'design', accent: '#f472b6' },
+  { label: 'Build Real Projects', description: 'Create portfolio-ready proof', icon: 'artifact', accent: '#f59e0b' },
+]
+
+const PATH_OPTIONS = [
+  {
+    id: 'goal',
+    title: 'Structured Path',
+    description: 'A guided route from foundations to mastery. Best if you want clear daily missions.',
+    icon: 'map',
+  },
+  {
+    id: 'explore',
+    title: 'Explore Mode',
+    description: 'A flexible route that adapts to your curiosity. Best if you want to jump around.',
+    icon: 'orbit',
+  },
 ]
 
 const PACE_OPTIONS = [
-  { id: 'fast', label: 'Fast', hint: 'Move quickly with tight pacing', icon: 'rocket' },
-  { id: 'balanced', label: 'Balanced', hint: 'Steady progress with breathing room', icon: 'gauge' },
-  { id: 'deep', label: 'Deep', hint: 'Go slower and build durable understanding', icon: 'library' },
-]
-
-const SUPPORT_OPTIONS = [
-  { id: 'guided', label: 'Guided', hint: 'More support and clearer scaffolding', icon: 'shield_check' },
-  { id: 'moderate', label: 'Moderate', hint: 'A healthy balance of help and challenge', icon: 'compass' },
-  { id: 'challenge', label: 'Challenge me', hint: 'Push faster and rely less on hints', icon: 'challenge' },
-]
-
-const PATH_STYLE_OPTIONS = [
-  { id: 'goal', label: 'Structured path', hint: 'Clear finish line and milestones', icon: 'goal' },
-  { id: 'explore', label: 'Open exploration', hint: 'Flexible path without a fixed deadline', icon: 'orbit' },
-]
-
-const LEVEL_OPTIONS = [
-  { id: 'beginner', label: 'Beginner', hint: 'Start from foundations', icon: 'sprout' },
-  { id: 'intermediate', label: 'Intermediate', hint: 'Skip the very basics', icon: 'layers' },
-  { id: 'advanced', label: 'Advanced', hint: 'Move straight toward higher challenge', icon: 'rocket' },
+  { id: 'relaxed', label: 'Relaxed' },
+  { id: 'balanced', label: 'Balanced' },
+  { id: 'intensive', label: 'Intensive' },
 ]
 
 const GENERATION_STEPS = [
-  'Reading your goal',
-  'Choosing the right starting depth',
-  'Mapping the first milestones',
-  'Sequencing your first mission',
-  'Finalizing your path',
+  'Analyzing your starting point...',
+  'Mapping the skill graph...',
+  'Generating your first mission...',
+  'Calibrating difficulty...',
+  'Your path is ready.',
 ]
 
-const GENERATION_BUBBLES = [
-  'Locking in the best starting point.',
-  'Tuning the path to your pace and challenge level.',
-  'Choosing the first milestones that matter.',
-  'Setting up your first meaningful step.',
-  'Your launchpad is ready.',
-]
+const ROUTE_MAP = {
+  programming: ['Foundations', 'Control flow', 'Applied builds', 'Project milestone', 'Final assessment'],
+  machineLearning: ['Intro to ML', 'Python basics', 'Decision trees', 'Libraries and workflow', 'Proof project'],
+  language: ['Core phrases', 'Grammar patterns', 'Response drills', 'Conversation milestone', 'Live practice'],
+  design: ['Visual fundamentals', 'Hierarchy and layout', 'Component systems', 'Applied screens', 'Portfolio proof'],
+  general: ['Foundations', 'Guided practice', 'Applied work', 'Milestone proof', 'Final assessment'],
+}
 
 function detectGoalFamily(goal = '') {
   const text = String(goal).toLowerCase()
-  if (/machine learning|\bml\b|data science|neural|model|regression|classification/.test(text)) return 'machineLearning'
-  if (/spanish|french|german|language|english|japanese|korean/.test(text)) return 'language'
-  if (/design|ui|ux|figma|brand|visual/.test(text)) return 'design'
-  if (/music|guitar|piano|sing|drum/.test(text)) return 'music'
-  if (/business|product|marketing|sales|strategy/.test(text)) return 'business'
-  if (/python|javascript|react|web|code|coding|programming|typescript|java|html|css/.test(text)) return 'programming'
+  if (/machine learning|\bml\b|decision tree|regression|classification|dataset|model/.test(text)) return 'machineLearning'
+  if (/javascript|python|react|typescript|coding|code|web/.test(text)) return 'programming'
+  if (/spanish|language|french|german|japanese/.test(text)) return 'language'
+  if (/design|ui|ux|figma|interface/.test(text)) return 'design'
   return 'general'
 }
 
-function getFamilyAccent(goalFamily) {
-  switch (goalFamily) {
-    case 'programming': return '#0ef5c2'
-    case 'machineLearning': return '#60A5FA'
+function getFamilyAccent(family) {
+  switch (family) {
+    case 'machineLearning': return '#84a3ff'
     case 'language': return '#34D399'
-    case 'design': return '#F472B6'
-    case 'music': return '#F59E0B'
-    case 'business': return '#A855F7'
-    default: return '#0ef5c2'
+    case 'design': return '#f472b6'
+    case 'programming': return '#00e5c7'
+    default: return '#00e5c7'
   }
 }
 
@@ -90,508 +89,462 @@ function getDiagnosticQuestions(goalFamily) {
     case 'programming':
       return [
         {
-          id: 'structure',
-          prompt: 'Which option best represents a list of three items?',
-          options: ['{1, 2, 3}', '[1, 2, 3]', '(1:2:3)'],
-          correctIndex: 1,
+          id: 'prog-1',
+          prompt: 'Have you written code before?',
+          options: [
+            { label: 'No, I am brand new', score: 0 },
+            { label: 'A little, mostly tutorials', score: 1 },
+            { label: 'Yes, I have built small things', score: 2 },
+          ],
         },
         {
-          id: 'logic',
-          prompt: 'What does a loop help you do?',
-          options: ['Repeat an action', 'Store a picture', 'Rename a file'],
-          correctIndex: 0,
+          id: 'prog-2',
+          prompt: 'Do you know what a variable is?',
+          options: [
+            { label: 'Not yet', score: 0 },
+            { label: 'Kind of, but not confidently', score: 1 },
+            { label: 'Yes, I use them already', score: 2 },
+          ],
+        },
+        {
+          id: 'prog-3',
+          prompt: 'Have you ever finished a small website or script?',
+          options: [
+            { label: 'No', score: 0 },
+            { label: 'Almost, with help', score: 1 },
+            { label: 'Yes', score: 2 },
+          ],
         },
       ]
     case 'machineLearning':
       return [
         {
-          id: 'task_type',
-          prompt: 'Predicting house prices is usually:',
-          options: ['Clustering', 'Regression', 'Classification'],
-          correctIndex: 1,
+          id: 'ml-1',
+          prompt: 'How familiar are you with Python for data work?',
+          options: [
+            { label: 'I have never used it', score: 0 },
+            { label: 'I can read simple code', score: 1 },
+            { label: 'I have used pandas or notebooks', score: 2 },
+          ],
         },
         {
-          id: 'data_split',
-          prompt: 'Why keep a test set separate?',
-          options: ['To measure generalization', 'To make training faster', 'To rename columns'],
-          correctIndex: 0,
+          id: 'ml-2',
+          prompt: 'Do you know the difference between training and testing data?',
+          options: [
+            { label: 'Not yet', score: 0 },
+            { label: 'Roughly', score: 1 },
+            { label: 'Yes, clearly', score: 2 },
+          ],
+        },
+        {
+          id: 'ml-3',
+          prompt: 'Have you trained any model before?',
+          options: [
+            { label: 'Never', score: 0 },
+            { label: 'Only by following a tutorial', score: 1 },
+            { label: 'Yes, a few small experiments', score: 2 },
+          ],
         },
       ]
     case 'language':
       return [
         {
-          id: 'confidence',
-          prompt: 'Pick the strongest sign of progress in a new language.',
-          options: ['Recalling one word', 'Handling a short real exchange', 'Memorizing the alphabet only'],
-          correctIndex: 1,
+          id: 'lang-1',
+          prompt: 'Can you hold a basic conversation already?',
+          options: [
+            { label: 'No, not yet', score: 0 },
+            { label: 'A few phrases', score: 1 },
+            { label: 'Yes, short exchanges', score: 2 },
+          ],
         },
         {
-          id: 'learning_mode',
-          prompt: 'What usually builds fluency fastest?',
-          options: ['Only reading rules', 'Comprehension plus response practice', 'Never making mistakes'],
-          correctIndex: 1,
+          id: 'lang-2',
+          prompt: 'How comfortable are you with grammar basics?',
+          options: [
+            { label: 'Very new', score: 0 },
+            { label: 'I know some rules', score: 1 },
+            { label: 'Pretty comfortable', score: 2 },
+          ],
+        },
+        {
+          id: 'lang-3',
+          prompt: 'Have you practiced speaking out loud regularly?',
+          options: [
+            { label: 'No', score: 0 },
+            { label: 'Sometimes', score: 1 },
+            { label: 'Yes', score: 2 },
+          ],
         },
       ]
     case 'design':
       return [
         {
-          id: 'hierarchy',
-          prompt: 'What makes a design easier to scan?',
-          options: ['Clear hierarchy', 'Random spacing', 'Using more colors'],
-          correctIndex: 0,
+          id: 'design-1',
+          prompt: 'Have you designed an interface before?',
+          options: [
+            { label: 'No, I am new', score: 0 },
+            { label: 'Only small mockups', score: 1 },
+            { label: 'Yes, real screens or flows', score: 2 },
+          ],
         },
         {
-          id: 'purpose',
-          prompt: 'A strong interface first helps the user:',
-          options: ['Understand what to do next', 'See every style at once', 'Read smaller text'],
-          correctIndex: 0,
-        },
-      ]
-    case 'music':
-      return [
-        {
-          id: 'practice',
-          prompt: 'The best first move when learning a piece is usually:',
-          options: ['Play full speed immediately', 'Break it into manageable parts', 'Avoid repetition'],
-          correctIndex: 1,
+          id: 'design-2',
+          prompt: 'How strong is your understanding of hierarchy and layout?',
+          options: [
+            { label: 'Very early', score: 0 },
+            { label: 'Basic understanding', score: 1 },
+            { label: 'Comfortable applying it', score: 2 },
+          ],
         },
         {
-          id: 'improvement',
-          prompt: 'Steady progress in music mostly comes from:',
-          options: ['Short focused reps', 'Luck', 'Only watching others play'],
-          correctIndex: 0,
-        },
-      ]
-    case 'business':
-      return [
-        {
-          id: 'decision',
-          prompt: 'A good recommendation should be based on:',
-          options: ['Clear reasoning and evidence', 'Confidence alone', 'The loudest opinion'],
-          correctIndex: 0,
-        },
-        {
-          id: 'clarity',
-          prompt: 'What makes a business plan persuasive?',
-          options: ['Structure and logic', 'More jargon', 'Ignoring tradeoffs'],
-          correctIndex: 0,
+          id: 'design-3',
+          prompt: 'Do you already use a tool like Figma?',
+          options: [
+            { label: 'Not yet', score: 0 },
+            { label: 'A little', score: 1 },
+            { label: 'Yes, regularly', score: 2 },
+          ],
         },
       ]
     default:
       return [
         {
-          id: 'learning',
-          prompt: 'Which path usually leads to mastery?',
-          options: ['Practice with feedback', 'Reading once and stopping', 'Waiting until motivated'],
-          correctIndex: 0,
+          id: 'gen-1',
+          prompt: 'How experienced are you with this skill today?',
+          options: [
+            { label: 'Complete beginner', score: 0 },
+            { label: 'Some exposure', score: 1 },
+            { label: 'I have built small wins', score: 2 },
+          ],
         },
         {
-          id: 'momentum',
-          prompt: 'Small daily progress is powerful because it:',
-          options: ['Builds consistency', 'Eliminates challenge', 'Removes the need to review'],
-          correctIndex: 0,
+          id: 'gen-2',
+          prompt: 'How often have you practiced this recently?',
+          options: [
+            { label: 'Almost never', score: 0 },
+            { label: 'Occasionally', score: 1 },
+            { label: 'Fairly consistently', score: 2 },
+          ],
+        },
+        {
+          id: 'gen-3',
+          prompt: 'How much of the basics do you already recognize?',
+          options: [
+            { label: 'Very little', score: 0 },
+            { label: 'Some of it', score: 1 },
+            { label: 'Most of it', score: 2 },
+          ],
         },
       ]
   }
 }
 
-function getFirstAction(goalFamily, goal, recommendedLevel) {
-  const safeGoal = goal || 'your skill'
-  switch (goalFamily) {
-    case 'programming':
-      return {
-        title: 'Quick code instinct check',
-        subtitle: `A tiny ${safeGoal} decision to warm up your brain.`,
-        prompt: 'You want to repeat a message five times. Which approach best fits that job?',
-        options: ['A loop', 'A color palette', 'A database table'],
-        correctIndex: 0,
-        success: 'Nice. You recognized the pattern behind repeated logic.',
-        followUp: 'Your path can start with practical foundations instead of generic filler.',
-      }
-    case 'machineLearning':
-      return {
-        title: 'Modeling instinct check',
-        subtitle: `A quick ${safeGoal} judgment call.`,
-        prompt: 'You need to predict whether a customer will cancel. Which type of task is that?',
-        options: ['Classification', 'Clustering', 'Dimensionality reduction'],
-        correctIndex: 0,
-        success: 'Strong start. You identified the core shape of the problem.',
-        followUp: 'That is enough for us to aim your first module correctly.',
-      }
-    case 'language':
-      return {
-        title: 'Response instinct check',
-        subtitle: `A fast conversational warm-up for ${safeGoal}.`,
-        prompt: 'Someone greets you politely. What is the best next step for learning?',
-        options: ['Practice a natural response', 'Memorize every tense first', 'Avoid speaking until perfect'],
-        correctIndex: 0,
-        success: 'Good. You are optimizing for real response, not passive study.',
-        followUp: 'We can lean into usable language earlier in your path.',
-      }
-    case 'design':
-      return {
-        title: 'Design judgment check',
-        subtitle: `A tiny taste of ${safeGoal}.`,
-        prompt: 'What makes a screen easier to understand quickly?',
-        options: ['Clear hierarchy', 'Equal emphasis on everything', 'More decorative elements'],
-        correctIndex: 0,
-        success: 'Exactly. You spotted the principle behind stronger interfaces.',
-        followUp: 'That helps us start with design decisions that actually matter.',
-      }
-    case 'music':
-      return {
-        title: 'Practice instinct check',
-        subtitle: `A fast decision for ${safeGoal}.`,
-        prompt: 'What usually improves performance fastest?',
-        options: ['Focused repetition on weak spots', 'Always starting from the top', 'Only practicing when inspired'],
-        correctIndex: 0,
-        success: 'Perfect. You are thinking like someone who will actually improve.',
-        followUp: 'We can build a path around deliberate practice, not vague repetition.',
-      }
-    case 'business':
-      return {
-        title: 'Decision quality check',
-        subtitle: `A quick call tied to ${safeGoal}.`,
-        prompt: 'What makes a recommendation stronger?',
-        options: ['Reasoning plus evidence', 'Confidence alone', 'Making it sound complex'],
-        correctIndex: 0,
-        success: 'Good call. Clear logic beats noise.',
-        followUp: 'That gives us the right starting frame for applied business work.',
-      }
-    default:
-      return {
-        title: 'Learning instinct check',
-        subtitle: `A quick calibration for ${safeGoal}.`,
-        prompt: 'What tends to create real progress fastest?',
-        options: ['Small consistent wins', 'Waiting for big motivation', 'Skipping feedback'],
-        correctIndex: 0,
-        success: 'Exactly. Momentum matters.',
-        followUp: 'We will build the path around quick wins and meaningful challenge.',
-      }
-  }
+function getRecommendedLevel(score) {
+  if (score <= 1) return 'Beginner'
+  if (score <= 4) return 'Intermediate'
+  return 'Advanced'
 }
 
-function resolveRecommendedLevel(selfLevel, diagnosticScore) {
-  if (selfLevel === 'beginner') return 'beginner'
-  if (selfLevel === 'intermediate') {
-    if (diagnosticScore <= 0) return 'beginner'
-    return 'intermediate'
-  }
-  if (diagnosticScore === 2) return 'advanced'
-  if (diagnosticScore === 1) return 'intermediate'
-  return 'intermediate'
+function shouldBypassPathGeneration(errorMessage = '') {
+  return /Failed to fetch|fetch failed|Supabase project URL is unreachable|Unable to reach Supabase|NEXT_PUBLIC_SUPABASE_URL/i.test(String(errorMessage))
 }
 
-function resolveCadence({ pace, pathStyle, recommendedLevel }) {
+function resolveCadence(pathStyle, pace, recommendedLevel) {
   if (pathStyle === 'explore') {
     return {
       mode: 'explore',
       days: 0,
-      weekdayMins: pace === 'deep' ? 45 : 30,
-      weekendMins: pace === 'fast' ? 45 : 60,
+      weekdayMins: pace === 'intensive' ? 40 : 30,
+      weekendMins: pace === 'relaxed' ? 45 : 60,
     }
   }
 
   const paceMap = {
-    fast: { days: 30, weekdayMins: 30, weekendMins: 45 },
-    balanced: { days: 45, weekdayMins: 30, weekendMins: 60 },
-    deep: { days: 60, weekdayMins: 45, weekendMins: 75 },
+    relaxed: { days: 56, weekdayMins: 25, weekendMins: 45 },
+    balanced: { days: 42, weekdayMins: 30, weekendMins: 60 },
+    intensive: { days: 28, weekdayMins: 40, weekendMins: 75 },
   }
 
   const base = paceMap[pace] || paceMap.balanced
-  const levelAdjustment = recommendedLevel === 'advanced'
-    ? { days: Math.max(21, base.days - 7), weekdayMins: base.weekdayMins, weekendMins: Math.max(45, base.weekendMins - 15) }
-    : recommendedLevel === 'beginner'
-      ? { days: base.days + 7, weekdayMins: base.weekdayMins, weekendMins: base.weekendMins }
-      : base
 
+  if (recommendedLevel === 'Advanced') {
+    return {
+      mode: 'goal',
+      days: Math.max(21, base.days - 10),
+      weekdayMins: base.weekdayMins,
+      weekendMins: Math.max(45, base.weekendMins - 15),
+    }
+  }
+
+  if (recommendedLevel === 'Beginner') {
+    return {
+      mode: 'goal',
+      days: base.days + 7,
+      weekdayMins: base.weekdayMins,
+      weekendMins: base.weekendMins,
+    }
+  }
+
+  return { mode: 'goal', ...base }
+}
+
+function buildPathPreview(goal, family, recommendedLevel, pathStyle) {
+  const route = ROUTE_MAP[family] || ROUTE_MAP.general
+  const startIndex = recommendedLevel === 'Advanced' ? 1 : 0
   return {
-    mode: 'goal',
-    days: levelAdjustment.days,
-    weekdayMins: levelAdjustment.weekdayMins,
-    weekendMins: levelAdjustment.weekendMins,
+    route: route.slice(startIndex, startIndex + 4),
+    firstMission: route[startIndex] || route[0],
+    completion:
+      pathStyle === 'explore'
+        ? 'Adaptive route with open-ended milestones'
+        : 'Structured finish line with project proof',
+    supportMode:
+      recommendedLevel === 'Beginner'
+        ? 'More explanation and guided practice up front'
+        : recommendedLevel === 'Advanced'
+          ? 'More challenge and faster pacing'
+          : 'Balanced pacing with visible checkpoints',
+    title: goal || 'Your custom path',
   }
 }
 
-function buildPathPreview({ goal, goalFamily, pace, intent, recommendedLevel, pathStyle }) {
-  const routeMap = {
-    programming: ['Foundations', 'Control flow', 'Applied builds', 'Project milestone', 'Final assessment'],
-    machineLearning: ['Intro to ML', 'Python and data', 'Models and evaluation', 'Project milestone', 'Final assessment'],
-    language: ['Core phrases', 'Grammar patterns', 'Live response', 'Conversation milestone', 'Final assessment'],
-    design: ['Design foundations', 'Hierarchy and layout', 'Applied screens', 'Portfolio milestone', 'Final assessment'],
-    music: ['Technique basics', 'Structured drills', 'Song application', 'Performance milestone', 'Final assessment'],
-    business: ['Core frameworks', 'Analysis and decisions', 'Applied strategy', 'Case milestone', 'Final assessment'],
-    general: ['Foundations', 'Guided practice', 'Applied work', 'Milestone proof', 'Final assessment'],
-  }
-
-  const milestones = routeMap[goalFamily] || routeMap.general
-  const startIndex = recommendedLevel === 'advanced' ? 2 : recommendedLevel === 'intermediate' ? 1 : 0
-  const visibleMilestones = milestones.slice(Math.max(0, startIndex - 1), Math.min(milestones.length, startIndex + 3))
-  const cadence = resolveCadence({ pace, pathStyle, recommendedLevel })
-  const finishLine = pathStyle === 'explore'
-    ? 'Adaptive open-ended path with milestone projects'
-    : `${cadence.days} day finish line with a real final assessment`
-
-  return {
-    header: `Here’s your path to ${goal || 'mastery'}`,
-    subcopy: intent === 'career'
-      ? 'This route leans toward practical proof and portfolio wins.'
-      : intent === 'school'
-        ? 'This route stays structured so progress feels predictable.'
-        : 'This route is tuned to keep curiosity high without losing direction.',
-    milestones: visibleMilestones,
-    startIndex,
-    firstModule: milestones[Math.min(startIndex, milestones.length - 1)],
-    nextAction: recommendedLevel === 'advanced'
-      ? `Start with ${milestones[Math.min(startIndex, milestones.length - 1)]}`
-      : `Build momentum through ${milestones[Math.min(startIndex, milestones.length - 1)]}`,
-    finishLine,
-  }
-}
-
-function buildKnowledgeSummary({
-  recommendedLevel,
-  diagnosticScore,
-  intent,
-  pace,
-  support,
-  pathStyle,
-  firstActionCorrect,
-}) {
-  return [
-    `Starting level: ${recommendedLevel}`,
-    `Diagnostic score: ${diagnosticScore}/2`,
-    `Learning intent: ${intent}`,
-    `Preferred pace: ${pace}`,
-    `Support preference: ${support}`,
-    `Path style: ${pathStyle === 'explore' ? 'exploration' : 'structured goal path'}`,
-    `Onboarding action result: ${firstActionCorrect ? 'completed successfully' : 'not completed'}`,
-  ].join('. ')
-}
-
-function MascotBubble({ text }) {
+function GoalCard({ option, selected, onSelect }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12 }}>
-      <div style={{
-        width: 54,
-        height: 54,
-        borderRadius: '32%',
-        background: 'linear-gradient(135deg, rgba(14,245,194,0.20), rgba(0,212,255,0.14))',
-        border: '1px solid rgba(14,245,194,0.28)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        color: '#0ef5c2',
-        boxShadow: '0 0 28px rgba(14,245,194,0.16)',
-        flexShrink: 0,
-      }}>
-        <IconGlyph name="bot" size={26} strokeWidth={2.3} />
+    <button
+      type="button"
+      className="onboarding-goal-card interactive-card"
+      onClick={onSelect}
+      style={{
+        '--goal-accent': option.accent,
+        borderColor: selected ? `${option.accent}50` : 'rgba(255,255,255,0.08)',
+        background: selected
+          ? `linear-gradient(180deg, ${option.accent}14, rgba(18,18,26,0.96))`
+          : 'linear-gradient(180deg, rgba(18,18,26,0.96), rgba(11,11,17,0.98))',
+        boxShadow: selected
+          ? `0 30px 64px ${option.accent}12, inset 0 1px 0 rgba(255,255,255,0.10)`
+          : '0 22px 54px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.06)',
+      }}
+    >
+      <div className="onboarding-goal-icon" style={{ background: selected ? `${option.accent}18` : 'rgba(255,255,255,0.04)' }}>
+        <IconGlyph name={option.icon} size={20} strokeWidth={2.2} color={selected ? option.accent : '#d7dce3'} />
       </div>
-      <div style={{
-        position: 'relative',
-        padding: '12px 14px',
-        borderRadius: 18,
-        background: 'rgba(255,255,255,0.08)',
-        border: '1px solid rgba(255,255,255,0.12)',
-        color: '#f5f5f7',
-        fontSize: 13,
-        lineHeight: 1.55,
-        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.14)',
-      }}>
-        {text}
-        <div style={{
-          position: 'absolute',
-          left: -8,
-          bottom: 14,
-          width: 14,
-          height: 14,
-          transform: 'rotate(45deg)',
-          background: 'rgba(255,255,255,0.08)',
-          borderLeft: '1px solid rgba(255,255,255,0.12)',
-          borderBottom: '1px solid rgba(255,255,255,0.12)',
-        }} />
-      </div>
-    </div>
+      <div className="onboarding-goal-title">{option.label}</div>
+      <div className="onboarding-goal-copy">{option.description}</div>
+    </button>
   )
 }
 
-function GroupOptionRow({ label, options, value, onChange }) {
+function PathOption({ option, selected, onSelect }) {
   return (
-    <div>
-      <div style={{
-        color: '#8e8e93',
-        fontSize: 11,
-        fontWeight: 800,
-        letterSpacing: '1.1px',
-        textTransform: 'uppercase',
-        marginBottom: 9,
-      }}>
-        {label}
+    <button
+      type="button"
+      className="onboarding-path-card interactive-card"
+      onClick={onSelect}
+      style={{
+        borderColor: selected ? 'rgba(0,229,199,0.26)' : 'rgba(255,255,255,0.08)',
+        background: selected
+          ? 'linear-gradient(180deg, rgba(0,229,199,0.10), rgba(13,14,20,0.96))'
+          : 'linear-gradient(180deg, rgba(18,18,26,0.96), rgba(11,11,17,0.98))',
+      }}
+    >
+      <div className="onboarding-path-icon">
+        <IconGlyph name={option.icon} size={22} strokeWidth={2.2} color={selected ? '#00e5c7' : '#d8dce3'} />
       </div>
-      <div style={{ display: 'grid', gap: 8 }}>
-        {options.map((option) => {
-          const active = value === option.id
-          return (
-            <button
-              key={option.id}
-              onClick={() => onChange(option.id)}
-              style={{
-                width: '100%',
-                padding: '12px 14px',
-                borderRadius: 16,
-                border: `1px solid ${active ? 'rgba(14,245,194,0.28)' : 'rgba(255,255,255,0.08)'}`,
-                background: active
-                  ? 'linear-gradient(135deg, rgba(14,245,194,0.12), rgba(0,212,255,0.08))'
-                  : 'rgba(0,0,0,0.22)',
-                color: active ? '#f5fffd' : '#d6d6da',
-                cursor: 'pointer',
-                fontFamily: "'DM Sans', sans-serif",
-                textAlign: 'left',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-                <div style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: 12,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  background: active ? 'rgba(14,245,194,0.16)' : 'rgba(255,255,255,0.05)',
-                  color: active ? '#0ef5c2' : '#8e8e93',
-                  flexShrink: 0,
-                }}>
-                  <IconGlyph name={option.icon} size={16} strokeWidth={2.3} color={active ? '#0ef5c2' : '#8e8e93'} />
-                </div>
-                <span style={{ fontSize: 14, fontWeight: 800 }}>{option.label}</span>
+      <div>
+        <div className="onboarding-path-title">{option.title}</div>
+        <div className="onboarding-path-copy">{option.description}</div>
+      </div>
+    </button>
+  )
+}
+
+function PreviewRail({ preview, cadence, pathStyle, pace, recommendedLevel, accent, goal, family }) {
+  return (
+    <PremiumFrame accent={`${accent}1c`} style={{ padding: 26, height: '100%' }}>
+      <div className="onboarding-rail-top">
+        <div>
+          <div className="onboarding-rail-eyebrow">PathAI Preview</div>
+          <div className="onboarding-rail-title">{goal || 'Your learning route'}</div>
+        </div>
+        <div className="onboarding-rail-chip">{family === 'machineLearning' ? 'Machine Learning' : family === 'programming' ? 'Programming' : family === 'language' ? 'Language' : family === 'design' ? 'Design' : 'Adaptive'}</div>
+      </div>
+
+      <div className="onboarding-rail-grid">
+        <div>
+          <label>Mode</label>
+          <strong>{pathStyle === 'explore' ? 'Explore' : 'Structured'}</strong>
+        </div>
+        <div>
+          <label>Pace</label>
+          <strong>{pace}</strong>
+        </div>
+        <div>
+          <label>Start level</label>
+          <strong>{recommendedLevel}</strong>
+        </div>
+        <div>
+          <label>Cadence</label>
+          <strong>{cadence.mode === 'explore' ? 'Open-ended' : `${cadence.days} days`}</strong>
+        </div>
+      </div>
+
+      <div className="onboarding-route-block">
+        <div className="onboarding-rail-label">Projected route</div>
+        <div className="onboarding-route-list">
+          {preview.route.map((item, index) => (
+            <div className="onboarding-route-item" key={`${item}-${index}`}>
+              <div className={`onboarding-route-index ${index === 0 ? 'active' : ''}`}>{index + 1}</div>
+              <div>
+                <div className="onboarding-route-title">{item}</div>
+                <div className="onboarding-route-copy">{index === 0 ? 'You start here' : 'Queued next'}</div>
               </div>
-              <div style={{ fontSize: 12.5, color: active ? '#bdece1' : '#8e8e93', lineHeight: 1.5 }}>{option.hint}</div>
-            </button>
-          )
-        })}
+            </div>
+          ))}
+        </div>
       </div>
-    </div>
+
+      <div className="onboarding-route-summary">
+        <div className="onboarding-rail-label">What PathAI will optimize</div>
+        <p>{preview.supportMode}</p>
+        <p>{preview.completion}</p>
+      </div>
+    </PremiumFrame>
   )
 }
 
-export default function Onboarding() {
+export default function OnboardingPage() {
   const router = useRouter()
   const reduceMotion = useReducedMotion()
 
+  const [user, setUser] = useState(null)
   const [step, setStep] = useState(1)
   const [direction, setDirection] = useState(1)
-  const [goal, setGoal] = useState('')
-  const [intent, setIntent] = useState('career')
-  const [pace, setPace] = useState('balanced')
-  const [support, setSupport] = useState('moderate')
+  const [presetGoal, setPresetGoal] = useState('')
+  const [customGoal, setCustomGoal] = useState('')
   const [pathStyle, setPathStyle] = useState('goal')
-  const [skillLevel, setSkillLevel] = useState('beginner')
-  const [diagnosticAnswers, setDiagnosticAnswers] = useState({})
-  const [firstActionChoice, setFirstActionChoice] = useState(null)
-  const [firstActionState, setFirstActionState] = useState('idle')
+  const [pace, setPace] = useState('balanced')
+  const [answers, setAnswers] = useState({})
+  const [questionIndex, setQuestionIndex] = useState(0)
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
   const [genStep, setGenStep] = useState(0)
-  const [focused, setFocused] = useState(null)
-  const [user, setUser] = useState(null)
+  const [buildReady, setBuildReady] = useState(false)
+  const [error, setError] = useState('')
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user: authUser } }) => {
-      if (!authUser) router.push('/login')
-      else setUser(authUser)
-    })
+    void (async () => {
+      try {
+        await consumeSupabaseAuthRedirect()
+      } catch {
+        // Safe helper below handles the fallback redirect state.
+      }
+
+      const { user: authUser } = await getSafeSupabaseUser()
+      if (!authUser) {
+        router.push('/login')
+      } else {
+        setUser(authUser)
+      }
+    })()
   }, [router])
 
-  const goalFamily = useMemo(() => detectGoalFamily(goal), [goal])
-  const diagnostics = useMemo(() => getDiagnosticQuestions(goalFamily), [goalFamily])
-  const diagnosticScore = useMemo(() => diagnostics.reduce((sum, question) => {
-    return sum + (diagnosticAnswers[question.id] === question.correctIndex ? 1 : 0)
-  }, 0), [diagnosticAnswers, diagnostics])
-  const recommendedLevel = useMemo(
-    () => resolveRecommendedLevel(skillLevel, diagnosticScore),
-    [skillLevel, diagnosticScore],
+  const goal = useMemo(() => customGoal.trim() || presetGoal, [customGoal, presetGoal])
+  const family = useMemo(() => detectGoalFamily(goal), [goal])
+  const accent = useMemo(() => getFamilyAccent(family), [family])
+  const questions = useMemo(() => getDiagnosticQuestions(family), [family])
+  const diagnosticScore = useMemo(
+    () => questions.reduce((sum, question) => sum + (answers[question.id]?.score || 0), 0),
+    [answers, questions],
   )
+  const recommendedLevel = useMemo(() => getRecommendedLevel(diagnosticScore), [diagnosticScore])
+  const cadence = useMemo(() => resolveCadence(pathStyle, pace, recommendedLevel), [pathStyle, pace, recommendedLevel])
   const preview = useMemo(
-    () => buildPathPreview({ goal, goalFamily, pace, intent, recommendedLevel, pathStyle }),
-    [goal, goalFamily, pace, intent, recommendedLevel, pathStyle],
+    () => buildPathPreview(goal, family, recommendedLevel, pathStyle),
+    [goal, family, recommendedLevel, pathStyle],
   )
-  const firstAction = useMemo(
-    () => getFirstAction(goalFamily, goal, recommendedLevel),
-    [goalFamily, goal, recommendedLevel],
-  )
-  const cadence = useMemo(
-    () => resolveCadence({ pace, pathStyle, recommendedLevel }),
-    [pace, pathStyle, recommendedLevel],
-  )
-  const familyAccent = useMemo(() => getFamilyAccent(goalFamily), [goalFamily])
-  const progressPct = ((step - 1) / (STEP_TITLES.length - 1)) * 100
 
-  const inputStyle = useCallback((name) => ({
-    width: '100%',
-    padding: '15px 16px',
-    background: focused === name ? 'rgba(14,245,194,0.06)' : 'rgba(0,0,0,0.24)',
-    border: `1px solid ${focused === name ? 'rgba(14,245,194,0.38)' : 'rgba(255,255,255,0.10)'}`,
-    borderRadius: 16,
-    color: '#f5f5f7',
-    fontSize: 15,
-    fontFamily: "'DM Sans', sans-serif",
-    transition: 'all 0.2s ease',
-    boxShadow: focused === name
-      ? 'inset 0 1px 0 rgba(14,245,194,0.15), 0 0 0 3px rgba(14,245,194,0.08)'
-      : 'inset 0 1px 0 rgba(255,255,255,0.06)',
-  }), [focused])
+  const currentQuestion = questions[questionIndex]
+  const allQuestionsAnswered = questions.length > 0 && questions.every((question) => Boolean(answers[question.id]))
 
-  const goToStep = useCallback((nextStep, dir = 1) => {
+  useEffect(() => {
+    setAnswers({})
+    setQuestionIndex(0)
+  }, [family])
+
+  const goToStep = useCallback((nextStep, dir) => {
     setDirection(dir)
     setStep(nextStep)
     setError('')
   }, [])
 
-  const handleGenerate = useCallback(async () => {
-    if (!user || !goal.trim()) return
+  const handleAnswer = useCallback((question, option) => {
+    setAnswers((current) => ({ ...current, [question.id]: option }))
+    if (questionIndex < questions.length - 1) {
+      window.setTimeout(() => setQuestionIndex((value) => value + 1), 180)
+    }
+  }, [questionIndex, questions.length])
 
-    const knowledge = buildKnowledgeSummary({
-      recommendedLevel,
-      diagnosticScore,
-      intent,
-      pace,
-      support,
-      pathStyle,
-      firstActionCorrect: firstActionState === 'correct',
-    })
-
-    const constraintSummary = [
-      `Intent: ${intent}`,
-      `Preferred pace: ${pace}`,
-      `Support preference: ${support}`,
-      `Starting level: ${recommendedLevel}`,
-      `Diagnostic score: ${diagnosticScore}/2`,
-      `Path style: ${pathStyle === 'explore' ? 'open exploration' : 'structured goal path'}`,
-      `First action: ${firstActionState === 'correct' ? 'completed' : 'not completed'}`,
-    ]
+  const startGeneration = useCallback(async () => {
+    if (!user || !goal) return
 
     setLoading(true)
+    setBuildReady(false)
     setError('')
     setGenStep(0)
 
-    const interval = setInterval(() => {
+    const interval = window.setInterval(() => {
       setGenStep((value) => Math.min(value + 1, GENERATION_STEPS.length - 1))
-    }, 1100)
+    }, 1600)
+
+    const knowledge = [
+      `Goal family: ${family}`,
+      `Recommended level: ${recommendedLevel}`,
+      `Diagnostic score: ${diagnosticScore}/${questions.length * 2}`,
+      `Preferred pace: ${pace}`,
+      `Path style: ${pathStyle === 'explore' ? 'exploration' : 'structured path'}`,
+    ].join('. ')
 
     try {
+      if (isLocalAccessUser(user)) {
+        await createLocalGoalBundle({
+          user,
+          goalText: goal,
+          mode: cadence.mode,
+          days: cadence.days || 30,
+          weekdayMins: cadence.weekdayMins,
+          weekendMins: cadence.weekendMins,
+          knowledge,
+          recommendedLevel,
+          diagnosticScore,
+          pace,
+          pathStyle,
+        })
+        await new Promise((resolve) => window.setTimeout(resolve, 600))
+        window.clearInterval(interval)
+        setLoading(false)
+        setBuildReady(true)
+        setGenStep(GENERATION_STEPS.length - 1)
+        router.push('/dashboard')
+        return
+      }
+
       const deadline = new Date()
       if (cadence.mode === 'goal') deadline.setDate(deadline.getDate() + cadence.days)
 
-      const { data: goalData, error: goalError } = await supabase
+      const { data: goalData, error: goalError } = await supabaseData
         .from('goals')
         .insert({
           user_id: user.id,
-          goal_text: goal.trim(),
+          goal_text: goal,
           mode: cadence.mode,
           deadline: cadence.mode === 'goal' ? deadline.toISOString().split('T')[0] : null,
           weekday_mins: cadence.weekdayMins,
           weekend_mins: cadence.weekendMins,
-          constraints: constraintSummary,
+          constraints: [
+            `Recommended level: ${recommendedLevel}`,
+            `Diagnostic score: ${diagnosticScore}/${questions.length * 2}`,
+            `Pace: ${pace}`,
+            `Path style: ${pathStyle}`,
+          ],
           status: 'active',
           total_days: cadence.mode === 'goal' ? cadence.days : 0,
         })
@@ -600,7 +553,7 @@ export default function Onboarding() {
 
       if (goalError) throw goalError
 
-      const { data: { session } } = await supabase.auth.getSession()
+      const { session } = await getSafeSupabaseSession()
       const accessToken = session?.access_token || null
 
       const res = await fetch('/api/generate', {
@@ -612,7 +565,7 @@ export default function Onboarding() {
         body: JSON.stringify({
           goalId: goalData.id,
           userId: user.id,
-          goal: goal.trim(),
+          goal,
           mode: cadence.mode,
           days: cadence.days || 30,
           weekdayMins: cadence.weekdayMins,
@@ -624,16 +577,39 @@ export default function Onboarding() {
 
       if (!res.ok) {
         const errData = await res.json()
-        throw new Error(errData.error || 'Failed to generate plan')
+        throw new Error(errData.error || 'Failed to generate your path')
       }
 
-      clearInterval(interval)
-      router.push('/dashboard')
-    } catch (err) {
-      clearInterval(interval)
-      setError(err.message || 'Failed to generate plan')
+      window.clearInterval(interval)
       setLoading(false)
+      setBuildReady(true)
+      setGenStep(GENERATION_STEPS.length - 1)
+    } catch (err) {
+      window.clearInterval(interval)
+      if (shouldBypassPathGeneration(err?.message)) {
+        await createLocalGoalBundle({
+          user,
+          goalText: goal,
+          mode: cadence.mode,
+          days: cadence.days || 30,
+          weekdayMins: cadence.weekdayMins,
+          weekendMins: cadence.weekendMins,
+          knowledge,
+          recommendedLevel,
+          diagnosticScore,
+          pace,
+          pathStyle,
+        })
+        setLoading(false)
+        setBuildReady(true)
+        setGenStep(GENERATION_STEPS.length - 1)
+        router.push('/dashboard')
+        return
+      }
+      setLoading(false)
+      setBuildReady(false)
       setGenStep(0)
+      setError(err.message || 'Failed to generate your path')
     }
   }, [
     cadence.days,
@@ -641,929 +617,882 @@ export default function Onboarding() {
     cadence.weekdayMins,
     cadence.weekendMins,
     diagnosticScore,
-    firstActionState,
+    family,
     goal,
-    intent,
     pace,
     pathStyle,
+    questions.length,
     recommendedLevel,
     router,
-    support,
     user,
   ])
 
-  const stepCardVariants = useMemo(() => ({
-    enter: (dir) => reduceMotion ? { opacity: 0 } : { opacity: 0, x: dir > 0 ? 34 : -34 },
-    center: { opacity: 1, x: 0 },
-    exit: (dir) => reduceMotion ? { opacity: 0 } : { opacity: 0, x: dir > 0 ? -28 : 28 },
-  }), [reduceMotion])
+  useEffect(() => {
+    if (step === 4 && !loading && !buildReady && !error && user && goal) {
+      startGeneration()
+    }
+  }, [step, loading, buildReady, error, user, goal, startGeneration])
+
+  const progress = ((step - 1) / (STEPS.length - 1)) * 100
 
   if (!user) return null
 
   return (
     <>
       <style jsx global>{`
-        @keyframes pulseOrb { 0%, 100% { opacity: .20; transform: scale(1); } 50% { opacity: .34; transform: scale(1.06); } }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        input:focus, textarea:focus { outline: none; }
-        ::placeholder { color: #636366; }
+        @keyframes onboardingOrbit {
+          0% { transform: rotate(0deg) translateX(0); }
+          50% { transform: rotate(180deg) translateX(0); }
+          100% { transform: rotate(360deg) translateX(0); }
+        }
+        @keyframes onboardingPulse {
+          0%, 100% { opacity: 0.48; transform: scale(1); }
+          50% { opacity: 1; transform: scale(1.08); }
+        }
+        .pathai-onboarding {
+          position: relative;
+          min-height: 100vh;
+          overflow: clip;
+          background:
+            radial-gradient(circle at 50% -10%, rgba(0,229,199,0.18), transparent 28%),
+            linear-gradient(180deg, #090a0f 0%, #0b0c12 48%, #090a10 100%);
+        }
+        .pathai-onboarding::before {
+          content: '';
+          position: fixed;
+          inset: 0;
+          pointer-events: none;
+          opacity: 0.07;
+          background-image:
+            linear-gradient(rgba(255,255,255,0.16) 0.7px, transparent 0.7px),
+            linear-gradient(90deg, rgba(255,255,255,0.16) 0.7px, transparent 0.7px);
+          background-size: 120px 120px;
+          mask-image: linear-gradient(180deg, rgba(0,0,0,0.34), transparent 78%);
+          -webkit-mask-image: linear-gradient(180deg, rgba(0,0,0,0.34), transparent 78%);
+        }
+        .onboarding-shell {
+          position: relative;
+          z-index: 1;
+          width: 100%;
+          max-width: 1320px;
+          margin: 0 auto;
+          padding: calc(env(safe-area-inset-top, 0px) + 28px) 24px 56px;
+        }
+        .onboarding-top {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 20px;
+          margin-bottom: 34px;
+          flex-wrap: wrap;
+        }
+        .onboarding-brand {
+          display: inline-flex;
+          align-items: center;
+          gap: 14px;
+        }
+        .onboarding-brandmark {
+          width: 46px;
+          height: 46px;
+          border-radius: 16px;
+          display: grid;
+          place-items: center;
+          background: linear-gradient(140deg, #00e5c7 0%, #7fe7ff 56%, #97a5ff 100%);
+          color: #071015;
+          box-shadow: 0 24px 44px rgba(0,229,199,0.22), inset 0 1px 0 rgba(255,255,255,0.44);
+        }
+        .onboarding-header {
+          max-width: 720px;
+        }
+        .onboarding-eyebrow {
+          display: inline-flex;
+          align-items: center;
+          gap: 10px;
+          padding: 10px 16px;
+          border-radius: 999px;
+          background: rgba(255,255,255,0.04);
+          border: 1px solid rgba(255,255,255,0.08);
+          color: rgba(240,240,240,0.68);
+          font-size: 11px;
+          font-weight: 800;
+          letter-spacing: 0.18em;
+          text-transform: uppercase;
+        }
+        .onboarding-eyebrow::before {
+          content: '';
+          width: 8px;
+          height: 8px;
+          border-radius: 999px;
+          background: #00e5c7;
+          box-shadow: 0 0 18px rgba(0,229,199,0.34);
+        }
+        .onboarding-title {
+          margin-top: 18px;
+          color: #f0f0f0;
+          font-size: clamp(3rem, 7vw, 5.8rem);
+          line-height: 0.94;
+          letter-spacing: -0.05em;
+        }
+        .onboarding-copy {
+          margin-top: 20px;
+          color: rgba(240,240,240,0.58);
+          font-size: 17px;
+          line-height: 1.74;
+          max-width: 620px;
+        }
+        .onboarding-layout {
+          display: grid;
+          grid-template-columns: minmax(0, 1.04fr) minmax(360px, 0.96fr);
+          gap: 26px;
+          align-items: start;
+        }
+        .onboarding-main-card {
+          padding: 28px;
+        }
+        .onboarding-progress {
+          display: grid;
+          gap: 16px;
+          margin-bottom: 28px;
+        }
+        .onboarding-progress-track {
+          height: 10px;
+          border-radius: 999px;
+          background: rgba(255,255,255,0.07);
+          overflow: hidden;
+        }
+        .onboarding-progress-fill {
+          height: 100%;
+          border-radius: 999px;
+          background: linear-gradient(90deg, #00e5c7, #7fe7ff 48%, #97a5ff 100%);
+          box-shadow: 0 0 24px rgba(0,229,199,0.24);
+        }
+        .onboarding-progress-steps {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 10px;
+        }
+        .onboarding-progress-node {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 8px;
+        }
+        .onboarding-progress-badge {
+          width: 36px;
+          height: 36px;
+          border-radius: 999px;
+          display: grid;
+          place-items: center;
+          border: 1px solid rgba(255,255,255,0.08);
+          background: rgba(255,255,255,0.04);
+          color: rgba(240,240,240,0.44);
+          font-size: 12px;
+          font-weight: 800;
+        }
+        .onboarding-progress-badge.active {
+          background: rgba(0,229,199,0.14);
+          border-color: rgba(0,229,199,0.28);
+          color: #00e5c7;
+          box-shadow: 0 0 20px rgba(0,229,199,0.12);
+        }
+        .onboarding-progress-badge.complete {
+          background: linear-gradient(135deg, #00e5c7, #7fe7ff);
+          border-color: rgba(255,255,255,0.10);
+          color: #071015;
+        }
+        .onboarding-progress-label {
+          color: rgba(240,240,240,0.44);
+          font-size: 12px;
+          font-weight: 600;
+          text-align: center;
+        }
+        .onboarding-step-header {
+          margin-bottom: 22px;
+        }
+        .onboarding-step-header h2 {
+          color: #f0f0f0;
+          font-size: clamp(2.2rem, 4vw, 3.2rem);
+          line-height: 0.98;
+          letter-spacing: -0.04em;
+        }
+        .onboarding-step-header p {
+          margin-top: 12px;
+          color: rgba(240,240,240,0.56);
+          font-size: 15px;
+          line-height: 1.7;
+          max-width: 620px;
+        }
+        .onboarding-goal-grid {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 12px;
+        }
+        .onboarding-goal-card {
+          width: 100%;
+          padding: 22px 18px 20px;
+          text-align: left;
+          border-radius: 24px;
+          border: 1px solid rgba(255,255,255,0.08);
+          min-height: 188px;
+        }
+        .onboarding-goal-icon,
+        .onboarding-path-icon {
+          width: 52px;
+          height: 52px;
+          border-radius: 18px;
+          display: grid;
+          place-items: center;
+          border: 1px solid rgba(255,255,255,0.08);
+          margin-bottom: 18px;
+        }
+        .onboarding-goal-title,
+        .onboarding-path-title {
+          color: #f0f0f0;
+          font-size: 18px;
+          font-weight: 700;
+          letter-spacing: -0.03em;
+        }
+        .onboarding-goal-copy,
+        .onboarding-path-copy {
+          margin-top: 10px;
+          color: rgba(240,240,240,0.52);
+          font-size: 14px;
+          line-height: 1.65;
+        }
+        .onboarding-input {
+          width: 100%;
+          margin-top: 18px;
+          padding: 16px 18px;
+          border-radius: 18px;
+          border: 1px solid rgba(255,255,255,0.10);
+          background: rgba(255,255,255,0.04);
+          color: #f0f0f0;
+          font-size: 15px;
+        }
+        .onboarding-input::placeholder {
+          color: rgba(240,240,240,0.32);
+        }
+        .onboarding-path-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 14px;
+        }
+        .onboarding-path-card {
+          width: 100%;
+          padding: 24px 22px;
+          border-radius: 28px;
+          border: 1px solid rgba(255,255,255,0.08);
+          text-align: left;
+          min-height: 214px;
+        }
+        .onboarding-pill-row {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px;
+          margin-top: 20px;
+        }
+        .onboarding-pill {
+          min-height: 46px;
+          padding: 0 18px;
+          border-radius: 999px;
+          border: 1px solid rgba(255,255,255,0.08);
+          background: rgba(255,255,255,0.04);
+          color: rgba(240,240,240,0.72);
+          font-size: 14px;
+          font-weight: 700;
+        }
+        .onboarding-pill.active {
+          color: #071015;
+          border-color: rgba(255,255,255,0.16);
+          background: linear-gradient(135deg, #00e5c7, #7fe7ff);
+          box-shadow: 0 24px 40px rgba(0,229,199,0.16);
+        }
+        .onboarding-question-stage {
+          position: relative;
+          min-height: 320px;
+        }
+        .onboarding-question-card {
+          padding: 22px 22px 20px;
+          border-radius: 28px;
+          background: rgba(255,255,255,0.03);
+          border: 1px solid rgba(255,255,255,0.08);
+        }
+        .onboarding-question-count {
+          color: rgba(240,240,240,0.46);
+          font-size: 12px;
+          font-weight: 800;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+        }
+        .onboarding-question-title {
+          margin-top: 16px;
+          color: #f0f0f0;
+          font-size: clamp(1.8rem, 3vw, 2.4rem);
+          line-height: 1.08;
+          letter-spacing: -0.04em;
+        }
+        .onboarding-answer-list {
+          display: grid;
+          gap: 12px;
+          margin-top: 24px;
+        }
+        .onboarding-answer {
+          width: 100%;
+          padding: 18px 18px;
+          border-radius: 20px;
+          border: 1px solid rgba(255,255,255,0.08);
+          background: rgba(255,255,255,0.04);
+          color: #f0f0f0;
+          text-align: left;
+          font-size: 15px;
+          font-weight: 600;
+        }
+        .onboarding-footer {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 12px;
+          margin-top: 26px;
+          flex-wrap: wrap;
+        }
+        .onboarding-secondary {
+          min-height: 48px;
+          padding: 0 18px;
+          border-radius: 999px;
+          border: 1px solid rgba(255,255,255,0.08);
+          background: rgba(255,255,255,0.04);
+          color: rgba(240,240,240,0.7);
+          font-size: 14px;
+          font-weight: 700;
+        }
+        .onboarding-primary {
+          min-height: 50px;
+          padding: 0 22px;
+          border-radius: 999px;
+          border: 1px solid rgba(255,255,255,0.10);
+          background: linear-gradient(135deg, #00e5c7 0%, #7fe7ff 48%, #97a5ff 100%);
+          color: #071015;
+          font-size: 14px;
+          font-weight: 800;
+          box-shadow: 0 24px 44px rgba(0,229,199,0.18);
+        }
+        .onboarding-primary:disabled {
+          opacity: 0.4;
+          box-shadow: none;
+        }
+        .onboarding-rail-top {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 14px;
+          margin-bottom: 20px;
+        }
+        .onboarding-rail-eyebrow,
+        .onboarding-rail-label {
+          color: rgba(240,240,240,0.44);
+          font-size: 11px;
+          font-weight: 800;
+          letter-spacing: 0.14em;
+          text-transform: uppercase;
+        }
+        .onboarding-rail-title {
+          margin-top: 10px;
+          color: #f0f0f0;
+          font-size: 28px;
+          font-weight: 700;
+          line-height: 1.02;
+          letter-spacing: -0.05em;
+        }
+        .onboarding-rail-chip {
+          padding: 8px 12px;
+          border-radius: 999px;
+          background: rgba(255,255,255,0.05);
+          border: 1px solid rgba(255,255,255,0.08);
+          color: rgba(240,240,240,0.72);
+          font-size: 11px;
+          font-weight: 800;
+          text-transform: uppercase;
+          letter-spacing: 0.12em;
+          white-space: nowrap;
+        }
+        .onboarding-rail-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 12px;
+        }
+        .onboarding-rail-grid > div,
+        .onboarding-route-summary {
+          padding: 16px;
+          border-radius: 20px;
+          background: rgba(255,255,255,0.03);
+          border: 1px solid rgba(255,255,255,0.06);
+        }
+        .onboarding-rail-grid label {
+          display: block;
+          color: rgba(240,240,240,0.42);
+          font-size: 11px;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.12em;
+        }
+        .onboarding-rail-grid strong {
+          display: block;
+          margin-top: 8px;
+          color: #f0f0f0;
+          font-size: 16px;
+          font-weight: 700;
+        }
+        .onboarding-route-block {
+          margin-top: 16px;
+        }
+        .onboarding-route-list {
+          display: grid;
+          gap: 10px;
+          margin-top: 12px;
+        }
+        .onboarding-route-item {
+          display: grid;
+          grid-template-columns: 36px minmax(0, 1fr);
+          gap: 12px;
+          align-items: start;
+          padding: 14px;
+          border-radius: 18px;
+          background: rgba(255,255,255,0.03);
+          border: 1px solid rgba(255,255,255,0.05);
+        }
+        .onboarding-route-index {
+          width: 36px;
+          height: 36px;
+          border-radius: 999px;
+          display: grid;
+          place-items: center;
+          background: rgba(255,255,255,0.06);
+          color: rgba(240,240,240,0.56);
+          font-size: 12px;
+          font-weight: 800;
+        }
+        .onboarding-route-index.active {
+          background: rgba(0,229,199,0.16);
+          color: #00e5c7;
+          border: 1px solid rgba(0,229,199,0.20);
+        }
+        .onboarding-route-title {
+          color: #f0f0f0;
+          font-size: 15px;
+          font-weight: 700;
+        }
+        .onboarding-route-copy,
+        .onboarding-route-summary p {
+          margin-top: 4px;
+          color: rgba(240,240,240,0.54);
+          font-size: 13px;
+          line-height: 1.65;
+        }
+        .onboarding-generation {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) minmax(280px, 0.9fr);
+          gap: 24px;
+          align-items: center;
+        }
+        .onboarding-build-visual {
+          position: relative;
+          min-height: 320px;
+          border-radius: 32px;
+          background:
+            radial-gradient(circle at center, rgba(0,229,199,0.14), rgba(255,255,255,0.02) 42%, transparent 62%),
+            linear-gradient(180deg, rgba(14,14,22,0.96), rgba(10,10,15,0.98));
+          border: 1px solid rgba(255,255,255,0.08);
+          overflow: hidden;
+        }
+        .onboarding-build-visual::before,
+        .onboarding-build-visual::after {
+          content: '';
+          position: absolute;
+          inset: 50%;
+          width: 220px;
+          height: 220px;
+          margin-left: -110px;
+          margin-top: -110px;
+          border-radius: 999px;
+          border: 1px solid rgba(0,229,199,0.14);
+          animation: onboardingOrbit 10s linear infinite;
+        }
+        .onboarding-build-visual::after {
+          width: 320px;
+          height: 320px;
+          margin-left: -160px;
+          margin-top: -160px;
+          animation-duration: 14s;
+          opacity: 0.6;
+        }
+        .onboarding-core-orb {
+          position: absolute;
+          inset: 50%;
+          width: 110px;
+          height: 110px;
+          margin-left: -55px;
+          margin-top: -55px;
+          border-radius: 999px;
+          background: radial-gradient(circle, rgba(0,229,199,0.85), rgba(0,229,199,0.18) 46%, transparent 72%);
+          filter: blur(0px);
+          animation: onboardingPulse 3.4s ease-in-out infinite;
+          box-shadow: 0 0 60px rgba(0,229,199,0.22);
+        }
+        .onboarding-node {
+          position: absolute;
+          width: 14px;
+          height: 14px;
+          border-radius: 999px;
+          background: #f0f0f0;
+          box-shadow: 0 0 18px rgba(255,255,255,0.22);
+        }
+        .onboarding-node.one { top: 20%; left: 32%; }
+        .onboarding-node.two { top: 28%; right: 24%; background: #00e5c7; }
+        .onboarding-node.three { bottom: 26%; left: 24%; }
+        .onboarding-node.four { bottom: 20%; right: 32%; background: #7fe7ff; }
+        .onboarding-success {
+          display: grid;
+          gap: 18px;
+        }
+        .onboarding-success-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 10px;
+          width: fit-content;
+          padding: 10px 14px;
+          border-radius: 999px;
+          background: rgba(0,229,199,0.12);
+          border: 1px solid rgba(0,229,199,0.18);
+          color: #c7fff4;
+          font-size: 11px;
+          font-weight: 800;
+          text-transform: uppercase;
+          letter-spacing: 0.14em;
+        }
+        .onboarding-error {
+          margin-top: 18px;
+          padding: 14px 16px;
+          border-radius: 18px;
+          background: rgba(255,107,107,0.10);
+          border: 1px solid rgba(255,107,107,0.18);
+          color: #ff9b9b;
+          font-size: 14px;
+        }
+        @media (max-width: 1120px) {
+          .onboarding-layout,
+          .onboarding-generation {
+            grid-template-columns: minmax(0, 1fr);
+          }
+        }
+        @media (max-width: 860px) {
+          .onboarding-goal-grid,
+          .onboarding-path-grid {
+            grid-template-columns: minmax(0, 1fr);
+          }
+        }
+        @media (max-width: 640px) {
+          .onboarding-shell {
+            padding: calc(env(safe-area-inset-top, 0px) + 20px) 16px 36px;
+          }
+          .onboarding-main-card {
+            padding: 22px 18px;
+          }
+          .onboarding-progress-steps,
+          .onboarding-rail-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+          .onboarding-title {
+            font-size: clamp(2.8rem, 14vw, 4.2rem);
+          }
+          .onboarding-copy {
+            font-size: 15px;
+          }
+          .onboarding-footer {
+            flex-direction: column;
+            align-items: stretch;
+          }
+          .onboarding-secondary,
+          .onboarding-primary {
+            width: 100%;
+          }
+        }
       `}</style>
 
-      <div style={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '24px',
-        position: 'relative',
-        overflow: 'hidden',
-        fontFamily: "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif",
-      }}>
-        <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none' }}>
-          <div style={{ position: 'absolute', top: '-14%', left: '-10%', width: 560, height: 560, borderRadius: '50%', background: 'radial-gradient(circle, rgba(120,60,255,0.28) 0%, transparent 66%)', filter: 'blur(88px)', animation: 'pulseOrb 9s ease-in-out infinite' }} />
-          <div style={{ position: 'absolute', top: '50%', right: '-10%', width: 480, height: 480, borderRadius: '50%', background: 'radial-gradient(circle, rgba(40,100,255,0.24) 0%, transparent 68%)', filter: 'blur(82px)', animation: 'pulseOrb 10s ease-in-out infinite 1.6s' }} />
-          <div style={{ position: 'absolute', bottom: '-10%', left: '34%', width: 500, height: 500, borderRadius: '50%', background: 'radial-gradient(circle, rgba(14,245,194,0.18) 0%, transparent 65%)', filter: 'blur(86px)', animation: 'pulseOrb 8s ease-in-out infinite 0.8s' }} />
-        </div>
+      <div className="pathai-onboarding">
+        <AtmosphericBackdrop variant="onboarding" />
 
-        <div style={{ width: '100%', maxWidth: 560, position: 'relative', zIndex: 1 }}>
-          <div style={{ textAlign: 'center', marginBottom: 28 }}>
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-              <div style={{
-                width: 44,
-                height: 44,
-                borderRadius: '28%',
-                background: 'linear-gradient(135deg, #0ef5c2, #00d4ff)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                boxShadow: '0 0 32px rgba(14,245,194,0.28), inset 0 1px 0 rgba(255,255,255,0.48)',
-              }}>
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#06060f" strokeWidth="2.5" strokeLinecap="round">
-                  <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-                </svg>
+        <div className="onboarding-shell">
+          <div className="onboarding-top">
+            <ScrollReveal className="onboarding-header" distance={0}>
+              <div className="onboarding-brand">
+                <div className="onboarding-brandmark">
+                  <IconGlyph name="bolt" size={20} strokeWidth={2.5} color="#071015" />
+                </div>
+                <div>
+                  <div style={{ color: '#f0f0f0', fontSize: 24, fontWeight: 800, letterSpacing: '-0.05em' }}>PathAI</div>
+                  <div style={{ color: 'rgba(240,240,240,0.44)', fontSize: 12 }}>Goal-based onboarding</div>
+                </div>
               </div>
-              <span style={{ fontSize: 30, fontWeight: 900, color: '#f5f5f7', letterSpacing: '-0.9px' }}>PathAI</span>
-            </div>
-            <p style={{ color: '#8e8e93', fontSize: 14.5 }}>
-              {loading ? 'Building your first real path.' : 'Set your direction, do one small win, and launch.'}
-            </p>
+              <div className="onboarding-eyebrow" style={{ marginTop: 24 }}>Premium route builder</div>
+              <h1 className="font-display onboarding-title">Build a route that feels serious from the first mission.</h1>
+              <p className="onboarding-copy">
+                PathAI maps the goal, calibrates the starting depth, and builds a first day that already feels like momentum.
+              </p>
+            </ScrollReveal>
           </div>
 
-          {loading ? (
-            <div style={{
-              background: 'linear-gradient(145deg, rgba(255,255,255,0.14), rgba(255,255,255,0.05) 42%, rgba(110,170,255,0.06))',
-              border: '1px solid rgba(255,255,255,0.18)',
-              borderRadius: 30,
-              padding: '28px 26px 30px',
-              backdropFilter: 'blur(40px) saturate(220%)',
-              WebkitBackdropFilter: 'blur(40px) saturate(220%)',
-              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.24), 0 32px 64px rgba(0,0,0,0.40)',
-            }}>
-              <MascotBubble text={GENERATION_BUBBLES[Math.min(genStep, GENERATION_BUBBLES.length - 1)]} />
+          <div className="onboarding-layout">
+            <PreviewRail
+              preview={preview}
+              cadence={cadence}
+              pathStyle={pathStyle}
+              pace={pace}
+              recommendedLevel={recommendedLevel}
+              accent={accent}
+              goal={goal}
+              family={family}
+            />
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 26, marginBottom: 30 }}>
-                <div style={{ width: 48, height: 48, border: '3px solid rgba(255,255,255,0.08)', borderTopColor: '#0ef5c2', borderRadius: '50%', animation: 'spin 0.65s linear infinite', boxShadow: '0 0 20px rgba(14,245,194,0.10)' }} />
-                <div>
-                  <div style={{ fontSize: 15, fontWeight: 800, color: '#f5f5f7' }}>Building your personalized launchpad</div>
-                  <div style={{ fontSize: 12, color: '#8e8e93', marginTop: 4 }}>Finalizing your first path and getting the first mission ready.</div>
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {GENERATION_STEPS.map((label, index) => (
-                  <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 12, opacity: index <= genStep ? 1 : 0.26, transition: 'opacity 0.35s ease' }}>
-                    <div style={{
-                      width: 24,
-                      height: 24,
-                      borderRadius: '50%',
-                      background: index < genStep ? 'linear-gradient(135deg,#0ef5c2,#00d4ff)' : 'transparent',
-                      border: `2px solid ${index <= genStep ? '#0ef5c2' : 'rgba(255,255,255,0.10)'}`,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      color: '#06060f',
-                      fontSize: 12,
-                      fontWeight: 900,
-                    }}>
-                      {index < genStep ? '✓' : index + 1}
-                    </div>
-                    <span style={{ color: index <= genStep ? '#f5f5f7' : '#636366', fontSize: 13.5, fontWeight: 600 }}>{label}</span>
-                  </div>
-                ))}
-              </div>
-
-              {error && (
-                <div style={{ marginTop: 20, padding: '12px 14px', background: 'rgba(255,69,58,0.10)', border: '1px solid rgba(255,69,58,0.20)', borderRadius: 16, color: '#ff6961', fontSize: 13 }}>
-                  {error}
-                </div>
-              )}
-            </div>
-          ) : (
-            <div style={{
-              background: 'linear-gradient(145deg, rgba(255,255,255,0.14), rgba(255,255,255,0.05) 42%, rgba(110,170,255,0.06))',
-              border: '1px solid rgba(255,255,255,0.18)',
-              borderRadius: 30,
-              padding: '26px 22px 24px',
-              backdropFilter: 'blur(40px) saturate(220%)',
-              WebkitBackdropFilter: 'blur(40px) saturate(220%)',
-              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.24), 0 32px 64px rgba(0,0,0,0.40)',
-            }}>
-              <div style={{
-                height: 8,
-                borderRadius: 999,
-                background: 'rgba(255,255,255,0.08)',
-                overflow: 'hidden',
-                marginBottom: 16,
-              }}>
-                <motion.div
-                  initial={false}
-                  animate={{ width: `${progressPct}%` }}
-                  transition={{ duration: reduceMotion ? 0 : 0.35, ease: [0.22, 1, 0.36, 1] }}
-                  style={{
-                    height: '100%',
-                    borderRadius: 999,
-                    background: 'linear-gradient(90deg, #0ef5c2, #00d4ff)',
-                    boxShadow: '0 0 14px rgba(14,245,194,0.35)',
-                  }}
-                />
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 22 }}>
-                {STEP_TITLES.map((label, index) => {
-                  const stepNumber = index + 1
-                  const completed = step > stepNumber
-                  const active = step === stepNumber
-                  return (
-                    <div key={label} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-                      <div style={{
-                        width: 30,
-                        height: 30,
-                        borderRadius: '50%',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        background: completed
-                          ? 'linear-gradient(135deg,#0ef5c2,#00d4ff)'
-                          : active
-                            ? 'rgba(14,245,194,0.14)'
-                            : 'rgba(255,255,255,0.06)',
-                        border: `1px solid ${completed || active ? 'rgba(14,245,194,0.35)' : 'rgba(255,255,255,0.10)'}`,
-                        color: completed ? '#06060f' : active ? '#0ef5c2' : '#636366',
-                        fontSize: 12,
-                        fontWeight: 900,
-                        boxShadow: active ? '0 0 18px rgba(14,245,194,0.14)' : 'none',
-                      }}>
-                        {completed ? '✓' : stepNumber}
-                      </div>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: active ? '#f5f5f7' : '#8e8e93' }}>{label}</span>
-                    </div>
-                  )
-                })}
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '1.2px', textTransform: 'uppercase', color: '#8e8e93' }}>
-                    Step {step} of {STEP_TITLES.length}
-                  </div>
-                  <div style={{ fontSize: 22, fontWeight: 900, color: '#f5f5f7', letterSpacing: '-0.6px', marginTop: 4 }}>
-                    {STEP_TITLES[step - 1]}
-                  </div>
-                </div>
-              </div>
-
-              {error && (
-                <div style={{ padding: '12px 14px', background: 'rgba(255,69,58,0.10)', border: '1px solid rgba(255,69,58,0.20)', borderRadius: 16, color: '#ff6961', fontSize: 13, marginBottom: 18 }}>
-                  {error}
-                </div>
-              )}
-
-              <div style={{ overflow: 'hidden', minHeight: 410 }}>
-                <AnimatePresence mode="wait" custom={direction}>
+            <PremiumFrame accent={`${accent}1a`} className="onboarding-main-card">
+              <div className="onboarding-progress">
+                <div className="onboarding-progress-track">
                   <motion.div
-                    key={step}
-                    custom={direction}
-                    variants={stepCardVariants}
-                    initial="enter"
-                    animate="center"
-                    exit="exit"
-                    transition={{ duration: reduceMotion ? 0 : 0.28, ease: [0.22, 1, 0.36, 1] }}
-                  >
-                    {step === 1 && (
-                      <div>
-                        <div style={{ marginBottom: 18 }}>
-                          <MascotBubble text="What do you want to achieve? Pick a direction and we will make the path feel doable fast." />
+                    className="onboarding-progress-fill"
+                    initial={false}
+                    animate={{ width: `${progress}%` }}
+                    transition={{ duration: reduceMotion ? 0 : 0.35, ease: [0.22, 1, 0.36, 1] }}
+                  />
+                </div>
+                <div className="onboarding-progress-steps">
+                  {STEPS.map((label, index) => {
+                    const stepNumber = index + 1
+                    const completed = step > stepNumber
+                    const active = step === stepNumber
+                    return (
+                      <div className="onboarding-progress-node" key={label}>
+                        <div className={`onboarding-progress-badge ${completed ? 'complete' : active ? 'active' : ''}`}>
+                          {completed ? <IconGlyph name="check" size={14} strokeWidth={2.8} color="#071015" /> : stepNumber}
                         </div>
+                        <div className="onboarding-progress-label">{stepNumber}</div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
 
-                        <div style={{ display: 'grid', gap: 10, marginBottom: 14 }}>
-                          {GOAL_OPTIONS.map((option) => {
-                            const active = goal === option.label
-                            return (
-                              <button
-                                key={option.label}
-                                onClick={() => setGoal(option.label)}
-                                style={{
-                                  width: '100%',
-                                  padding: '14px 16px',
-                                  borderRadius: 18,
-                                  border: `1px solid ${active ? `${option.accent}55` : 'rgba(255,255,255,0.08)'}`,
-                                  background: active
-                                    ? `linear-gradient(135deg, ${option.accent}16, rgba(255,255,255,0.04))`
-                                    : 'rgba(0,0,0,0.22)',
-                                  textAlign: 'left',
-                                  cursor: 'pointer',
-                                  fontFamily: "'DM Sans', sans-serif",
-                                }}
-                              >
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                                  <div style={{
-                                    width: 42,
-                                    height: 42,
-                                    borderRadius: 14,
-                                    display: 'grid',
-                                    placeItems: 'center',
-                                    background: active ? `${option.accent}20` : 'rgba(255,255,255,0.05)',
-                                    color: active ? option.accent : '#8e8e93',
-                                    flexShrink: 0,
-                                  }}>
-                                    <IconGlyph name={option.icon} size={18} strokeWidth={2.3} color={active ? option.accent : '#8e8e93'} />
-                                  </div>
-                                  <div style={{ minWidth: 0 }}>
-                                    <div style={{ color: '#f5f5f7', fontSize: 15, fontWeight: 800, marginBottom: 4 }}>{option.label}</div>
-                                    <div style={{ color: '#8e8e93', fontSize: 12.5, lineHeight: 1.5 }}>{option.subtitle}</div>
-                                  </div>
-                                </div>
-                              </button>
-                            )
-                          })}
-                        </div>
+              <div className="onboarding-step-header">
+                <h2 className="font-display">{STEPS[step - 1]}</h2>
+                <p>
+                  {step === 1 && 'Choose a launch direction or type your own goal. The route builder uses that signal to shape the first mission.'}
+                  {step === 2 && 'Pick the structure and pace that should define your route. This changes how PathAI sequences your daily work.'}
+                  {step === 3 && 'A quick diagnostic lets us aim the right starting depth instead of dropping you into a generic beginner course.'}
+                  {step === 4 && 'We are building your first route right now, with the first mission ready as soon as generation finishes.'}
+                </p>
+              </div>
 
-                        <input
-                          value={goal}
-                          onChange={(e) => setGoal(e.target.value)}
-                          onFocus={() => setFocused('goal')}
-                          onBlur={() => setFocused(null)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' && goal.trim()) {
-                              goToStep(2, 1)
-                            }
-                          }}
-                          placeholder="Or type a custom goal"
-                          style={inputStyle('goal')}
-                        />
+              {error ? <div className="onboarding-error">{error}</div> : null}
 
+              <AnimatePresence mode="wait" custom={direction}>
+                <motion.div
+                  key={`${step}-${questionIndex}-${loading}-${buildReady}`}
+                  custom={direction}
+                  initial={reduceMotion ? { opacity: 1 } : { opacity: 0, x: direction > 0 ? 40 : -40 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={reduceMotion ? { opacity: 0 } : { opacity: 0, x: direction > 0 ? -34 : 34 }}
+                  transition={{ duration: reduceMotion ? 0 : 0.3, ease: [0.22, 1, 0.36, 1] }}
+                >
+                  {step === 1 && (
+                    <>
+                      <div className="onboarding-goal-grid">
+                        {GOAL_OPTIONS.map((option) => (
+                          <GoalCard
+                            key={option.label}
+                            option={option}
+                            selected={presetGoal === option.label && !customGoal.trim()}
+                            onSelect={() => {
+                              setPresetGoal(option.label)
+                              setCustomGoal('')
+                            }}
+                          />
+                        ))}
+                      </div>
+
+                      <input
+                        value={customGoal}
+                        onChange={(event) => setCustomGoal(event.target.value)}
+                        placeholder="Or type your own goal..."
+                        className="onboarding-input"
+                      />
+
+                      <div className="onboarding-footer">
+                        <div style={{ color: 'rgba(240,240,240,0.44)', fontSize: 13 }}>Step 1 of 4</div>
                         <button
-                          onClick={() => {
-                            if (!goal.trim()) return
-                            goToStep(2, 1)
-                          }}
-                          disabled={!goal.trim()}
-                          style={{
-                            width: '100%',
-                            marginTop: 22,
-                            padding: '15px',
-                            background: goal.trim() ? 'linear-gradient(135deg,#0ef5c2,#00d4ff)' : 'rgba(255,255,255,0.06)',
-                            border: goal.trim() ? 'none' : '1px solid rgba(255,255,255,0.08)',
-                            borderRadius: 16,
-                            color: goal.trim() ? '#06060f' : '#3a3a3c',
-                            fontSize: 15.5,
-                            fontWeight: 800,
-                            cursor: goal.trim() ? 'pointer' : 'default',
-                            fontFamily: "'DM Sans', sans-serif",
-                            boxShadow: goal.trim() ? '0 0 36px rgba(14,245,194,0.24), inset 0 1px 0 rgba(255,255,255,0.44)' : 'none',
-                          }}
+                          type="button"
+                          className="onboarding-primary interactive-cta"
+                          onClick={() => goToStep(2, 1)}
+                          disabled={!goal}
                         >
-                          Build my launchpad
+                          Continue
                         </button>
                       </div>
-                    )}
+                    </>
+                  )}
 
-                    {step === 2 && (
-                      <div>
-                        <div style={{ marginBottom: 18 }}>
-                          <MascotBubble text="Give me the shape of the experience: why you care, how fast to move, and how hard to push." />
-                        </div>
-
-                        <div style={{ display: 'grid', gap: 16 }}>
-                          <GroupOptionRow label="Why are you learning?" options={INTENT_OPTIONS} value={intent} onChange={setIntent} />
-                          <GroupOptionRow label="Preferred pace" options={PACE_OPTIONS} value={pace} onChange={setPace} />
-                          <GroupOptionRow label="Support level" options={SUPPORT_OPTIONS} value={support} onChange={setSupport} />
-                          <GroupOptionRow label="Path shape" options={PATH_STYLE_OPTIONS} value={pathStyle} onChange={setPathStyle} />
-                        </div>
-
-                        <div style={{ display: 'flex', gap: 10, marginTop: 22 }}>
-                          <button
-                            onClick={() => goToStep(1, -1)}
-                            style={{
-                              flex: 1,
-                              padding: '14px',
-                              background: 'rgba(255,255,255,0.04)',
-                              border: '1px solid rgba(255,255,255,0.08)',
-                              borderRadius: 16,
-                              color: '#8e8e93',
-                              fontSize: 14,
-                              fontWeight: 700,
-                              cursor: 'pointer',
-                              fontFamily: "'DM Sans', sans-serif",
-                            }}
-                          >
-                            Back
-                          </button>
-                          <button
-                            onClick={() => {
-                              goToStep(3, 1)
-                            }}
-                            style={{
-                              flex: 1.35,
-                              padding: '14px',
-                              background: 'linear-gradient(135deg,#0ef5c2,#00d4ff)',
-                              border: 'none',
-                              borderRadius: 16,
-                              color: '#06060f',
-                              fontSize: 14.5,
-                              fontWeight: 800,
-                              cursor: 'pointer',
-                              fontFamily: "'DM Sans', sans-serif",
-                            }}
-                          >
-                            Continue
-                          </button>
-                        </div>
+                  {step === 2 && (
+                    <>
+                      <div className="onboarding-path-grid">
+                        {PATH_OPTIONS.map((option) => (
+                          <PathOption
+                            key={option.id}
+                            option={option}
+                            selected={pathStyle === option.id}
+                            onSelect={() => setPathStyle(option.id)}
+                          />
+                        ))}
                       </div>
-                    )}
 
-                    {step === 3 && (
-                      <div>
-                        <div style={{ marginBottom: 18 }}>
-                          <MascotBubble text="One self-rating and two quick checks so your path does not start too easy or too hard." />
-                        </div>
-
-                        <div style={{ marginBottom: 18 }}>
-                          <div style={{ color: '#8e8e93', fontSize: 11, fontWeight: 800, letterSpacing: '1.1px', textTransform: 'uppercase', marginBottom: 9 }}>
-                            Where should we start?
-                          </div>
-                          <div style={{ display: 'grid', gap: 8 }}>
-                            {LEVEL_OPTIONS.map((option) => {
-                              const active = skillLevel === option.id
-                              return (
-                                <button
-                                  key={option.id}
-                                  onClick={() => setSkillLevel(option.id)}
-                                  style={{
-                                    width: '100%',
-                                    padding: '12px 14px',
-                                    borderRadius: 16,
-                                    border: `1px solid ${active ? 'rgba(14,245,194,0.28)' : 'rgba(255,255,255,0.08)'}`,
-                                    background: active ? 'linear-gradient(135deg, rgba(14,245,194,0.12), rgba(0,212,255,0.08))' : 'rgba(0,0,0,0.22)',
-                                    color: active ? '#f5fffd' : '#d6d6da',
-                                    cursor: 'pointer',
-                                    textAlign: 'left',
-                                    fontFamily: "'DM Sans', sans-serif",
-                                  }}
-                                >
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-                                    <IconGlyph name={option.icon} size={16} strokeWidth={2.3} color={active ? '#0ef5c2' : '#8e8e93'} />
-                                    <span style={{ fontSize: 14, fontWeight: 800 }}>{option.label}</span>
-                                  </div>
-                                  <div style={{ fontSize: 12.5, color: active ? '#bdece1' : '#8e8e93', lineHeight: 1.5 }}>{option.hint}</div>
-                                </button>
-                              )
-                            })}
-                          </div>
-                        </div>
-
-                        <div style={{ display: 'grid', gap: 12 }}>
-                          {diagnostics.map((question, index) => (
-                            <div key={question.id} style={{
-                              padding: '14px 14px 12px',
-                              borderRadius: 18,
-                              background: 'rgba(0,0,0,0.20)',
-                              border: '1px solid rgba(255,255,255,0.08)',
-                            }}>
-                              <div style={{ fontSize: 11, fontWeight: 800, color: '#8e8e93', marginBottom: 8 }}>
-                                Quick check {index + 1}
-                              </div>
-                              <div style={{ fontSize: 15, fontWeight: 800, color: '#f5f5f7', lineHeight: 1.45, marginBottom: 10 }}>
-                                {question.prompt}
-                              </div>
-                              <div style={{ display: 'grid', gap: 8 }}>
-                                {question.options.map((option, optionIndex) => {
-                                  const active = diagnosticAnswers[question.id] === optionIndex
-                                  return (
-                                    <button
-                                      key={option}
-                                      onClick={() => setDiagnosticAnswers((prev) => ({ ...prev, [question.id]: optionIndex }))}
-                                      style={{
-                                        width: '100%',
-                                        padding: '11px 12px',
-                                        borderRadius: 14,
-                                        border: `1px solid ${active ? 'rgba(14,245,194,0.26)' : 'rgba(255,255,255,0.08)'}`,
-                                        background: active ? 'rgba(14,245,194,0.10)' : 'rgba(255,255,255,0.03)',
-                                        color: active ? '#eafffb' : '#cfd0d6',
-                                        cursor: 'pointer',
-                                        textAlign: 'left',
-                                        fontSize: 13,
-                                        fontWeight: 700,
-                                        fontFamily: "'DM Sans', sans-serif",
-                                      }}
-                                    >
-                                      {option}
-                                    </button>
-                                  )
-                                })}
-                              </div>
-                            </div>
+                      <div style={{ marginTop: 24 }}>
+                        <div className="onboarding-rail-label">How fast do you want to move?</div>
+                        <div className="onboarding-pill-row">
+                          {PACE_OPTIONS.map((option) => (
+                            <button
+                              type="button"
+                              key={option.id}
+                              className={`onboarding-pill interactive-secondary ${pace === option.id ? 'active' : ''}`}
+                              onClick={() => setPace(option.id)}
+                            >
+                              {option.label}
+                            </button>
                           ))}
                         </div>
-
-                        <div style={{
-                          marginTop: 16,
-                          padding: '12px 14px',
-                          borderRadius: 16,
-                          background: 'rgba(255,255,255,0.05)',
-                          border: '1px solid rgba(255,255,255,0.08)',
-                        }}>
-                          <div style={{ fontSize: 11, fontWeight: 800, color: '#8e8e93', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 6 }}>
-                            Recommended start
-                          </div>
-                          <div style={{ fontSize: 15, fontWeight: 800, color: '#f5f5f7', marginBottom: 4 }}>
-                            {recommendedLevel.charAt(0).toUpperCase() + recommendedLevel.slice(1)}
-                          </div>
-                          <div style={{ fontSize: 12.5, color: '#8e8e93', lineHeight: 1.55 }}>
-                            We use your self-rating plus these quick signals so your first days feel appropriately challenging.
-                          </div>
-                        </div>
-
-                        <div style={{ display: 'flex', gap: 10, marginTop: 22 }}>
-                          <button
-                            onClick={() => goToStep(2, -1)}
-                            style={{
-                              flex: 1,
-                              padding: '14px',
-                              background: 'rgba(255,255,255,0.04)',
-                              border: '1px solid rgba(255,255,255,0.08)',
-                              borderRadius: 16,
-                              color: '#8e8e93',
-                              fontSize: 14,
-                              fontWeight: 700,
-                              cursor: 'pointer',
-                              fontFamily: "'DM Sans', sans-serif",
-                            }}
-                          >
-                            Back
-                          </button>
-                          <button
-                            onClick={() => {
-                              if (diagnostics.some((question) => diagnosticAnswers[question.id] === undefined)) return
-                              goToStep(4, 1)
-                            }}
-                            disabled={diagnostics.some((question) => diagnosticAnswers[question.id] === undefined)}
-                            style={{
-                              flex: 1.35,
-                              padding: '14px',
-                              background: diagnostics.some((question) => diagnosticAnswers[question.id] === undefined)
-                                ? 'rgba(255,255,255,0.06)'
-                                : 'linear-gradient(135deg,#0ef5c2,#00d4ff)',
-                              border: diagnostics.some((question) => diagnosticAnswers[question.id] === undefined)
-                                ? '1px solid rgba(255,255,255,0.08)'
-                                : 'none',
-                              borderRadius: 16,
-                              color: diagnostics.some((question) => diagnosticAnswers[question.id] === undefined) ? '#3a3a3c' : '#06060f',
-                              fontSize: 14.5,
-                              fontWeight: 800,
-                              cursor: diagnostics.some((question) => diagnosticAnswers[question.id] === undefined) ? 'default' : 'pointer',
-                              fontFamily: "'DM Sans', sans-serif",
-                            }}
-                          >
-                            Preview my path
-                          </button>
-                        </div>
                       </div>
-                    )}
 
-                    {step === 4 && (
-                      <div>
-                        <div style={{ marginBottom: 18 }}>
-                          <MascotBubble text="This is the simplified route. You do not need the whole map right now, just the next meaningful direction." />
-                        </div>
-
-                        <div style={{
-                          padding: '18px 18px 16px',
-                          borderRadius: 22,
-                          background: 'linear-gradient(155deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03))',
-                          border: '1px solid rgba(255,255,255,0.10)',
-                          marginBottom: 16,
-                        }}>
-                          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14, marginBottom: 12 }}>
-                            <div>
-                              <div style={{ fontSize: 11, fontWeight: 800, color: '#8e8e93', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 6 }}>
-                                Path preview
-                              </div>
-                              <div style={{ fontSize: 22, fontWeight: 900, color: '#f5f5f7', letterSpacing: '-0.6px', lineHeight: 1.15 }}>
-                                {preview.header}
-                              </div>
-                            </div>
-                            <div style={{
-                              padding: '8px 10px',
-                              borderRadius: 14,
-                              background: `${familyAccent}16`,
-                              border: `1px solid ${familyAccent}28`,
-                              color: familyAccent,
-                              fontSize: 11,
-                              fontWeight: 800,
-                              whiteSpace: 'nowrap',
-                            }}>
-                              {recommendedLevel}
-                            </div>
-                          </div>
-
-                          <div style={{ fontSize: 13.5, color: '#b7b7be', lineHeight: 1.6, marginBottom: 14 }}>
-                            {preview.subcopy}
-                          </div>
-
-                          <div style={{ display: 'grid', gap: 10 }}>
-                            {preview.milestones.map((milestone, index) => {
-                              const isCurrent = index === Math.max(0, Math.min(preview.startIndex, preview.milestones.length - 1))
-                              const isPast = index < Math.max(0, Math.min(preview.startIndex, preview.milestones.length - 1))
-                              return (
-                                <div
-                                  key={`${milestone}-${index}`}
-                                  style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 12,
-                                    padding: '12px 12px',
-                                    borderRadius: 16,
-                                    background: isCurrent ? `${familyAccent}12` : 'rgba(255,255,255,0.03)',
-                                    border: `1px solid ${isCurrent ? `${familyAccent}2d` : 'rgba(255,255,255,0.08)'}`,
-                                  }}
-                                >
-                                  <div style={{
-                                    width: 32,
-                                    height: 32,
-                                    borderRadius: 999,
-                                    display: 'grid',
-                                    placeItems: 'center',
-                                    background: isCurrent ? familyAccent : isPast ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.06)',
-                                    color: isCurrent ? '#06060f' : isPast ? '#f5f5f7' : '#8e8e93',
-                                    fontSize: 12,
-                                    fontWeight: 900,
-                                    flexShrink: 0,
-                                  }}>
-                                    {isPast ? '✓' : index + 1}
-                                  </div>
-                                  <div style={{ flex: 1, minWidth: 0 }}>
-                                    <div style={{ fontSize: 14.5, fontWeight: 800, color: '#f5f5f7', marginBottom: 3 }}>{milestone}</div>
-                                    <div style={{ fontSize: 12, color: isCurrent ? '#d9fff7' : '#8e8e93' }}>
-                                      {isCurrent ? 'You start here' : isPast ? 'Already implied by your level' : 'Comes next in the route'}
-                                    </div>
-                                  </div>
-                                </div>
-                              )
-                            })}
-                          </div>
-                        </div>
-
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0,1fr))', gap: 10, marginBottom: 18 }}>
-                          <div style={{ padding: '14px', borderRadius: 18, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                            <div style={{ fontSize: 11, fontWeight: 800, color: '#8e8e93', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 6 }}>Finish line</div>
-                            <div style={{ fontSize: 14, fontWeight: 800, color: '#f5f5f7', lineHeight: 1.4 }}>{preview.finishLine}</div>
-                          </div>
-                          <div style={{ padding: '14px', borderRadius: 18, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                            <div style={{ fontSize: 11, fontWeight: 800, color: '#8e8e93', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 6 }}>First focus</div>
-                            <div style={{ fontSize: 14, fontWeight: 800, color: '#f5f5f7', lineHeight: 1.4 }}>{preview.firstModule}</div>
-                          </div>
-                        </div>
-
-                        <div style={{ display: 'flex', gap: 10 }}>
-                          <button
-                            onClick={() => goToStep(3, -1)}
-                            style={{
-                              flex: 1,
-                              padding: '14px',
-                              background: 'rgba(255,255,255,0.04)',
-                              border: '1px solid rgba(255,255,255,0.08)',
-                              borderRadius: 16,
-                              color: '#8e8e93',
-                              fontSize: 14,
-                              fontWeight: 700,
-                              cursor: 'pointer',
-                              fontFamily: "'DM Sans', sans-serif",
-                            }}
-                          >
-                            Back
-                          </button>
-                          <button
-                            onClick={() => goToStep(5, 1)}
-                            style={{
-                              flex: 1.35,
-                              padding: '14px',
-                              background: 'linear-gradient(135deg,#0ef5c2,#00d4ff)',
-                              border: 'none',
-                              borderRadius: 16,
-                              color: '#06060f',
-                              fontSize: 14.5,
-                              fontWeight: 800,
-                              cursor: 'pointer',
-                              fontFamily: "'DM Sans', sans-serif",
-                            }}
-                          >
-                            Start a quick win
-                          </button>
-                        </div>
+                      <div className="onboarding-footer">
+                        <button type="button" className="onboarding-secondary interactive-secondary" onClick={() => goToStep(1, -1)}>
+                          Back
+                        </button>
+                        <button type="button" className="onboarding-primary interactive-cta" onClick={() => goToStep(3, 1)}>
+                          Continue
+                        </button>
                       </div>
-                    )}
+                    </>
+                  )}
 
-                    {step === 5 && (
-                      <div>
-                        <div style={{ marginBottom: 18 }}>
-                          <MascotBubble text="Let’s do something real right now. This takes well under a minute and gives you a real starting signal." />
-                        </div>
-
-                        <div style={{
-                          padding: '18px 18px 16px',
-                          borderRadius: 22,
-                          background: 'linear-gradient(155deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03))',
-                          border: '1px solid rgba(255,255,255,0.10)',
-                        }}>
-                          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
-                            <div>
-                              <div style={{ fontSize: 11, fontWeight: 800, color: '#8e8e93', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 6 }}>
-                                First action
-                              </div>
-                              <div style={{ fontSize: 20, fontWeight: 900, color: '#f5f5f7', letterSpacing: '-0.5px' }}>{firstAction.title}</div>
-                            </div>
-                            <div style={{
-                              padding: '8px 10px',
-                              borderRadius: 14,
-                              background: `${familyAccent}14`,
-                              border: `1px solid ${familyAccent}24`,
-                              color: familyAccent,
-                              fontSize: 11,
-                              fontWeight: 800,
-                            }}>
-                              Under 1 min
-                            </div>
+                  {step === 3 && currentQuestion && (
+                    <>
+                      <div className="onboarding-question-stage">
+                        <div className="onboarding-question-card">
+                          <div className="onboarding-question-count">
+                            Question {questionIndex + 1} of {questions.length}
                           </div>
+                          <div className="font-display onboarding-question-title">{currentQuestion.prompt}</div>
 
-                          <div style={{ fontSize: 13.5, color: '#b7b7be', lineHeight: 1.6, marginBottom: 16 }}>
-                            {firstAction.subtitle}
-                          </div>
-
-                          <div style={{
-                            padding: '14px 14px',
-                            borderRadius: 18,
-                            background: 'rgba(0,0,0,0.18)',
-                            border: '1px solid rgba(255,255,255,0.08)',
-                            marginBottom: 14,
-                          }}>
-                            <div style={{ fontSize: 16, fontWeight: 800, color: '#f5f5f7', lineHeight: 1.5 }}>
-                              {firstAction.prompt}
-                            </div>
-                          </div>
-
-                          <div style={{ display: 'grid', gap: 8 }}>
-                            {firstAction.options.map((option, index) => {
-                              const active = firstActionChoice === index
-                              const correct = firstActionState !== 'idle' && index === firstAction.correctIndex
-                              const wrongSelected = firstActionState === 'wrong' && active
+                          <div className="onboarding-answer-list">
+                            {currentQuestion.options.map((option) => {
+                              const selected = answers[currentQuestion.id]?.label === option.label
                               return (
                                 <button
-                                  key={option}
-                                  onClick={() => {
-                                    setFirstActionChoice(index)
-                                    if (index === firstAction.correctIndex) {
-                                      setFirstActionState('correct')
-                                    } else {
-                                      setFirstActionState('wrong')
-                                    }
-                                  }}
+                                  type="button"
+                                  className="onboarding-answer interactive-card"
+                                  key={option.label}
+                                  onClick={() => handleAnswer(currentQuestion, option)}
                                   style={{
-                                    width: '100%',
-                                    padding: '12px 14px',
-                                    borderRadius: 16,
-                                    border: `1px solid ${
-                                      correct
-                                        ? 'rgba(14,245,194,0.28)'
-                                        : wrongSelected
-                                          ? 'rgba(255,69,58,0.24)'
-                                          : active
-                                            ? 'rgba(255,255,255,0.12)'
-                                            : 'rgba(255,255,255,0.08)'
-                                    }`,
-                                    background: correct
-                                      ? 'rgba(14,245,194,0.12)'
-                                      : wrongSelected
-                                        ? 'rgba(255,69,58,0.08)'
-                                        : active
-                                          ? 'rgba(255,255,255,0.06)'
-                                          : 'rgba(255,255,255,0.03)',
-                                    color: '#f5f5f7',
-                                    cursor: 'pointer',
-                                    textAlign: 'left',
-                                    fontSize: 13.5,
-                                    fontWeight: 700,
-                                    fontFamily: "'DM Sans', sans-serif",
+                                    borderColor: selected ? 'rgba(0,229,199,0.26)' : 'rgba(255,255,255,0.08)',
+                                    background: selected ? 'rgba(0,229,199,0.10)' : 'rgba(255,255,255,0.04)',
                                   }}
                                 >
-                                  {option}
+                                  {option.label}
                                 </button>
                               )
                             })}
                           </div>
-
-                          {firstActionState === 'wrong' && (
-                            <div style={{
-                              marginTop: 14,
-                              padding: '12px 14px',
-                              borderRadius: 16,
-                              background: 'rgba(255,69,58,0.08)',
-                              border: '1px solid rgba(255,69,58,0.18)',
-                              color: '#ffb4ae',
-                              fontSize: 13,
-                              lineHeight: 1.55,
-                            }}>
-                              Close. Try once more. The strongest answer is the one that leads to real progress, not just surface familiarity.
-                            </div>
-                          )}
-
-                          {firstActionState === 'correct' && (
-                            <div style={{
-                              marginTop: 14,
-                              padding: '12px 14px',
-                              borderRadius: 16,
-                              background: 'rgba(14,245,194,0.10)',
-                              border: '1px solid rgba(14,245,194,0.18)',
-                            }}>
-                              <div style={{ fontSize: 14, fontWeight: 800, color: '#d9fff7', marginBottom: 4 }}>
-                                {firstAction.success}
-                              </div>
-                              <div style={{ fontSize: 12.5, color: '#bdece1', lineHeight: 1.55 }}>
-                                {firstAction.followUp}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-
-                        <div style={{ display: 'flex', gap: 10, marginTop: 22 }}>
-                          <button
-                            onClick={() => goToStep(4, -1)}
-                            style={{
-                              flex: 1,
-                              padding: '14px',
-                              background: 'rgba(255,255,255,0.04)',
-                              border: '1px solid rgba(255,255,255,0.08)',
-                              borderRadius: 16,
-                              color: '#8e8e93',
-                              fontSize: 14,
-                              fontWeight: 700,
-                              cursor: 'pointer',
-                              fontFamily: "'DM Sans', sans-serif",
-                            }}
-                          >
-                            Back
-                          </button>
-                          <button
-                            onClick={() => {
-                              if (firstActionState !== 'correct') return
-                              goToStep(6, 1)
-                            }}
-                            disabled={firstActionState !== 'correct'}
-                            style={{
-                              flex: 1.35,
-                              padding: '14px',
-                              background: firstActionState === 'correct'
-                                ? 'linear-gradient(135deg,#0ef5c2,#00d4ff)'
-                                : 'rgba(255,255,255,0.06)',
-                              border: firstActionState === 'correct' ? 'none' : '1px solid rgba(255,255,255,0.08)',
-                              borderRadius: 16,
-                              color: firstActionState === 'correct' ? '#06060f' : '#3a3a3c',
-                              fontSize: 14.5,
-                              fontWeight: 800,
-                              cursor: firstActionState === 'correct' ? 'pointer' : 'default',
-                              fontFamily: "'DM Sans', sans-serif",
-                            }}
-                          >
-                            See what opens next
-                          </button>
                         </div>
                       </div>
-                    )}
 
-                    {step === 6 && (
-                      <div>
-                        <div style={{ marginBottom: 18 }}>
-                          <MascotBubble text="You are off to a strong start. Here is what opened up, and the next move is already ready." />
+                      <div className="onboarding-footer">
+                        <button
+                          type="button"
+                          className="onboarding-secondary interactive-secondary"
+                          onClick={() => {
+                            if (questionIndex > 0) {
+                              setQuestionIndex((value) => value - 1)
+                            } else {
+                              goToStep(2, -1)
+                            }
+                          }}
+                        >
+                          Back
+                        </button>
+                        <button
+                          type="button"
+                          className="onboarding-primary interactive-cta"
+                          onClick={() => goToStep(4, 1)}
+                          disabled={!allQuestionsAnswered}
+                        >
+                          Build my path
+                        </button>
+                      </div>
+                    </>
+                  )}
+
+                  {step === 4 && (
+                    <>
+                      <div className="onboarding-generation">
+                        <div className="onboarding-build-visual">
+                          <div className="onboarding-core-orb" />
+                          <div className="onboarding-node one" />
+                          <div className="onboarding-node two" />
+                          <div className="onboarding-node three" />
+                          <div className="onboarding-node four" />
                         </div>
 
-                        <div style={{
-                          padding: '20px 18px',
-                          borderRadius: 24,
-                          background: 'linear-gradient(155deg, rgba(14,245,194,0.10), rgba(255,255,255,0.04))',
-                          border: '1px solid rgba(14,245,194,0.18)',
-                          boxShadow: '0 20px 48px rgba(14,245,194,0.08)',
-                          marginBottom: 16,
-                        }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
-                            <div style={{
-                              width: 48,
-                              height: 48,
-                              borderRadius: 16,
-                              background: 'linear-gradient(135deg, rgba(14,245,194,0.20), rgba(0,212,255,0.14))',
-                              border: '1px solid rgba(14,245,194,0.28)',
-                              display: 'grid',
-                              placeItems: 'center',
-                              color: '#0ef5c2',
-                            }}>
-                              <IconGlyph name="check_circle" size={22} strokeWidth={2.4} color="#0ef5c2" />
-                            </div>
-                            <div>
-                              <div style={{ fontSize: 22, fontWeight: 900, color: '#f5f5f7', letterSpacing: '-0.6px' }}>Strong start</div>
-                              <div style={{ fontSize: 13, color: '#bdece1' }}>Your path is tuned and your first real lesson is ready.</div>
-                            </div>
-                          </div>
-
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0,1fr))', gap: 10, marginBottom: 14 }}>
-                            {[
-                              { label: 'Level', value: recommendedLevel },
-                              { label: 'First focus', value: preview.firstModule },
-                              { label: 'Next move', value: preview.nextAction },
-                            ].map((item) => (
-                              <div key={item.label} style={{
-                                padding: '12px',
-                                borderRadius: 16,
-                                background: 'rgba(255,255,255,0.05)',
-                                border: '1px solid rgba(255,255,255,0.08)',
-                              }}>
-                                <div style={{ fontSize: 10, fontWeight: 800, color: '#8e8e93', textTransform: 'uppercase', letterSpacing: '0.9px', marginBottom: 6 }}>{item.label}</div>
-                                <div style={{ fontSize: 14, fontWeight: 800, color: '#f5f5f7', lineHeight: 1.35 }}>{item.value}</div>
+                        <div>
+                          {buildReady ? (
+                            <div className="onboarding-success">
+                              <div className="onboarding-success-badge">
+                                <IconGlyph name="check" size={14} strokeWidth={2.6} color="#00e5c7" />
+                                Your first mission is ready
                               </div>
-                            ))}
-                          </div>
-
-                          <div style={{
-                            padding: '12px 14px',
-                            borderRadius: 16,
-                            background: 'rgba(255,255,255,0.05)',
-                            border: '1px solid rgba(255,255,255,0.08)',
-                          }}>
-                            <div style={{ fontSize: 11, fontWeight: 800, color: '#8e8e93', textTransform: 'uppercase', letterSpacing: '0.9px', marginBottom: 6 }}>
-                              Momentum
+                              <div style={{ color: '#f0f0f0', fontSize: 34, fontWeight: 700, lineHeight: 1.04, letterSpacing: '-0.04em' }}>
+                                Path calibrated. Launch when you are ready.
+                              </div>
+                              <div style={{ color: 'rgba(240,240,240,0.56)', fontSize: 15, lineHeight: 1.72 }}>
+                                We mapped the first route, first mission, and first milestone. The dashboard is ready with your opening stack.
+                              </div>
+                              <button type="button" className="onboarding-primary interactive-cta" onClick={() => router.push('/dashboard')}>
+                                Let&apos;s go
+                              </button>
                             </div>
-                            <div style={{ fontSize: 13.5, color: '#f5f5f7', lineHeight: 1.6 }}>
-                              {recommendedLevel === 'beginner'
-                                ? 'You are starting with a clear ramp and a quick first win, which is exactly how consistent learners stay in motion.'
-                                : recommendedLevel === 'intermediate'
-                                  ? 'You are already past the true beginner phase, so the path will skip the softest intro material.'
-                                  : 'You are starting further up the path, so we will compress basics and move faster toward higher-value work.'}
-                            </div>
-                          </div>
-                        </div>
-
-                        <div style={{ display: 'flex', gap: 10 }}>
-                          <button
-                            onClick={() => goToStep(5, -1)}
-                            style={{
-                              flex: 1,
-                              padding: '14px',
-                              background: 'rgba(255,255,255,0.04)',
-                              border: '1px solid rgba(255,255,255,0.08)',
-                              borderRadius: 16,
-                              color: '#8e8e93',
-                              fontSize: 14,
-                              fontWeight: 700,
-                              cursor: 'pointer',
-                              fontFamily: "'DM Sans', sans-serif",
-                            }}
-                          >
-                            Back
-                          </button>
-                          <button
-                            onClick={handleGenerate}
-                            style={{
-                              flex: 1.5,
-                              padding: '14px',
-                              background: 'linear-gradient(135deg,#0ef5c2,#00d4ff)',
-                              border: 'none',
-                              borderRadius: 16,
-                              color: '#06060f',
-                              fontSize: 14.5,
-                              fontWeight: 800,
-                              cursor: 'pointer',
-                              fontFamily: "'DM Sans', sans-serif",
-                              boxShadow: '0 0 36px rgba(14,245,194,0.22)',
-                            }}
-                          >
-                            Keep going
-                          </button>
+                          ) : (
+                            <>
+                              <div style={{ color: '#f0f0f0', fontSize: 32, fontWeight: 700, lineHeight: 1.04, letterSpacing: '-0.04em', marginBottom: 12 }}>
+                                Building your path...
+                              </div>
+                              <div style={{ color: 'rgba(240,240,240,0.56)', fontSize: 15, lineHeight: 1.72, marginBottom: 20 }}>
+                                We are turning your goal, pace, and diagnostic into a first route that already feels pointed and personal.
+                              </div>
+                              <GenerationStepList steps={GENERATION_STEPS} activeIndex={genStep} accent={accent} />
+                            </>
+                          )}
                         </div>
                       </div>
-                    )}
-                  </motion.div>
-                </AnimatePresence>
-              </div>
-            </div>
-          )}
+
+                      {!loading && !buildReady ? (
+                        <div className="onboarding-footer">
+                          <button type="button" className="onboarding-secondary interactive-secondary" onClick={() => goToStep(3, -1)}>
+                            Back
+                          </button>
+                          <button type="button" className="onboarding-primary interactive-cta" onClick={startGeneration}>
+                            Try again
+                          </button>
+                        </div>
+                      ) : null}
+                    </>
+                  )}
+                </motion.div>
+              </AnimatePresence>
+            </PremiumFrame>
+          </div>
         </div>
       </div>
     </>

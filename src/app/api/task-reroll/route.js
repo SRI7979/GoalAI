@@ -1,21 +1,24 @@
 import { getOpenAIModel } from '@/lib/openaiModels'
 import { buildInventoryCountsFromTransactions, getTrackedInventoryReasons } from '@/lib/shopInventory'
 import { getSupabaseServerClient } from '@/lib/supabaseServer'
+import { getCanonicalTaskType, normalizeLearningTask, normalizeLearningTasks } from '@/lib/taskTaxonomy'
 
-const INELIGIBLE_TYPES = new Set(['project', 'boss', 'capstone', 'quiz'])
+const INELIGIBLE_TYPES = new Set(['project', 'boss', 'quiz', 'final_exam'])
 
 const TYPE_FAMILIES = {
-  lesson: ['reading', 'video', 'discussion', 'flashcard'],
-  video: ['lesson', 'reading', 'discussion', 'flashcard'],
-  reading: ['lesson', 'discussion', 'flashcard', 'video'],
-  flashcard: ['reading', 'discussion', 'lesson', 'video'],
-  discussion: ['reading', 'lesson', 'flashcard', 'reflection'],
-  practice: ['exercise', 'ai_interaction', 'challenge', 'reflection'],
-  exercise: ['practice', 'ai_interaction', 'challenge', 'reflection'],
-  review: ['flashcard', 'reading', 'discussion', 'lesson'],
-  ai_interaction: ['practice', 'exercise', 'reflection', 'challenge'],
-  reflection: ['discussion', 'ai_interaction', 'reading', 'lesson'],
-  challenge: ['exercise', 'practice', 'ai_interaction', 'reflection'],
+  concept: ['concept', 'recall', 'explain'],
+  guided_practice: ['guided_practice', 'explain', 'challenge'],
+  challenge: ['guided_practice', 'explain', 'recall'],
+  explain: ['explain', 'concept', 'recall'],
+  recall: ['recall', 'concept', 'explain'],
+  reflect: ['reflect', 'recall', 'concept'],
+}
+
+const TYPE_PRESENTATIONS = {
+  concept: ['lesson', 'reading', 'video'],
+  guided_practice: ['practice', 'exercise'],
+  explain: ['ai_interaction', 'discussion'],
+  recall: ['review', 'flashcard'],
 }
 
 function extractAccessToken(request) {
@@ -26,30 +29,38 @@ function extractAccessToken(request) {
 }
 
 function normalizeRerollTask(task = {}, originalTask = {}, concept = '') {
-  const allowedTypes = TYPE_FAMILIES[originalTask.type] || ['lesson', 'reading', 'discussion']
+  const normalizedOriginalTask = normalizeLearningTask(originalTask)
+  const allowedTypes = TYPE_FAMILIES[normalizedOriginalTask.type] || ['concept', 'recall', 'explain']
   const fallbackType = allowedTypes[0]
-  const type = allowedTypes.includes(task?.type) ? task.type : fallbackType
+  const requestedType = getCanonicalTaskType(task?.type, task)
+  const type = allowedTypes.includes(requestedType) ? requestedType : fallbackType
   const durationMin = Math.max(
     8,
-    Math.min(45, Number(task?.durationMin) || Number(originalTask?.durationMin) || 15),
+    Math.min(45, Number(task?.durationMin) || Number(normalizedOriginalTask?.estimatedTimeMin) || Number(normalizedOriginalTask?.durationMin) || 15),
   )
+  const allowedPresentations = TYPE_PRESENTATIONS[type] || []
+  const presentation = allowedPresentations.includes(String(task?.presentation || '').trim())
+    ? String(task.presentation).trim()
+    : allowedPresentations[0]
 
-  return {
-    ...originalTask,
+  return normalizeLearningTask({
+    ...normalizedOriginalTask,
     id: `reroll-${String(originalTask?.id || 'task')}-${Date.now()}`,
     type,
+    ...(presentation ? { presentation } : {}),
     title: String(task?.title || `${concept}: alternate ${type}`).trim(),
-    description: String(task?.description || `A fresh way to practice ${concept}.`).trim(),
+    description: String(task?.description || `A fresh way to advance ${concept} from a different angle.`).trim(),
     durationMin,
-    completed: false,
     resourceUrl: String(task?.resourceUrl || originalTask?.resourceUrl || '').trim(),
     resourceTitle: String(task?.resourceTitle || originalTask?.resourceTitle || '').trim(),
     _adaptive: undefined,
-  }
+    completed: false,
+  })
 }
 
 function buildFallbackTask(originalTask = {}, concept = '', goalText = '') {
-  const nextType = (TYPE_FAMILIES[originalTask.type] || ['lesson'])[0]
+  const normalizedOriginalTask = normalizeLearningTask(originalTask)
+  const nextType = (TYPE_FAMILIES[normalizedOriginalTask.type] || ['concept'])[0]
   const lowerConcept = String(concept || originalTask.title || 'the concept').toLowerCase()
   return normalizeRerollTask({
     type: nextType,
@@ -61,23 +72,26 @@ function buildFallbackTask(originalTask = {}, concept = '', goalText = '') {
 async function generateRerolledTask({ originalTask, concept, goalText, openaiApiKey }) {
   if (!openaiApiKey) return buildFallbackTask(originalTask, concept, goalText)
 
-  const allowedTypes = TYPE_FAMILIES[originalTask.type] || ['lesson', 'reading', 'discussion']
+  const normalizedOriginalTask = normalizeLearningTask(originalTask)
+  const allowedTypes = TYPE_FAMILIES[normalizedOriginalTask.type] || ['concept', 'recall', 'explain']
   const prompt = `Create one replacement learning task for a student.
 
 GOAL: ${goalText}
 CONCEPT: ${concept}
-CURRENT TASK TYPE: ${originalTask.type}
-CURRENT TASK TITLE: ${originalTask.title}
-CURRENT TASK DESCRIPTION: ${originalTask.description || 'N/A'}
-CURRENT DURATION: ${Number(originalTask.durationMin) || 15} minutes
+CURRENT TASK TYPE: ${normalizedOriginalTask.type}
+CURRENT TASK TITLE: ${normalizedOriginalTask.title}
+CURRENT TASK DESCRIPTION: ${normalizedOriginalTask.description || 'N/A'}
+CURRENT DURATION: ${Number(normalizedOriginalTask.estimatedTimeMin || normalizedOriginalTask.durationMin) || 15} minutes
 ALLOWED REPLACEMENT TYPES: ${allowedTypes.join(', ')}
+OPTIONAL PRESENTATION MODES: concept -> lesson/video/reading, guided_practice -> practice/exercise, explain -> ai_interaction/discussion, recall -> review/flashcard
 
 Return ONLY valid JSON:
 {
   "type": "${allowedTypes[0]}",
+  "presentation": "",
   "title": "Specific replacement task title",
   "description": "A clear, concrete description for the replacement task",
-  "durationMin": ${Number(originalTask.durationMin) || 15},
+  "durationMin": ${Number(normalizedOriginalTask.estimatedTimeMin || normalizedOriginalTask.durationMin) || 15},
   "resourceUrl": "",
   "resourceTitle": ""
 }
@@ -85,7 +99,8 @@ Return ONLY valid JSON:
 RULES:
 - Keep the task in the same concept band and effort band as the original
 - Make it feel different from the original task, not a rename
-- Do not generate project, boss, capstone, or quiz tasks
+- Use only canonical task types
+- Do not generate project, boss, quiz, or final_exam tasks
 - Keep duration within plus or minus 5 minutes of the original
 - Title and description should be concise and specific`
 
@@ -162,13 +177,13 @@ export async function POST(request) {
     if (rowError || !row) return Response.json({ error: 'Task row not found' }, { status: 404 })
     if (goalError || !goal) return Response.json({ error: 'Goal not found' }, { status: 404 })
 
-    const tasks = Array.isArray(row.tasks) ? row.tasks : []
+    const tasks = normalizeLearningTasks(row.tasks)
     const targetTaskIndex = tasks.findIndex((task) => String(task.id) === String(taskId))
     if (targetTaskIndex < 0) return Response.json({ error: 'Task not found' }, { status: 404 })
 
     const targetTask = tasks[targetTaskIndex]
     if (targetTask.completed) return Response.json({ error: 'Completed tasks cannot be rerolled' }, { status: 400 })
-    if (INELIGIBLE_TYPES.has(targetTask.type)) {
+    if (INELIGIBLE_TYPES.has(getCanonicalTaskType(targetTask.type, targetTask))) {
       return Response.json({ error: 'This task type cannot be rerolled' }, { status: 400 })
     }
 

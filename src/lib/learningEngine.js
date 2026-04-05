@@ -1,40 +1,22 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Learning Engine — 7-Type System, Adaptive Difficulty, Smart Review, Mastery
+// Learning Engine — canonical task flow, adaptive difficulty, review, mastery
 // ─────────────────────────────────────────────────────────────────────────────
+import {
+  CANONICAL_TASK_TYPES,
+  LEGACY_TO_CANONICAL_TASK_TYPE,
+  getCanonicalTaskType,
+} from '@/lib/taskTaxonomy'
 
-// ── Backward-compat: map legacy 16 types → clean 7 types ────────────────────
-export const LEGACY_TYPE_MAP = {
-  // Old → New
-  lesson:           'concept',
-  reading:          'concept',
-  video:            'concept',
-  flashcard:        'concept',
-  discussion:       'explain',
-  practice:         'guided_practice',
-  exercise:         'guided_practice',
-  ai_interaction:   'explain',
-  reflection:       'reflect',
-  review:           'quiz',
-  capstone:         'boss',
-  project:          'project',  // project stays as-is (separate system)
-  // These are already clean types — identity mapping
-  concept:          'concept',
-  guided_practice:  'guided_practice',
-  challenge:        'challenge',
-  explain:          'explain',
-  quiz:             'quiz',
-  reflect:          'reflect',
-  boss:             'boss',
+// Kept for backward compatibility with existing imports.
+export const LEGACY_TYPE_MAP = { ...LEGACY_TO_CANONICAL_TASK_TYPE }
+
+export function normalizeTaskType(type, task = null) {
+  return getCanonicalTaskType(type, task)
 }
 
-// Normalize any task type (old or new) to the clean 7-type system
-export function normalizeTaskType(type) {
-  return LEGACY_TYPE_MAP[String(type || '').toLowerCase().trim()] || 'concept'
-}
-
-// ── The 7 Clean Types ────────────────────────────────────────────────────────
-// concept → guided_practice → challenge → explain → quiz → reflect → boss
-export const TASK_TYPES = ['concept', 'guided_practice', 'challenge', 'explain', 'quiz', 'reflect', 'boss']
+// The learning loop uses the core 8 instructional task families.
+export const TASK_TYPES = CANONICAL_TASK_TYPES
+  .filter((type) => !['project', 'final_exam'].includes(type))
 
 // ── Cognitive Stages ─────────────────────────────────────────────────────────
 // 1. Exposure        → concept
@@ -52,6 +34,7 @@ export const FLOW_STAGES = [
   'apply',       // Guided Practice — apply with scaffolded help
   'struggle',    // Challenge — solve independently, no help
   'explain',     // Explain — teach it back to prove understanding
+  'recall',      // Recall — lightweight retrieval and review loop
   'prove',       // Quiz — test recall and retention
   'reflect',     // Reflect — metacognitive self-assessment
 ]
@@ -59,42 +42,49 @@ export const FLOW_STAGES = [
 export const FLOW_STAGE_CONFIG = {
   understand: {
     label: 'Understand',
-    icon: '📖',
+    icon: 'book',
     taskTypes: ['concept'],
     description: 'Absorb the concept through explanations and examples',
     color: '#0ef5c2',
   },
   apply: {
     label: 'Apply',
-    icon: '🔧',
+    icon: 'hammer',
     taskTypes: ['guided_practice'],
     description: 'Practice with scaffolded hints and guidance',
     color: '#00d4ff',
   },
   struggle: {
     label: 'Struggle',
-    icon: '🧗',
+    icon: 'challenge',
     taskTypes: ['challenge'],
     description: 'Solve problems independently with zero help',
     color: '#F59E0B',
   },
   explain: {
     label: 'Explain',
-    icon: '💬',
+    icon: 'message',
     taskTypes: ['explain'],
     description: 'Teach the concept back to prove understanding',
     color: '#818CF8',
   },
+  recall: {
+    label: 'Recall',
+    icon: 'layers',
+    taskTypes: ['recall'],
+    description: 'Strengthen memory through fast retrieval and review loops',
+    color: '#C084FC',
+  },
   prove: {
     label: 'Prove',
-    icon: '🏆',
-    taskTypes: ['quiz', 'boss'],
+    icon: 'badge',
+    taskTypes: ['quiz', 'boss', 'final_exam'],
     description: 'Test recall and retention through assessment',
     color: '#EC4899',
   },
   reflect: {
     label: 'Reflect',
-    icon: '🪞',
+    icon: 'brain',
     taskTypes: ['reflect'],
     description: 'What did you learn? What\'s still fuzzy?',
     color: '#A78BFA',
@@ -146,8 +136,9 @@ export function buildFlowSequence(dayNumber, difficulty, options = {}) {
   // Review days: quiz weak concepts → reinforce → reflect
   if (isReviewDay) {
     return [
-      { type: 'quiz', stage: 'prove', label: 'Review Quiz' },
+      { type: 'recall', stage: 'recall', label: 'Recall Drill' },
       { type: 'guided_practice', stage: 'apply', label: 'Reinforce Weak Spots' },
+      { type: 'quiz', stage: 'prove', label: 'Review Quiz' },
       { type: 'reflect', stage: 'reflect', label: 'Progress Check' },
     ]
   }
@@ -169,6 +160,7 @@ export function buildFlowSequence(dayNumber, difficulty, options = {}) {
       { type: 'concept', stage: 'understand', label: 'Re-Learn the Concept' },
       { type: 'guided_practice', stage: 'apply', label: 'Guided Practice' },
       { type: 'guided_practice', stage: 'apply', label: 'Extra Practice' },
+      { type: 'recall', stage: 'recall', label: 'Memory Reset' },
       { type: 'quiz', stage: 'prove', label: 'Check Understanding' },
       { type: 'reflect', stage: 'reflect', label: 'Reflect' },
     ]
@@ -380,11 +372,11 @@ export function calculateUnderstandingScore(signals) {
 
 // ── Mastery level label ──────────────────────────────────────────────────────
 export function getUnderstandingLevel(score) {
-  if (score >= 90) return { label: 'Mastered', color: '#0ef5c2', icon: '🌟' }
-  if (score >= 75) return { label: 'Strong', color: '#34D399', icon: '💪' }
-  if (score >= 60) return { label: 'Developing', color: '#3B82F6', icon: '📈' }
-  if (score >= 40) return { label: 'Emerging', color: '#F59E0B', icon: '🌱' }
-  return { label: 'Needs Review', color: '#FF453A', icon: '🔄' }
+  if (score >= 90) return { label: 'Mastered', color: '#0ef5c2', icon: 'sparkles' }
+  if (score >= 75) return { label: 'Strong', color: '#34D399', icon: 'dumbbell' }
+  if (score >= 60) return { label: 'Developing', color: '#3B82F6', icon: 'line_chart' }
+  if (score >= 40) return { label: 'Emerging', color: '#F59E0B', icon: 'sprout' }
+  return { label: 'Needs Review', color: '#FF453A', icon: 'repeat' }
 }
 
 // Mastery threshold — must reach this to progress to next concept
@@ -395,25 +387,25 @@ export const MASTERY_THRESHOLD = 80
 export const AI_INTERACTION_TYPES = {
   explain: {
     label: 'Explain It',
-    icon: '🗣',
+    icon: 'message',
     prompt: 'Explain this concept in your own words as if teaching someone',
     description: 'Teach the concept back — the best way to learn is to explain',
   },
   debug: {
     label: 'Debug This',
-    icon: '🔍',
+    icon: 'wrench',
     prompt: 'Find and fix the intentional mistakes in this code/scenario',
     description: 'Spot errors and explain why they\'re wrong',
   },
   predict: {
     label: 'Predict',
-    icon: '🔮',
+    icon: 'orbit',
     prompt: 'What will happen when this code runs / this scenario plays out?',
     description: 'Predict the outcome before seeing the answer',
   },
   whatif: {
     label: 'What If?',
-    icon: '🤔',
+    icon: 'brain',
     prompt: 'What would change if we modified this part?',
     description: 'Explore how changes affect the outcome',
   },

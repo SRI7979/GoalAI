@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { selectReflectionPrompts } from '@/lib/learningEngine'
 import ConfidenceSelector from './ConfidenceSelector'
+import IconGlyph from '@/components/IconGlyph'
 
 const font = "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif"
 
@@ -96,7 +97,7 @@ export default function ReflectionView({ task, goal, knowledge, onClose, onCompl
           </button>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 18 }}>🪞</span>
+            <IconGlyph name="brain" size={18} strokeWidth={2.2} color="#A78BFA" />
             <span style={{ fontSize: 14, fontWeight: 700, color: '#A78BFA' }}>Reflection</span>
           </div>
 
@@ -115,7 +116,11 @@ export default function ReflectionView({ task, goal, knowledge, onClose, onCompl
 
             {/* Intro */}
             <div style={{ textAlign: 'center', marginBottom: 32, animation: 'fadeIn 0.4s ease both' }}>
-              <div style={{ fontSize: 48, marginBottom: 12 }}>🪞</div>
+              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
+                <div style={{ width: 64, height: 64, borderRadius: 20, background: 'rgba(167,139,250,0.10)', border: '1px solid rgba(167,139,250,0.22)', display: 'grid', placeItems: 'center' }}>
+                  <IconGlyph name="brain" size={28} strokeWidth={2.2} color="#A78BFA" />
+                </div>
+              </div>
               <h1 style={{ fontSize: 24, fontWeight: 800, color: '#f5f5f7', marginBottom: 8 }}>
                 Time to Reflect
               </h1>
@@ -146,7 +151,7 @@ export default function ReflectionView({ task, goal, knowledge, onClose, onCompl
                           fontSize: 12, color: (responses[p.id] || '').trim().length > 10 ? '#A78BFA' : '#636366',
                           fontWeight: 700, transition: 'all 0.3s',
                         }}>
-                          {(responses[p.id] || '').trim().length > 10 ? '✓' : i + 1}
+                          {(responses[p.id] || '').trim().length > 10 ? <IconGlyph name="check" size={12} strokeWidth={2.8} color="#A78BFA" /> : i + 1}
                         </div>
                         <span style={{
                           fontSize: 15, fontWeight: 700, color: '#f5f5f7', lineHeight: 1.4,
@@ -314,7 +319,7 @@ export default function ReflectionView({ task, goal, knowledge, onClose, onCompl
               >
                 {completing ? (
                   <><div style={{ width: 14, height: 14, border: '2px solid rgba(167,139,250,0.2)', borderTopColor: '#A78BFA', borderRadius: '50%', animation: 'spin 0.65s linear infinite' }}/>Saving...</>
-                ) : confidenceLevel ? 'Complete Reflection ✓' : 'Choose confidence to continue'}
+                ) : confidenceLevel ? 'Complete Reflection' : 'Choose confidence to continue'}
               </button>
             </div>
           </div>

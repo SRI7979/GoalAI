@@ -1,3 +1,5 @@
+import { getCanonicalTaskType } from '@/lib/taskTaxonomy'
+
 // ─── Achievement Badge Definitions ──────────────────────────────────────────
 // 15 badges across 4 categories with trigger conditions
 
@@ -182,7 +184,7 @@ export async function checkAndAwardBadges({ supabase, userId, state }) {
   check('century_legend', streak >= 100)
 
   // Learning badges
-  check('quick_study', taskType === 'lesson' && lessonTimeSec > 0 && lessonTimeSec < 180)
+  check('quick_study', getCanonicalTaskType(taskType) === 'concept' && lessonTimeSec > 0 && lessonTimeSec < 180)
   check('perfect_score', quizPerfect)
   check('combo_king', comboMax >= 5)
   check('concept_master', conceptMasteryScore >= 100)

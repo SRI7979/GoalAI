@@ -1,14 +1,15 @@
 import { getSupabaseServerClient } from '@/lib/supabaseServer'
 import {
+  buildDeterministicCourseOutline,
   buildExploreDayTask,
+  buildFallbackConcepts,
   buildGoalPlanDayFromSequenceItem,
-  generateCourseOutline,
-  generateExploreConcepts,
   initializeUserProgress,
   saveDailyTasks,
   updateGoalStatus,
 } from '@/lib/learningPlan'
 import { buildPathOutlineTracker } from '@/lib/pathOutline.js'
+import { getCourseOutlineStatus } from '@/lib/courseOutlineStore'
 import { persistCourseOutline } from '@/lib/courseOutlineStore'
 
 function extractAccessToken(request) {
@@ -59,17 +60,14 @@ export async function POST(request) {
 
     let dailyPlan = []
     let sequenceDayCount = mode === 'explore' ? 0 : Number(days) || 0
+    let generationSource = 'deterministic'
+    let outlineStatus = mode === 'goal' ? 'pending' : null
 
     if (mode === 'explore') {
       // ── Explore Mode ──────────────────────────────────────────────────────────
       // Generate first 5 concepts and build the first 5 days as a starting batch.
       // More days are generated on-demand as the user completes each day.
-      const exploreConcepts = await generateExploreConcepts({
-        goal,
-        knowledge,
-        afterConcepts: [],
-        openaiApiKey: process.env.OPENAI_API_KEY,
-      })
+      const exploreConcepts = buildFallbackConcepts(goal, 5)
 
       const today = new Date()
       const isWeekend = today.getDay() === 0 || today.getDay() === 6
@@ -83,19 +81,19 @@ export async function POST(request) {
         exploreConcepts[0],
         minsPerDay,
         1,
-        { knowledge, openaiApiKey: process.env.OPENAI_API_KEY },
+        { knowledge, openaiApiKey: null, generationPhase: 'initial_day' },
       )
       dailyPlan.push(day)
     } else {
       // ── Goal Mode ─────────────────────────────────────────────────────────────
       // Generate a full module-structured course outline, then build Day 1 tasks
       const avgMins = Math.round((Number(weekdayMins) * 5 + Number(weekendMins) * 2) / 7)
-      const courseOutline = await generateCourseOutline({
+      const courseOutline = buildDeterministicCourseOutline({
         goal,
         knowledge,
         days,
         minutesPerDay: avgMins,
-        openaiApiKey: process.env.OPENAI_API_KEY,
+        status: 'pending',
       })
 
       const tracker = buildPathOutlineTracker({
@@ -117,9 +115,10 @@ export async function POST(request) {
         },
         item: firstItem,
         knowledge,
-        openaiApiKey: process.env.OPENAI_API_KEY,
+        openaiApiKey: null,
         adaptiveProfile: null,
         existingRows: [],
+        generationPhase: 'initial_day',
       })]
 
       await persistCourseOutline({
@@ -127,6 +126,8 @@ export async function POST(request) {
         goalId,
         courseOutline,
       })
+
+      outlineStatus = getCourseOutlineStatus(courseOutline)
     }
 
     const insertedTaskRows = await saveDailyTasks({ supabase, goalId, userId, dailyPlan })
@@ -145,6 +146,8 @@ export async function POST(request) {
 
     return Response.json({
       success: true,
+      generationSource,
+      outlineStatus,
       mode,
       daysGenerated: dailyPlan.length,
       totalDays: mode === 'explore' ? null : sequenceDayCount,

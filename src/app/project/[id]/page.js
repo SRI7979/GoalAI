@@ -1,7 +1,8 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
+import { getSafeSupabaseUser, supabaseData } from '@/lib/supabase'
+import IconGlyph from '@/components/IconGlyph'
 import { buildProjectProofSummary, getAuthenticityLevel, getProjectCriteriaCards } from '@/lib/projectProof'
 
 const font = "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif"
@@ -28,10 +29,15 @@ export default function SharedProjectPage() {
 
   useEffect(() => {
     async function load() {
-      if (!id) return
-      const { data } = await supabase.from('projects').select('*').eq('id', id).single()
-      setProject(data)
-      setLoading(false)
+      try {
+        if (!id) return
+        const { data } = await supabaseData.from('projects').select('*').eq('id', id).single()
+        setProject(data)
+        setLoading(false)
+      } catch (loadError) {
+        console.warn('[PathAI] shared_project_load_failed', loadError?.message || 'unknown_error')
+        setLoading(false)
+      }
     }
     load()
   }, [id])
@@ -39,7 +45,7 @@ export default function SharedProjectPage() {
   const handleRemix = async () => {
     setRemixing(true)
     // Check if user is logged in
-    const { data: { user } } = await supabase.auth.getUser()
+    const { user } = await getSafeSupabaseUser()
     if (!user) {
       router.push('/login')
       return
@@ -110,12 +116,12 @@ export default function SharedProjectPage() {
         {/* Badges */}
         <div style={{ display: 'flex', justifyContent: 'center', gap: 8, flexWrap: 'wrap' }}>
           <span style={{ padding: '5px 12px', borderRadius: 9999, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', background: dc.bg, border: `1px solid ${dc.border}`, color: dc.color }}>{project.difficulty}</span>
-          {isBuild && <span style={{ padding: '5px 12px', borderRadius: 9999, fontSize: 10, fontWeight: 800, background: 'rgba(168,85,247,0.08)', border: '1px solid rgba(168,85,247,0.22)', color: T.purple }}>⚡ Build Mode</span>}
-          {isVerified && <span style={{ padding: '5px 12px', borderRadius: 9999, fontSize: 10, fontWeight: 800, background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.22)', color: T.green }}>✓ Verified</span>}
+          {isBuild && <span style={{ padding: '5px 12px', borderRadius: 9999, fontSize: 10, fontWeight: 800, background: 'rgba(168,85,247,0.08)', border: '1px solid rgba(168,85,247,0.22)', color: T.purple, display: 'inline-flex', alignItems: 'center', gap: 5 }}><IconGlyph name="bolt" size={11} strokeWidth={2.4} color={T.purple}/>Build Mode</span>}
+          {isVerified && <span style={{ padding: '5px 12px', borderRadius: 9999, fontSize: 10, fontWeight: 800, background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.22)', color: T.green, display: 'inline-flex', alignItems: 'center', gap: 5 }}><IconGlyph name="shield_check" size={11} strokeWidth={2.4} color={T.green}/>Verified</span>}
           {review?.grade && <span style={{ padding: '5px 12px', borderRadius: 9999, fontSize: 10, fontWeight: 800, background: 'rgba(255,215,0,0.08)', border: '1px solid rgba(255,215,0,0.22)', color: T.gold }}>Grade: {review.grade}</span>}
-          {auth && <span style={{ padding: '5px 12px', borderRadius: 9999, fontSize: 10, fontWeight: 800, background: `${auth.color}10`, border: `1px solid ${auth.color}25`, color: auth.color }}>{authScore >= 85 ? '✓ ' : ''}{auth.label}</span>}
+          {auth && <span style={{ padding: '5px 12px', borderRadius: 9999, fontSize: 10, fontWeight: 800, background: `${auth.color}10`, border: `1px solid ${auth.color}25`, color: auth.color, display: 'inline-flex', alignItems: 'center', gap: 5 }}>{authScore >= 85 && <IconGlyph name="shield_check" size={11} strokeWidth={2.4} color={auth.color} />}{auth.label}</span>}
           <span style={{ padding: '5px 12px', borderRadius: 9999, fontSize: 10, fontWeight: 800, background: T.tealDim, border: `1px solid ${T.tealBorder}`, color: T.teal }}>{completedSteps.length}/{steps.length} Steps</span>
-          {timeSpent && <span style={{ padding: '5px 12px', borderRadius: 9999, fontSize: 10, fontWeight: 800, background: T.card, border: `1px solid ${T.border}`, color: T.textMuted }}>⏱ {timeSpent} min</span>}
+          {timeSpent && <span style={{ padding: '5px 12px', borderRadius: 9999, fontSize: 10, fontWeight: 800, background: T.card, border: `1px solid ${T.border}`, color: T.textMuted, display: 'inline-flex', alignItems: 'center', gap: 5 }}><IconGlyph name="timer" size={11} strokeWidth={2.4} color={T.textMuted}/>{timeSpent} min</span>}
           {completedAt && <span style={{ padding: '5px 12px', borderRadius: 9999, fontSize: 10, fontWeight: 800, background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.22)', color: T.green }}>{new Date(completedAt).toLocaleDateString()}</span>}
         </div>
       </div>
@@ -126,7 +132,7 @@ export default function SharedProjectPage() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 24 }}>
             {criteriaCards.map((s) => s.score ? (
               <div key={s.label} style={{ padding: '14px', borderRadius: 14, background: T.card, border: `1px solid ${T.border}`, textAlign: 'center' }}>
-                <div style={{ fontSize: 18, marginBottom: 4 }}>{s.icon}</div>
+                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 4 }}><IconGlyph name={s.icon} size={16} strokeWidth={2.3} color={s.score >= 80 ? T.teal : s.score >= 60 ? T.amber : T.red} /></div>
                 <div style={{ fontSize: 20, fontWeight: 900, color: s.score >= 80 ? T.teal : s.score >= 60 ? T.amber : T.red }}>{s.score}</div>
                 <div style={{ fontSize: 9, fontWeight: 700, color: T.textMuted, textTransform: 'uppercase', marginTop: 2 }}>{s.label}</div>
               </div>
@@ -178,7 +184,7 @@ export default function SharedProjectPage() {
             return (
               <div key={step.id} style={{ display: 'flex', gap: 12, alignItems: 'flex-start', padding: '12px 0', borderBottom: i < steps.length - 1 ? `1px solid ${T.border}` : 'none' }}>
                 <div style={{ width: 28, height: 28, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 800, background: done ? T.teal : 'rgba(255,255,255,0.06)', color: done ? '#000' : T.textMuted }}>
-                  {done ? '\u2713' : i + 1}
+                  {done ? <IconGlyph name="check" size={12} strokeWidth={2.8} color="#000" /> : i + 1}
                 </div>
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 700, color: done ? T.text : T.textMuted }}>{step.title}</div>
@@ -234,7 +240,7 @@ export default function SharedProjectPage() {
             border: '1px solid rgba(168,85,247,0.22)', cursor: 'pointer', fontFamily: font,
             display: 'flex', alignItems: 'center', gap: 12,
           }}>
-            <span style={{ fontSize: 28 }}>🔄</span>
+            <IconGlyph name="repeat" size={28} strokeWidth={2.2} color={T.purple} />
             <div style={{ textAlign: 'left' }}>
               <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>Remix This Project</div>
               <div style={{ fontSize: 11, color: T.textMuted }}>Build your own version with a unique twist</div>
@@ -248,7 +254,7 @@ export default function SharedProjectPage() {
             cursor: 'pointer', fontFamily: font,
             display: 'flex', alignItems: 'center', gap: 12,
           }}>
-            <span style={{ fontSize: 28 }}>🚀</span>
+            <IconGlyph name="rocket" size={28} strokeWidth={2.2} color={T.teal} />
             <div style={{ textAlign: 'left' }}>
               <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>Try This Challenge</div>
               <div style={{ fontSize: 11, color: T.textMuted }}>Start a PathAI learning journey and build projects like this</div>

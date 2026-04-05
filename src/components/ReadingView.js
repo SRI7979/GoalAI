@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import AIAssistant from './AIAssistant'
+import IconGlyph from '@/components/IconGlyph'
 
 const font = "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif"
 
@@ -203,7 +204,9 @@ export default function ReadingView({ task, goal, knowledge, onClose, onComplete
                 {/* End of article marker */}
                 {article.sections && (
                   <div style={{ textAlign: 'center', padding: '24px 0 16px', animation: 'fadeIn 0.3s ease 0.5s both' }}>
-                    <div style={{ fontSize: 24, marginBottom: 8 }}>{allRead ? '🎉' : '📖'}</div>
+                    <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 8 }}>
+                      <IconGlyph name={allRead ? 'badge' : 'book'} size={24} strokeWidth={2.2} color={allRead ? '#34D399' : '#8e8e93'} />
+                    </div>
                     <p style={{ fontSize: 13, color: allRead ? '#34D399' : '#636366', fontWeight: 600 }}>
                       {allRead ? 'All sections read — great job!' : `Mark all sections as read to complete`}
                     </p>
@@ -236,7 +239,7 @@ export default function ReadingView({ task, goal, knowledge, onClose, onComplete
             >
               {completing ? (
                 <><div style={{ width: 14, height: 14, border: '2px solid rgba(52,211,153,0.2)', borderTopColor: '#34D399', borderRadius: '50%', animation: 'spin 0.65s linear infinite' }}/>Saving…</>
-              ) : allRead ? 'Mark as Read ✓' : `Mark as Read (${readSections.size}/${totalSections})`}
+              ) : allRead ? 'Mark as Read' : `Mark as Read (${readSections.size}/${totalSections})`}
             </button>
           </div>
         </div>

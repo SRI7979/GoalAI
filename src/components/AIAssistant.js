@@ -1,5 +1,6 @@
 'use client'
 import { useState, useRef, useEffect } from 'react'
+import IconGlyph from '@/components/IconGlyph'
 
 const font = "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif"
 
@@ -56,7 +57,9 @@ export default function AIAssistant({ concept, goal, context, mode = 'hint', onA
           {/* Header */}
           <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.07)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'linear-gradient(135deg,#0ef5c2,#00d4ff)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 900, color: '#06060f' }}>✦</div>
+              <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'linear-gradient(135deg,#0ef5c2,#00d4ff)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#06060f' }}>
+                <IconGlyph name="sparkles" size={13} strokeWidth={2.5} color="#06060f" />
+              </div>
               <div>
                 <div style={{ fontSize: 13, fontWeight: 700, color: '#f5f5f7' }}>AI Tutor</div>
                 <div style={{ fontSize: 11, color: '#636366' }}>
@@ -138,7 +141,7 @@ export default function AIAssistant({ concept, goal, context, mode = 'hint', onA
       }}>
         {open
           ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(14,245,194,0.80)" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-          : <span style={{ fontSize: 20, color: '#06060f', fontWeight: 900 }}>✦</span>
+          : <IconGlyph name="sparkles" size={20} strokeWidth={2.5} color="#06060f" />
         }
       </button>
     </>

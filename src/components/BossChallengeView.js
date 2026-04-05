@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import ConfidenceSelector from './ConfidenceSelector'
+import IconGlyph from '@/components/IconGlyph'
 
 const font = "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif"
 
@@ -210,7 +211,7 @@ function handleComplete() {
           </button>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 18 }}>⚔️</span>
+            <IconGlyph name="challenge" size={18} strokeWidth={2.2} color="#EC4899" />
             <span style={{ fontSize: 14, fontWeight: 700, color: '#EC4899' }}>Boss Challenge</span>
           </div>
 
@@ -251,7 +252,9 @@ function handleComplete() {
                   fontSize: 80, marginBottom: 20,
                   animation: 'bossFloat 3s ease-in-out infinite',
                   filter: 'drop-shadow(0 0 30px rgba(236,72,153,0.50))',
-                }}>👹</div>
+                }}>
+                  <IconGlyph name="crown" size={64} strokeWidth={2.1} color="#EC4899" />
+                </div>
 
                 <h1 style={{
                   fontSize: 32, fontWeight: 900, color: '#EC4899',
@@ -283,7 +286,7 @@ function handleComplete() {
                     border: '1px solid rgba(251,191,36,0.25)', borderRadius: 12,
                     color: '#FBBF24', fontSize: 12, fontWeight: 700,
                   }}>
-                    🏆 200 XP Reward
+                    200 XP Reward
                   </div>
                 </div>
 
@@ -298,7 +301,7 @@ function handleComplete() {
                     boxShadow: '0 0 40px rgba(236,72,153,0.40), inset 0 1px 0 rgba(255,255,255,0.30)',
                   }}
                 >
-                  ⚔️ Begin Battle
+                  Begin Battle
                 </button>
               </div>
             ) : battleState === 'fighting' && phase ? (
@@ -310,7 +313,7 @@ function handleComplete() {
                   <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                       <span style={{ fontSize: 12, fontWeight: 700, color: '#EC4899' }}>
-                        👹 {boss.boss_name}
+                        {boss.boss_name}
                       </span>
                       <span style={{ fontSize: 11, color: '#636366' }}>{bossHP}%</span>
                     </div>
@@ -331,7 +334,7 @@ function handleComplete() {
                   <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                       <span style={{ fontSize: 12, fontWeight: 700, color: '#0ef5c2' }}>
-                        ⚡ You
+                        You
                       </span>
                       <span style={{ fontSize: 11, color: '#636366' }}>{playerHP}%</span>
                     </div>
@@ -397,7 +400,7 @@ function handleComplete() {
                                   fontSize: 11, fontWeight: 800, flexShrink: 0,
                                   color: revealed && isCorrect ? '#0ef5c2' : revealed && isSelected ? '#FF453A' : '#636366',
                                 }}>
-                                  {revealed && isCorrect ? '✓' : revealed && isSelected ? '✗' : ['A','B','C','D'][oi]}
+                                  {revealed && isCorrect ? <IconGlyph name="check" size={12} strokeWidth={2.8} color="#0ef5c2" /> : revealed && isSelected ? <IconGlyph name="x" size={12} strokeWidth={2.6} color="#FF453A" /> : ['A','B','C','D'][oi]}
                                 </span>
                                 {opt}
                               </button>
@@ -474,7 +477,7 @@ function handleComplete() {
                     >
                       {evaluating ? (
                         <><div style={{ width: 14, height: 14, border: '2px solid rgba(236,72,153,0.2)', borderTopColor: '#EC4899', borderRadius: '50%', animation: 'spin 0.65s linear infinite' }}/>The boss is reading...</>
-                      ) : '⚔️ Attack!'}
+                      ) : 'Attack'}
                     </button>
                   </div>
                 )}
@@ -489,14 +492,14 @@ function handleComplete() {
                       borderRadius: 16, marginBottom: 16,
                     }}>
                       <div style={{ fontSize: 12, fontWeight: 800, color: phaseResult.passed ? '#0ef5c2' : '#FF453A', marginBottom: 8 }}>
-                        {phaseResult.passed ? `💥 ${phaseResult.damage_dealt || 25} Damage Dealt!` : '🛡 Boss Blocked Your Attack!'}
+                        {phaseResult.passed ? `${phaseResult.damage_dealt || 25} Damage dealt` : 'Boss blocked your attack'}
                       </div>
                       <p style={{ color: '#c8d6e5', fontSize: 14, lineHeight: 1.6, margin: '0 0 8px' }}>
                         {phaseResult.feedback}
                       </p>
                       {phaseResult.boss_response && (
                         <p style={{ color: '#EC4899', fontSize: 13, fontStyle: 'italic', margin: 0 }}>
-                          👹 &ldquo;{phaseResult.boss_response}&rdquo;
+                          Boss: &ldquo;{phaseResult.boss_response}&rdquo;
                         </p>
                       )}
                     </div>
@@ -506,7 +509,9 @@ function handleComplete() {
             ) : battleState === 'victory' ? (
               /* Victory */
               <div style={{ textAlign: 'center', paddingTop: 40, animation: 'fadeIn 0.5s ease both' }}>
-                <div style={{ fontSize: 80, marginBottom: 16 }}>🏆</div>
+                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
+                  <IconGlyph name="trophy" size={64} strokeWidth={2.1} color="#0ef5c2" />
+                </div>
                 <h1 style={{
                   fontSize: 32, fontWeight: 900, color: '#0ef5c2',
                   animation: 'victoryPulse 2s ease infinite', marginBottom: 8,
@@ -521,12 +526,12 @@ function handleComplete() {
                     padding: '10px 18px', background: 'rgba(14,245,194,0.10)',
                     border: '1px solid rgba(14,245,194,0.25)', borderRadius: 12,
                     color: '#0ef5c2', fontSize: 14, fontWeight: 700,
-                  }}>🏆 +200 XP</div>
+                  }}>+200 XP</div>
                   <div style={{
                     padding: '10px 18px', background: 'rgba(251,191,36,0.10)',
                     border: '1px solid rgba(251,191,36,0.25)', borderRadius: 12,
                     color: '#FBBF24', fontSize: 14, fontWeight: 700,
-                  }}>💎 +50 Gems</div>
+                  }}>+50 Gems</div>
                 </div>
 
                 <div style={{ maxWidth: 460, margin: '0 auto' }}>
@@ -543,7 +548,9 @@ function handleComplete() {
             ) : battleState === 'defeat' ? (
               /* Defeat */
               <div style={{ textAlign: 'center', paddingTop: 40, animation: 'fadeIn 0.5s ease both' }}>
-                <div style={{ fontSize: 80, marginBottom: 16 }}>💀</div>
+                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
+                  <IconGlyph name="alert" size={64} strokeWidth={2.1} color="#FF453A" />
+                </div>
                 <h1 style={{ fontSize: 28, fontWeight: 900, color: '#FF453A', marginBottom: 8 }}>
                   Defeated...
                 </h1>
@@ -613,7 +620,7 @@ function handleComplete() {
               >
                 {completing ? (
                   <><div style={{ width: 14, height: 14, border: '2px solid rgba(236,72,153,0.2)', borderTopColor: '#EC4899', borderRadius: '50%', animation: 'spin 0.65s linear infinite' }}/>Saving...</>
-                ) : confidenceLevel ? (battleState === 'victory' ? 'Claim Rewards ✓' : 'Continue') : 'Choose confidence to continue'}
+                ) : confidenceLevel ? (battleState === 'victory' ? 'Claim Rewards' : 'Continue') : 'Choose confidence to continue'}
               </button>
             )}
           </div>

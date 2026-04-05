@@ -4,7 +4,8 @@
 
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
+import { getLocalGoalBundleWithRepairs, isLocalAccessUser } from '@/lib/localGoalStore'
+import { getSafeSupabaseUser, supabaseData } from '@/lib/supabase'
 import { getLevelProgress, LEVEL_TITLES } from '@/lib/xp'
 import { streakStatusLabel } from '@/lib/streak'
 import { trackStatsViewed } from '@/lib/analytics'
@@ -223,7 +224,7 @@ function WeeklyChart({ rows }) {
       const done    = tasks.filter(t => t.completed).length
       const total   = tasks.length
       const mins    = tasks.filter(t => t.completed)
-        .reduce((s,t) => s + (Number(t.durationMin) || 0), 0)
+        .reduce((s, t) => s + (Number(t.estimatedTimeMin || t.durationMin) || 0), 0)
       result.push({
         label:     dayLabels[d.getDay()],
         isToday:   i === 0,
@@ -536,11 +537,35 @@ export default function StatsPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const { data: authData } = await supabase.auth.getUser()
-    const me = authData?.user
+    try {
+    const { user: me } = await getSafeSupabaseUser()
     if (!me) { router.push('/login'); return }
 
-    const { data: activeGoal } = await supabase
+    if (isLocalAccessUser(me)) {
+      const localBundle = await getLocalGoalBundleWithRepairs(me.id)
+      if (!localBundle?.goal) {
+        setGoal(null)
+        setRows([])
+        setProgress(null)
+        setMasteries([])
+        setEarnedBadgeIds(new Set())
+        setClaimedModuleRewardIds([])
+        setLoading(false)
+        return
+      }
+
+      setGoal(hydrateGoalCourseOutline(localBundle.goal))
+      setRows(localBundle.rows || [])
+      setProgress(localBundle.progress || null)
+      setMasteries(localBundle.conceptMastery || [])
+      setEarnedBadgeIds(new Set(localBundle.achievements || []))
+      setClaimedModuleRewardIds([])
+      setActiveTheme(getStoredActiveTheme(getStoredOwnedThemes()))
+      setLoading(false)
+      return
+    }
+
+    const { data: activeGoal } = await supabaseData
       .from('goals').select('*').eq('user_id', me.id).eq('status','active')
       .order('created_at', { ascending:false }).limit(1).maybeSingle()
     if (!activeGoal) { setLoading(false); return }
@@ -548,17 +573,17 @@ export default function StatsPage() {
     setGoal(hydratedGoal)
 
     const [{ data: taskRows }, { data: prog }, { data: mast }, { data: badges }, { data: txRows }] = await Promise.all([
-      supabase.from('daily_tasks').select('*')
+      supabaseData.from('daily_tasks').select('*')
         .eq('goal_id', hydratedGoal.id).eq('user_id', me.id)
         .order('day_number', { ascending:true }),
-      supabase.from('user_progress').select('*')
+      supabaseData.from('user_progress').select('*')
         .eq('goal_id', hydratedGoal.id).eq('user_id', me.id).maybeSingle(),
-      supabase.from('concept_mastery').select('*')
+      supabaseData.from('concept_mastery').select('*')
         .eq('goal_id', hydratedGoal.id).eq('user_id', me.id)
         .order('mastery_score', { ascending:false }),
-      supabase.from('achievements').select('badge_id')
+      supabaseData.from('achievements').select('badge_id')
         .eq('user_id', me.id),
-      supabase.from('gem_transactions').select('reason')
+      supabaseData.from('gem_transactions').select('reason')
         .eq('goal_id', hydratedGoal.id).eq('user_id', me.id),
     ])
 
@@ -585,11 +610,15 @@ export default function StatsPage() {
     })
 
     setLoading(false)
+    } catch (loadError) {
+      console.warn('[PathAI] stats_load_failed', loadError?.message || 'unknown_error')
+      setLoading(false)
+    }
   }, [router])
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      load()
+      load().catch(() => {})
     }, 0)
 
     return () => clearTimeout(timer)
@@ -607,7 +636,7 @@ export default function StatsPage() {
 
     const studyMinsTotal = rows.reduce((acc, row) => {
       const tasks = Array.isArray(row.tasks) ? row.tasks : []
-      return acc + tasks.filter(t => t.completed).reduce((s,t) => s+(Number(t.durationMin)||0), 0)
+      return acc + tasks.filter(t => t.completed).reduce((s, t) => s + (Number(t.estimatedTimeMin || t.durationMin) || 0), 0)
     }, 0)
 
     // This week study minutes
@@ -618,7 +647,7 @@ export default function StatsPage() {
       const diff = (now - d) / (1000*60*60*24)
       if (diff > 7) return acc
       const tasks = Array.isArray(row.tasks) ? row.tasks : []
-      return acc + tasks.filter(t => t.completed).reduce((s,t) => s+(Number(t.durationMin)||0), 0)
+      return acc + tasks.filter(t => t.completed).reduce((s, t) => s + (Number(t.estimatedTimeMin || t.durationMin) || 0), 0)
     }, 0)
 
     const grade = consistencyGrade(totalMissions, totalDays, currentStreak)

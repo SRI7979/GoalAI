@@ -1,3 +1,5 @@
+import { getCanonicalTaskType } from '@/lib/taskTaxonomy'
+
 // ─── Daily Quest Generation ─────────────────────────────────────────────────
 // Generates 3 quests per day (1 easy, 1 medium, 1 hard) with deterministic
 // selection based on day number so quests are stable for a given day.
@@ -92,7 +94,7 @@ export function updateQuestProgress(quests, event) {
         if (event.missionComplete) increment = 1
         break
       case 'complete_review':
-        if (event.taskType === 'review') increment = 1
+        if (getCanonicalTaskType(event.taskType) === 'recall') increment = 1
         break
       case 'quiz_perfect':
         // Tracked client-side or via optional flag

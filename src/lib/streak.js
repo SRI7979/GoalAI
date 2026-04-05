@@ -66,7 +66,7 @@ export function isStreakMilestone(streak) {
 export function streakStatusLabel(current) {
   if (!current || current === 0) return null
   if (current < 3)  return `${current}-day streak`
-  if (current < 7)  return `${current}-day streak 🔥`
+  if (current < 7)  return `${current}-day streak`
   if (current < 14) return `${current}-day streak — on fire!`
   if (current < 30) return `${current} days — incredible`
   return `${current} days — legendary`

@@ -21,6 +21,7 @@ import {
   isCourseFinalExamTask,
 } from '@/lib/courseCompletion'
 import { getStoredCourseOutline } from '@/lib/courseOutlineStore'
+import { getCanonicalTaskType, normalizeLearningTasks } from '@/lib/taskTaxonomy'
 
 function extractAccessToken(request) {
   const authHeader = request.headers.get('authorization') || request.headers.get('Authorization')
@@ -43,6 +44,16 @@ function formatDate(value) {
   const parsed = value ? new Date(value) : new Date()
   if (Number.isNaN(parsed.getTime())) return new Date().toISOString()
   return parsed.toISOString()
+}
+
+function isRowMissingError(error) {
+  if (!error) return false
+  const code = String(error.code || '').trim()
+  const message = String(error.message || '').toLowerCase()
+  return code === 'PGRST116'
+    || message.includes('0 rows')
+    || message.includes('no rows')
+    || message.includes('not found')
 }
 
 function buildCourseConceptRatings({ moduleTitles = [], conceptNames = [], examScore = 0 }) {
@@ -376,14 +387,18 @@ export async function POST(request) {
       .eq('id', taskRowId)
       .single()
 
-    if (rowError || !row) {
+    if (rowError) {
+      const missingRow = isRowMissingError(rowError)
       return Response.json(
-        { error: `Task day not found: ${rowError?.message || 'unknown error'}` },
-        { status: 404 },
+        { error: missingRow ? 'Task day not found' : `Task service unavailable: ${rowError?.message || 'unknown error'}` },
+        { status: missingRow ? 404 : 502 },
       )
     }
+    if (!row) {
+      return Response.json({ error: 'Task day not found' }, { status: 404 })
+    }
 
-    const currentTasks = Array.isArray(row.tasks) ? row.tasks : []
+    const currentTasks = normalizeLearningTasks(row.tasks)
     const completedTaskIdSet = new Set(clientCompletedTaskIds.map(normalizeTaskId))
     const targetTask   = currentTasks.find((t) => normalizeTaskId(t.id) === normalizeTaskId(taskId))
     if (!targetTask) {
@@ -392,6 +407,7 @@ export async function POST(request) {
 
     const alreadyCompleted = Boolean(targetTask.completed)
     const isCourseFinalExam = isCourseFinalExamTask(targetTask)
+    const canonicalTaskType = getCanonicalTaskType(targetTask.type, targetTask)
     const existingFinalMeta = targetTask?._courseFinal || {}
     const examScore = Number.isFinite(accuracy)
       ? clamp(accuracy, 0, 100, 0)
@@ -501,7 +517,7 @@ export async function POST(request) {
         aiMode: getAdaptiveAiMode({
           userState: adaptiveProfile.targetConcept?.userState || adaptiveProfile.learner.userState,
           engagementState: adaptiveProfile.targetConcept?.engagementState || adaptiveProfile.learner.engagementState,
-          taskType: targetTask.type,
+          taskType: canonicalTaskType,
         }),
         fastTrackEligible: Boolean(adaptiveProfile.learner.fastTrackEligible),
         pacing: adaptiveProfile.learner.preferredPace,
@@ -613,7 +629,7 @@ export async function POST(request) {
 
     // ── XP + streak calculation ───────────────────────────────────────────────
     const warnings      = []
-    let xpEarned        = alreadyCompleted ? 0 : xpForTask(targetTask.type)
+    let xpEarned        = alreadyCompleted ? 0 : xpForTask(targetTask)
     let missionBonusXp  = 0
     let streakBonusXp   = 0
     let newTotalXp      = null
@@ -785,7 +801,7 @@ export async function POST(request) {
     let adaptiveDifficulty = 2
     try {
       if (!alreadyCompleted) {
-        const expectedTimeSec = (targetTask.durationMin || 15) * 60
+        const expectedTimeSec = ((targetTask.estimatedTimeMin || targetTask.durationMin || 15)) * 60
         const completionTimeRatio = completionTimeSec > 0 && expectedTimeSec > 0
           ? completionTimeSec / expectedTimeSec : 1
 
@@ -807,12 +823,12 @@ export async function POST(request) {
           hintsUsed,
           totalHintsAvailable: maxHints,
           streakCorrect: comboMax,
-          currentDifficulty: targetTask._difficulty || 2,
+          currentDifficulty: targetTask.difficultyLevel || targetTask._difficulty || 2,
           conceptMastery: conceptMasteryScore,
         })
 
         // Boss bonus: extra XP and gems for defeating a boss
-        if (targetTask.type === 'boss' && bossDefeated) {
+        if (canonicalTaskType === 'boss' && bossDefeated) {
           const bossXp = 200
           const bossGems = 50
           xpEarned += bossXp
@@ -833,7 +849,7 @@ export async function POST(request) {
     // ── Treasure chest (lesson-type tasks only, max 1/day) ────────────────────
     let chestReward = null
     try {
-      const isLessonType = ['lesson','reading','flashcard','quiz'].includes(targetTask.type)
+      const isLessonType = ['concept', 'recall', 'quiz'].includes(canonicalTaskType)
       const lastChestDay = Number(progress?.last_chest_day) || 0
       const currentDay   = row.day_number || 0
 
@@ -905,7 +921,7 @@ export async function POST(request) {
         const result = updateQuestProgress(quests, {
           xpEarned:       xpEarned || 0,
           gemsEarned:     gemsEarned || 0,
-          taskType:       targetTask.type,
+          taskType:       canonicalTaskType,
           missionComplete: missionJustCompleted,
         })
 
@@ -1145,7 +1161,7 @@ export async function POST(request) {
             level: newLevel,
             totalTasksCompleted: totalCompletedTasks,
             missionJustCompleted,
-            taskType: targetTask.type,
+            taskType: canonicalTaskType,
             goalMode: goalRow?.mode || 'goal',
             clientHour,
             completedDays: completedDayRows,
@@ -1168,7 +1184,7 @@ export async function POST(request) {
       completionStatus,
       missionComplete:   missionJustCompleted,
       xpEarned:          alreadyCompleted ? 0 : xpEarned,
-      taskXp:            alreadyCompleted ? 0 : xpForTask(targetTask.type),
+      taskXp:            alreadyCompleted ? 0 : xpForTask(targetTask),
       missionBonusXp:    alreadyCompleted ? 0 : missionBonusXp,
       streakBonusXp:     alreadyCompleted ? 0 : streakBonusXp,
       xpBoosted:         xpBoosted || false,

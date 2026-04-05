@@ -51,7 +51,7 @@ function NodeIcon({ state, completed, current, tone, accent }) {
   if (completed) return <Check size={30} strokeWidth={3}/>
   if (state === 'locked') return <Lock size={20} strokeWidth={2.4}/>
   if (current) return <Flame size={28} strokeWidth={2.4}/>
-  return <span style={{ color: accent, fontSize: 28, lineHeight: 1 }}>✦</span>
+  return <Sparkles size={26} strokeWidth={2.4} color={accent}/>
 }
 
 function ProgressRing({ progress, accent }) {

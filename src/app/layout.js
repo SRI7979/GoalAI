@@ -1,42 +1,45 @@
-import { Geist, Geist_Mono } from "next/font/google";
-import NetworkStatusBanner from "@/components/NetworkStatusBanner";
-import "./globals.css";
+import { DM_Sans, Geist_Mono } from 'next/font/google'
+import NetworkStatusBanner from '@/components/NetworkStatusBanner'
+import './globals.css'
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
+const bodyFont = DM_Sans({
+  variable: '--font-body',
+  subsets: ['latin'],
+  display: 'swap',
+})
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+const monoFont = Geist_Mono({
+  variable: '--font-code',
+  subsets: ['latin'],
+  display: 'swap',
+})
 
 export const metadata = {
-  title: "PathAI — Learn Anything, Actually Finish It",
-  description: "AI-powered adaptive learning platform that turns any skill into a gamified daily path. Set a goal, get daily tasks, prove mastery.",
+  title: 'PathAI — Learn Anything, Actually Finish It',
+  description:
+    'AI-powered adaptive learning platform that turns any skill into a gamified daily path. Set a goal, get daily tasks, prove mastery.',
   icons: {
-    icon: "/favicon.ico",
+    icon: '/favicon.ico',
   },
-};
+}
 
 export const viewport = {
-  width: "device-width",
+  width: 'device-width',
   initialScale: 1,
-  viewportFit: "cover",
-  themeColor: "#050608",
-};
+  viewportFit: 'cover',
+  themeColor: '#050608',
+}
 
 export default function RootLayout({ children }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${bodyFont.variable} ${monoFont.variable} antialiased`}
         suppressHydrationWarning
       >
         <NetworkStatusBanner />
         {children}
       </body>
     </html>
-  );
+  )
 }
