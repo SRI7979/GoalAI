@@ -1,437 +1,216 @@
-// LessonView — iOS Liquid Glass Edition
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import AIAssistant from '@/components/AIAssistant'
+import ConfidenceSelector from '@/components/ConfidenceSelector'
 import IconGlyph from '@/components/IconGlyph'
-import { buildDeterministicLesson } from '@/lib/deterministicLesson'
+import LessonGate from '@/components/LessonGate'
 
-// ─── Syntax Highlighter ───────────────────────────────────────────────────────
-const LANG_KEYWORDS = {
-  python:     /\b(def|class|if|elif|else|for|while|return|import|from|as|with|try|except|finally|raise|pass|break|continue|lambda|yield|async|await|not|and|or|in|is|None|True|False|print|len|range|type|int|str|float|list|dict|set|tuple|bool|input|open|super|self)\b/g,
-  javascript: /\b(function|const|let|var|if|else|for|while|do|return|import|export|from|class|new|this|typeof|instanceof|try|catch|finally|throw|async|await|of|in|true|false|null|undefined|switch|case|break|continue|default|void|delete|yield|console)\b/g,
-  typescript: /\b(function|const|let|var|if|else|for|while|do|return|import|export|from|class|new|this|typeof|instanceof|try|catch|finally|throw|async|await|of|in|true|false|null|undefined|switch|case|break|continue|interface|type|enum|implements|extends|public|private|protected|readonly|abstract|void|any|never|unknown|string|number|boolean)\b/g,
-  sql:        /\b(SELECT|FROM|WHERE|JOIN|LEFT|RIGHT|INNER|OUTER|ON|INSERT|INTO|VALUES|UPDATE|SET|DELETE|CREATE|TABLE|DROP|ALTER|INDEX|GROUP|BY|ORDER|HAVING|LIMIT|OFFSET|DISTINCT|AS|AND|OR|NOT|NULL|IS|IN|LIKE|BETWEEN|EXISTS|UNION|ALL|COUNT|SUM|AVG|MAX|MIN)\b/g,
-  bash:       /\b(echo|cd|ls|mkdir|rm|cp|mv|cat|grep|sed|awk|chmod|sudo|export|source|if|then|else|fi|for|do|done|while|function|return|exit|read|set|unset|alias|curl|git|npm|pip|python)\b/g,
-}
+const font = "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif"
 
-function tokenize(code, language) {
-  const lang = (language || 'python').toLowerCase()
-    .replace(/^js$/, 'javascript').replace(/^ts$/, 'typescript')
-  return code.split('\n').map((line, li) => {
-    const parts = []
-    // Comments take priority
-    const commentMarker = (lang === 'python' || lang === 'bash') ? '#' : '//'
-    const commentIdx = line.indexOf(commentMarker)
-    const codePart   = commentIdx !== -1 ? line.slice(0, commentIdx) : line
-    const commentPart= commentIdx !== -1 ? line.slice(commentIdx) : ''
-    parts.push(...tokenizeLine(codePart, lang))
-    if (commentPart) parts.push({ type: 'comment', text: commentPart })
-    return { lineNum: li + 1, parts }
-  })
-}
-
-function tokenizeLine(line, lang) {
-  if (!line) return [{ type: 'plain', text: '' }]
-  const stringRe = /("""[\s\S]*?"""|'''[\s\S]*?'''|`[^`]*`|"[^"\\]*(?:\\.[^"\\]*)*"|'[^'\\]*(?:\\.[^'\\]*)*')/g
-  const stringMatches = [...line.matchAll(stringRe)]
-  if (stringMatches.length) {
-    const parts = []; let cursor = 0
-    for (const m of stringMatches) {
-      if (m.index > cursor) parts.push(...keywordAndNumberTokens(line.slice(cursor, m.index), lang))
-      parts.push({ type: 'string', text: m[0] })
-      cursor = m.index + m[0].length
-    }
-    if (cursor < line.length) parts.push(...keywordAndNumberTokens(line.slice(cursor), lang))
-    return parts
+const LESSON_CSS = `
+  @keyframes fadeIn  { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes spin    { to   { transform: rotate(360deg); } }
+  @keyframes sectionReveal {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
   }
-  return keywordAndNumberTokens(line, lang)
-}
+`
 
-function keywordAndNumberTokens(text, lang) {
-  if (!text) return []
-  const kwRe = LANG_KEYWORDS[lang]
-  if (!kwRe) return numberTokens(text)
-  kwRe.lastIndex = 0
-  const parts = []; let cursor = 0; let m
-  while ((m = kwRe.exec(text)) !== null) {
-    if (m.index > cursor) parts.push(...numberTokens(text.slice(cursor, m.index)))
-    parts.push({ type: 'keyword', text: m[0] })
-    cursor = m.index + m[0].length
-  }
-  if (cursor < text.length) parts.push(...numberTokens(text.slice(cursor)))
-  return parts
-}
+// How many "phases" are there (0 = only hook visible, 4 = all unlocked)
+const TOTAL_PHASES = 5
 
-function numberTokens(text) {
-  if (!text) return []
-  const numRe = /\b(\d+\.?\d*)\b/g
-  const parts = []; let cursor = 0; let m
-  while ((m = numRe.exec(text)) !== null) {
-    if (m.index > cursor) parts.push({ type: 'plain', text: text.slice(cursor, m.index) })
-    parts.push({ type: 'number', text: m[0] })
-    cursor = m.index + m[0].length
-  }
-  if (cursor < text.length) parts.push({ type: 'plain', text: text.slice(cursor) })
-  return parts
-}
-
-const TOKEN_COLORS = {
-  keyword: '#818CF8',
-  string:  '#FBBF24',
-  number:  '#00d4ff',
-  comment: '#4B5563',
-  plain:   '#CBD5E1',
-}
-
-function CodeBlock({ language, code, caption }) {
-  const [copied, setCopied] = useState(false)
-  const tokenLines = useMemo(() => tokenize(code || '', language), [code, language])
-
-  function handleCopy() {
-    if (typeof navigator !== 'undefined') {
-      navigator.clipboard.writeText(code || '').then(() => {
-        setCopied(true)
-        setTimeout(() => setCopied(false), 1800)
-      }).catch(() => {})
-    }
-  }
-
+function LessonSection({ eyebrow, title, children, accent = '#0ef5c2', revealed = true }) {
+  if (!revealed) return null
   return (
-    <div style={{
-      margin: '18px 0',
-      borderRadius: 16,
-      overflow: 'hidden',
-      border: '1px solid rgba(129,140,248,0.25)',
-      background: '#0a0a14',
-      boxShadow: 'inset 0 1px 0 rgba(129,140,248,0.12), 0 8px 28px rgba(0,0,0,0.35)',
-    }}>
-      {/* Header */}
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '8px 14px',
-        background: 'rgba(129,140,248,0.07)',
-        borderBottom: '1px solid rgba(129,140,248,0.12)',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ display: 'flex', gap: 5 }}>
-            {['#FF453A', '#FBBF24', '#34D399'].map((c, i) => (
-              <div key={i} style={{ width: 10, height: 10, borderRadius: '50%', background: c, opacity: 0.65 }} />
-            ))}
-          </div>
-          <span style={{ fontSize: 11, fontWeight: 700, color: '#818CF8', textTransform: 'uppercase', letterSpacing: '0.8px' }}>
-            {language || 'code'}
-          </span>
-        </div>
-        <button onClick={handleCopy} style={{
-          background: 'none', border: 'none', cursor: 'pointer',
-          fontSize: 11, fontWeight: 700,
-          color: copied ? '#0ef5c2' : '#4B5563',
-          padding: '3px 8px', borderRadius: 6,
-          transition: 'color 0.18s',
-          fontFamily: "inherit",
-        }}>
-          {copied ? 'Copied' : 'Copy'}
-        </button>
-      </div>
-
-      {/* Code */}
-      <div style={{ overflowX: 'auto', padding: '12px 0 14px' }}>
-        <table style={{ borderCollapse: 'collapse', width: '100%', tableLayout: 'auto' }}>
-          <tbody>
-            {tokenLines.map((line, li) => (
-              <tr key={li}>
-                <td style={{
-                  padding: '1px 16px 1px 16px', textAlign: 'right',
-                  userSelect: 'none', fontSize: 12, color: '#2D3748', verticalAlign: 'top',
-                  width: 1, whiteSpace: 'nowrap',
-                  fontFamily: "'JetBrains Mono','Fira Code',Menlo,monospace",
-                  lineHeight: 1.7,
-                }}>
-                  {line.lineNum}
-                </td>
-                <td style={{
-                  padding: '1px 20px 1px 8px', whiteSpace: 'pre',
-                  fontFamily: "'JetBrains Mono','Fira Code',Menlo,monospace",
-                  fontSize: 13.5, lineHeight: 1.7,
-                }}>
-                  {line.parts.map((part, pi) => (
-                    <span key={pi} style={{ color: TOKEN_COLORS[part.type] || TOKEN_COLORS.plain }}>
-                      {part.text}
-                    </span>
-                  ))}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {caption && (
-        <div style={{
-          padding: '7px 14px', borderTop: '1px solid rgba(255,255,255,0.05)',
-          fontSize: 12, color: '#4B5563', fontStyle: 'italic',
-        }}>
-          {caption}
+    <section
+      style={{
+        background: 'rgba(255,255,255,0.03)',
+        border: '1px solid rgba(255,255,255,0.08)',
+        borderRadius: 24,
+        padding: '22px 22px 24px',
+        backdropFilter: 'blur(18px)',
+        WebkitBackdropFilter: 'blur(18px)',
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05)',
+        animation: 'sectionReveal 0.4s ease both',
+      }}
+    >
+      {eyebrow && (
+        <div
+          style={{
+            marginBottom: 10,
+            fontSize: 11,
+            fontWeight: 800,
+            letterSpacing: '0.12em',
+            textTransform: 'uppercase',
+            color: accent,
+          }}
+        >
+          {eyebrow}
         </div>
       )}
-    </div>
-  )
-}
-
-// ─── Diagram Renderer ────────────────────────────────────────────────────────
-const colorMap = {
-  teal:  { bg: 'rgba(14,245,194,0.10)', border: '#0ef5c2', text: '#0ef5c2' },
-  amber: { bg: 'rgba(251,191,36,0.10)', border: '#fbbf24', text: '#fbbf24' },
-  blue:  { bg: 'rgba(0,212,255,0.10)',  border: '#00d4ff', text: '#00d4ff' },
-  red:   { bg: 'rgba(255,69,58,0.10)',  border: '#ff453a', text: '#ff453a' },
-  gray:  { bg: 'rgba(142,142,147,0.10)', border: '#636366', text: '#8e8e93' },
-}
-
-function DiagramView({ diagram }) {
-  if (!diagram || diagram.type === 'none') return null
-  const nodes = diagram.nodes || []
-  const connections = diagram.connections || []
-
-  if (!nodes.length) {
-    return (
-      <div style={{ margin: '20px 0', padding: '20px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16, textAlign: 'center', color: '#636366', fontSize: 14 }}>
-        Visual diagram unavailable for this concept
-      </div>
-    )
-  }
-
-  if (diagram.type === 'comparison') {
-    const left  = nodes.filter((_, i) => i % 2 === 0)
-    const right = nodes.filter((_, i) => i % 2 === 1)
-    return (
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, margin: '20px 0' }}>
-        {[left, right].map((col, ci) => (
-          <div key={ci} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {col.map((node, ni) => {
-              const c = colorMap[node.color] || colorMap.teal
-              return (
-                <div key={ni} style={{ padding: '12px 16px', background: c.bg, border: `1px solid ${c.border}40`, borderRadius: 14, color: c.text, fontSize: 14, fontWeight: 600, textAlign: 'center', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', boxShadow: `inset 0 1px 0 ${c.border}30` }}>
-                  {node.label}
-                </div>
-              )
-            })}
-          </div>
-        ))}
-      </div>
-    )
-  }
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0, margin: '20px 0' }}>
-      {nodes.map((node, i) => {
-        const c    = colorMap[node.color] || colorMap.teal
-        const conn = connections.find(cn => cn.from === i)
-        return (
-          <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-            <div style={{ padding: '14px 26px', background: c.bg, border: `1.5px solid ${c.border}55`, borderRadius: 16, color: c.text, fontSize: 14, fontWeight: 700, textAlign: 'center', minWidth: 160, maxWidth: 280, backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', boxShadow: `inset 0 1px 0 ${c.border}35, 0 8px 20px rgba(0,0,0,0.16)` }}>
-              {node.label}
-            </div>
-            {conn && i < nodes.length - 1 && (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', margin: '4px 0' }}>
-                <div style={{ width: 2, height: 16, background: 'rgba(255,255,255,0.10)' }} />
-                {conn.label && <span style={{ fontSize: 11, color: '#636366', fontWeight: 600, margin: '2px 0', letterSpacing: '0.3px' }}>{conn.label}</span>}
-                <div style={{ width: 2, height: 8, background: 'rgba(255,255,255,0.10)' }} />
-                <div style={{ width: 0, height: 0, borderLeft: '5px solid transparent', borderRight: '5px solid transparent', borderTop: '6px solid rgba(255,255,255,0.10)' }} />
-              </div>
-            )}
-            {!conn && i < nodes.length - 1 && (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', margin: '4px 0' }}>
-                <div style={{ width: 2, height: 20, background: 'rgba(255,255,255,0.10)' }} />
-                <div style={{ width: 0, height: 0, borderLeft: '5px solid transparent', borderRight: '5px solid transparent', borderTop: '6px solid rgba(255,255,255,0.10)' }} />
-              </div>
-            )}
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-// ─── Quiz Component ──────────────────────────────────────────────────────────
-function QuizView({ quiz, onComplete, onWrongAnswer, onCorrectAnswer, comboCount = 0 }) {
-  const [selected, setSelected] = useState(null)
-  const [revealed, setRevealed] = useState(false)
-  const [showVignette, setShowVignette] = useState(false)
-
-  if (!quiz || !Array.isArray(quiz.options) || quiz.options.length === 0) {
-    return (
-      <div style={{ textAlign: 'center', padding: '40px 0' }}>
-        <p style={{ color: '#636366', marginBottom: 20, fontSize: 15 }}>Quiz unavailable for this lesson.</p>
-        {onComplete && <button onClick={onComplete} style={{ padding: '12px 28px', background: 'linear-gradient(135deg,#0ef5c2,#00d4ff)', border: 'none', borderRadius: 14, color: '#06060f', fontWeight: 700, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif" }}>Continue</button>}
-      </div>
-    )
-  }
-
-  const handleSelect = (idx) => {
-    if (revealed) return
-    setSelected(idx)
-    setRevealed(true)
-    const correct = idx === quiz.correctIndex
-    if (correct) {
-      if (onCorrectAnswer) onCorrectAnswer()
-      if (onComplete) setTimeout(() => onComplete(), 1500)
-    } else {
-      // Wrong answer: flash vignette + notify parent for heart deduction
-      setShowVignette(true)
-      setTimeout(() => setShowVignette(false), 400)
-      if (onWrongAnswer) onWrongAnswer()
-    }
-  }
-
-  return (
-    <>
-    {showVignette && (
-      <div style={{ position: 'fixed', inset: 0, zIndex: 9800, background: 'rgba(255,69,58,0.12)', pointerEvents: 'none', animation: 'redVignette 0.4s ease both' }} />
-    )}
-    <div style={{ animation: 'fadeIn 0.4s cubic-bezier(0.16,1,0.3,1)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 18 }}>
-        <div style={{ width: 32, height: 32, borderRadius: '26%', background: 'rgba(0,212,255,0.12)', border: '1px solid rgba(0,212,255,0.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'inset 0 1px 0 rgba(0,212,255,0.25)' }}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00d4ff" strokeWidth="2.5" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-        </div>
-        <span style={{ color: '#00d4ff', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1.2px' }}>Check Your Understanding</span>
-        {comboCount >= 2 && (
-          <div style={{
-            marginLeft: 'auto', padding: '4px 12px',
-            background: comboCount >= 5 ? 'rgba(255,215,0,0.15)' : 'rgba(14,245,194,0.10)',
-            border: `1px solid ${comboCount >= 5 ? 'rgba(255,215,0,0.35)' : 'rgba(14,245,194,0.25)'}`,
-            borderRadius: 9999, fontSize: 12, fontWeight: 800,
-            color: comboCount >= 5 ? '#FFD700' : '#0ef5c2',
-            animation: 'comboPopIn 0.3s cubic-bezier(0.34,1.56,0.64,1)',
-          }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <IconGlyph name="target" size={12} strokeWidth={2.4} color={comboCount >= 5 ? '#FFD700' : '#0ef5c2'} />
-              Combo {comboCount}x
-            </span>
-          </div>
-        )}
-      </div>
-
-      <p style={{ color: '#f5f5f7', fontSize: 17, fontWeight: 700, lineHeight: 1.45, marginBottom: 20 }}>{quiz.question}</p>
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {quiz.options.map((opt, i) => {
-          const isCorrect  = i === quiz.correctIndex
-          const isSelected = i === selected
-          let bg = 'rgba(0,0,0,0.25)', border = 'rgba(255,255,255,0.10)', color = '#8e8e93'
-          if (revealed) {
-            if (isCorrect)      { bg = 'rgba(14,245,194,0.10)'; border = 'rgba(14,245,194,0.35)'; color = '#0ef5c2' }
-            else if (isSelected){ bg = 'rgba(255,69,58,0.10)';  border = 'rgba(255,69,58,0.35)';  color = '#ff6961' }
-          } else if (isSelected){ bg = 'rgba(14,245,194,0.07)'; border = 'rgba(14,245,194,0.32)'; color = '#f5f5f7' }
-
-          return (
-            <button key={i} onClick={() => handleSelect(i)} style={{ padding: '14px 18px', background: bg, border: `1.5px solid ${border}`, borderRadius: 16, color, fontSize: 15, fontWeight: 600, textAlign: 'left', cursor: revealed ? 'default' : 'pointer', fontFamily: "'DM Sans', sans-serif", transition: 'all 0.2s cubic-bezier(0.16,1,0.3,1)', display: 'flex', alignItems: 'center', gap: 12, backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', boxShadow: revealed && isCorrect ? 'inset 0 1px 0 rgba(14,245,194,0.22), 0 0 20px rgba(14,245,194,0.08)' : 'inset 0 1px 0 rgba(255,255,255,0.06)' }}>
-              <div style={{ width: 30, height: 30, borderRadius: '26%', flexShrink: 0, background: revealed && isCorrect ? 'linear-gradient(135deg, #0ef5c2, #00d4ff)' : revealed && isSelected ? '#ff453a' : 'transparent', border: `2px solid ${revealed && isCorrect ? 'transparent' : revealed && isSelected ? 'transparent' : 'rgba(255,255,255,0.14)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: revealed && (isCorrect || isSelected) ? '#06060f' : '#636366', fontSize: 12, fontWeight: 800, boxShadow: revealed && isCorrect ? '0 0 14px rgba(14,245,194,0.35), inset 0 1px 0 rgba(255,255,255,0.45)' : 'inset 0 1px 0 rgba(255,255,255,0.08)' }}>
-                {revealed && isCorrect ? <IconGlyph name="check" size={12} strokeWidth={2.8} color="#06060f" /> : revealed && isSelected ? <IconGlyph name="x" size={12} strokeWidth={2.6} color="#06060f" /> : String.fromCharCode(65 + i)}
-              </div>
-              {opt}
-            </button>
-          )
-        })}
-      </div>
-
-      {revealed && quiz.explanation && (
-        <div style={{ marginTop: 16, padding: '14px 18px', background: selected === quiz.correctIndex ? 'rgba(14,245,194,0.07)' : 'rgba(255,69,58,0.07)', border: `1px solid ${selected === quiz.correctIndex ? 'rgba(14,245,194,0.24)' : 'rgba(255,69,58,0.24)'}`, borderRadius: 16, backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', boxShadow: `inset 0 1px 0 ${selected === quiz.correctIndex ? 'rgba(14,245,194,0.18)' : 'rgba(255,69,58,0.18)'}` }}>
-          <p style={{ color: '#8e8e93', fontSize: 14, lineHeight: 1.65 }}>
-            <span style={{ fontWeight: 700, color: selected === quiz.correctIndex ? '#0ef5c2' : '#ff6961' }}>
-              {selected === quiz.correctIndex ? 'Correct! ' : 'Not quite. '}
-            </span>
-            {quiz.explanation}
-          </p>
-        </div>
+      {title && (
+        <h2
+          style={{
+            margin: 0,
+            marginBottom: 12,
+            fontSize: 22,
+            lineHeight: 1.2,
+            fontWeight: 800,
+            color: '#f5f5f7',
+            letterSpacing: '-0.02em',
+          }}
+        >
+          {title}
+        </h2>
       )}
-    </div>
-    </>
+      {children}
+    </section>
   )
 }
 
+function BulletList({ items, accent = '#0ef5c2' }) {
+  if (!Array.isArray(items) || items.length === 0) return null
+  return (
+    <div style={{ display: 'grid', gap: 10 }}>
+      {items.map((item, index) => (
+        <div key={`${item}-${index}`} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+          <div
+            style={{
+              marginTop: 8,
+              width: 7,
+              height: 7,
+              borderRadius: '50%',
+              background: accent,
+              boxShadow: `0 0 16px ${accent}66`,
+              flexShrink: 0,
+            }}
+          />
+          <p style={{ margin: 0, color: '#c8d6e5', fontSize: 15, lineHeight: 1.7 }}>{item}</p>
+        </div>
+      ))}
+    </div>
+  )
+}
 
-// ─── Main Lesson Viewer ──────────────────────────────────────────────────────
-export default function LessonViewer({ concept, taskTitle, goal, knowledge, lessonKey, presetLesson = null, sourceTask = null, aiMode = 'hint', onClose, onComplete, onHeartLost }) {
-  const [loading, setLoading]               = useState(true)
-  const [error, setError]                   = useState('')
-  const [slides, setSlides]                 = useState([])
-  const [quiz, setQuiz]                     = useState(null)
-  const [current, setCurrent]               = useState(0)
-  const [showQuiz, setShowQuiz]             = useState(false)
-  const [, setLessonMeta]                   = useState({ generationMode: null, cacheable: false, resource: null, fallbackReason: '' })
-  const [reloadTick, setReloadTick]         = useState(0)
-  const [assistantOpen, setAssistantOpen]   = useState(false)
-  const [assistantInput, setAssistantInput] = useState('')
-  const [assistantLoading, setAssistantLoading] = useState(false)
-  const [assistantMessages, setAssistantMessages] = useState([{
-    role: 'assistant',
-    text: 'I can help with this slide. Ask me for a simpler explanation, examples, or quick practice ideas.',
-    tips: [], links: [],
-  }])
+function ensureParagraphs(text = '') {
+  return String(text || '')
+    .split(/\n{2,}/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+}
+
+function ProgressBar({ current, total }) {
+  const pct = Math.round((current / (total - 1)) * 100)
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div style={{ fontSize: 12, color: '#8e8e93', fontWeight: 700, whiteSpace: 'nowrap' }}>
+        {current >= total - 1 ? 'Complete' : `Step ${Math.max(1, current + 1)} of ${total}`}
+      </div>
+      <div
+        style={{
+          width: 80,
+          height: 4,
+          borderRadius: 9999,
+          background: 'rgba(255,255,255,0.08)',
+          overflow: 'hidden',
+        }}
+      >
+        <div
+          style={{
+            height: '100%',
+            width: `${pct}%`,
+            background: 'linear-gradient(90deg,#0ef5c2,#00d4ff)',
+            borderRadius: 9999,
+            transition: 'width 0.5s ease',
+          }}
+        />
+      </div>
+    </div>
+  )
+}
+
+export default function LessonViewer({
+  concept,
+  taskTitle,
+  goal,
+  knowledge,
+  lessonKey,
+  presetLesson = null,
+  sourceTask = null,
+  aiMode = 'hint',
+  onClose,
+  onComplete,
+}) {
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [lessonDoc, setLessonDoc] = useState(null)
+  const [resource, setResource] = useState(null)
+  const [generationMode, setGenerationMode] = useState('ai')
+  const [reloadTick, setReloadTick] = useState(0)
+  const [assistantUsageCount, setAssistantUsageCount] = useState(0)
+  const [confidenceLevel, setConfidenceLevel] = useState('')
+  const [reflection, setReflection] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  // Gated sections: 0=hook only, 1=+explanation, 2=+why+worked, 3=+mistake, 4=+takeaways (all)
+  const [currentSection, setCurrentSection] = useState(0)
+  const [readyForCompletion, setReadyForCompletion] = useState(false)
+
+  const startTimeRef = useRef(null)
+  const scrollRef = useRef(null)
+  const explanationRef = useRef(null)
+  const whyRef = useRef(null)
+  const mistakeRef = useRef(null)
+  const takeawaysRef = useRef(null)
 
   const cacheKey = useMemo(() => {
     const fallbackKey = `${goal || 'goal'}::${concept || 'concept'}::${taskTitle || 'task'}`
-    return `pathai.lesson.v4::${lessonKey || fallbackKey}`
+    return `pathai.concept.v6::${lessonKey || fallbackKey}`
   }, [goal, concept, taskTitle, lessonKey])
 
-  // Stabilize knowledge reference to prevent unnecessary re-fetches
-  const knowledgeKey = useMemo(() => JSON.stringify(knowledge), [knowledge])
-  const sourceTaskPayloadKey = useMemo(() => JSON.stringify({
+  const sourceTaskPayload = useMemo(() => ({
     description: sourceTask?.description || '',
     action: sourceTask?.action || '',
     outcome: sourceTask?.outcome || '',
     resourceUrl: sourceTask?.resourceUrl || '',
     resourceTitle: sourceTask?.resourceTitle || '',
-  }), [sourceTask?.description, sourceTask?.action, sourceTask?.outcome, sourceTask?.resourceUrl, sourceTask?.resourceTitle])
-  const fallbackResource = useMemo(() => {
-    if (!sourceTask?.resourceUrl) return null
-    return {
-      url: sourceTask.resourceUrl,
-      title: sourceTask.resourceTitle || 'Primary resource',
-    }
-  }, [sourceTask?.resourceUrl, sourceTask?.resourceTitle])
+    learningContract: sourceTask?._learningContract || sourceTask?.learningContract || sourceTask?.lessonSeed?.learningContract || null,
+  }), [sourceTask])
 
   useEffect(() => {
     async function load() {
       startTimeRef.current = Date.now()
-      setLoading(true); setError(''); setShowQuiz(false); setCurrent(0)
-      setLessonMeta({ generationMode: null, cacheable: false, resource: fallbackResource, fallbackReason: '' })
-      if (presetLesson && Array.isArray(presetLesson.slides) && presetLesson.slides.length > 0) {
-        setSlides(presetLesson.slides)
-        setQuiz(presetLesson.quiz || null)
-        setLessonMeta({
-          generationMode: presetLesson.generationMode || 'preset',
-          cacheable: false,
-          resource: presetLesson.resource || fallbackResource,
-          fallbackReason: '',
-        })
+      setLoading(true)
+      setError('')
+      setLessonDoc(null)
+      setCurrentSection(0)
+      setReadyForCompletion(false)
+
+      if (presetLesson?.lessonDoc) {
+        setLessonDoc(presetLesson.lessonDoc)
+        setResource(presetLesson.resource || presetLesson.lessonDoc.resource || null)
+        setGenerationMode(presetLesson.generationMode || 'preset')
         setLoading(false)
         return
       }
+
       if (typeof window !== 'undefined') {
         try {
           const cachedRaw = window.localStorage.getItem(cacheKey)
           if (cachedRaw) {
             const cached = JSON.parse(cachedRaw)
-            if (Array.isArray(cached?.slides) && cached.slides.length > 0) {
-              setSlides(cached.slides)
-              setQuiz(cached.quiz || null)
-              setLessonMeta({
-                generationMode: cached.generationMode || 'ai',
-                cacheable: Boolean(cached.cacheable),
-                resource: cached.resource || fallbackResource,
-                fallbackReason: cached.fallbackReason || '',
-              })
-              console.info('[PathAI] lesson_load', { source: 'cache', lessonKey: cacheKey })
+            if (cached?.lessonDoc?.title) {
+              setLessonDoc(cached.lessonDoc)
+              setResource(cached.resource || cached.lessonDoc.resource || null)
+              setGenerationMode(cached.generationMode || 'ai')
               setLoading(false)
               return
             }
           }
-        } catch (_) {}
+        } catch {}
       }
+
       try {
-        const lessonKnowledge = knowledgeKey ? JSON.parse(knowledgeKey) : null
-        const taskPayload = sourceTaskPayloadKey ? JSON.parse(sourceTaskPayloadKey) : {}
         const res = await fetch('/api/lesson', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -439,368 +218,591 @@ export default function LessonViewer({ concept, taskTitle, goal, knowledge, less
             concept,
             taskTitle,
             goal,
-            knowledge: lessonKnowledge,
-            taskDescription: taskPayload.description,
-            taskAction: taskPayload.action,
-            taskOutcome: taskPayload.outcome,
-            resourceUrl: taskPayload.resourceUrl,
-            resourceTitle: taskPayload.resourceTitle,
+            knowledge,
+            taskDescription: sourceTaskPayload.description,
+            taskAction: sourceTaskPayload.action,
+            taskOutcome: sourceTaskPayload.outcome,
+            resourceUrl: sourceTaskPayload.resourceUrl,
+            resourceTitle: sourceTaskPayload.resourceTitle,
+            learningContract: sourceTaskPayload.learningContract,
           }),
         })
         const data = await res.json()
         if (!res.ok) throw new Error(data?.error || 'Failed to load lesson')
-        if (!Array.isArray(data?.slides) || data.slides.length === 0) {
-          throw new Error('No lesson content available')
-        }
-        setSlides(data.slides)
-        setQuiz(data.quiz || null)
-        setLessonMeta({
-          generationMode: data.generationMode || 'ai',
-          cacheable: Boolean(data.cacheable),
-          resource: data.resource || fallbackResource,
-          fallbackReason: data.fallbackReason || '',
-        })
-        console.info('[PathAI] lesson_load', {
-          source: data.generationMode || 'ai',
-          lessonKey: cacheKey,
-          fallbackReason: data.fallbackReason || null,
-        })
+        if (!data?.lessonDoc?.title) throw new Error('No concept lesson returned')
+
+        setLessonDoc(data.lessonDoc)
+        setResource(data.resource || data.lessonDoc.resource || null)
+        setGenerationMode(data.generationMode || 'ai')
         if (typeof window !== 'undefined' && data.cacheable) {
-          window.localStorage.setItem(cacheKey, JSON.stringify({
-            slides: data.slides,
-            quiz: data.quiz || null,
-            generationMode: data.generationMode || 'ai',
-            cacheable: Boolean(data.cacheable),
-            resource: data.resource || fallbackResource,
-            cachedAt: Date.now(),
-          }))
-        }
-      } catch (e) {
-        const lessonKnowledge = knowledgeKey ? JSON.parse(knowledgeKey) : null
-        const taskPayload = sourceTaskPayloadKey ? JSON.parse(sourceTaskPayloadKey) : {}
-        const fallbackLesson = buildDeterministicLesson({
-          concept,
-          taskTitle,
-          goal,
-          knowledge: lessonKnowledge,
-          taskDescription: taskPayload.description,
-          taskAction: taskPayload.action,
-          taskOutcome: taskPayload.outcome,
-          resourceUrl: taskPayload.resourceUrl,
-          resourceTitle: taskPayload.resourceTitle,
-          fallbackReason: e?.message || 'client_fetch_failed',
-        })
-        setSlides(fallbackLesson.slides)
-        setQuiz(fallbackLesson.quiz || null)
-        setLessonMeta({
-          generationMode: 'deterministic',
-          cacheable: true,
-          resource: fallbackLesson.resource || fallbackResource,
-          fallbackReason: fallbackLesson.fallbackReason || e?.message || 'client_fetch_failed',
-        })
-        console.info('[PathAI] lesson_load', {
-          source: 'deterministic',
-          lessonKey: cacheKey,
-          message: e?.message || 'unknown',
-        })
-        if (typeof window !== 'undefined') {
           try {
             window.localStorage.setItem(cacheKey, JSON.stringify({
-              slides: fallbackLesson.slides,
-              quiz: fallbackLesson.quiz || null,
-              generationMode: 'deterministic',
-              cacheable: true,
-              resource: fallbackLesson.resource || fallbackResource,
-              fallbackReason: fallbackLesson.fallbackReason || e?.message || 'client_fetch_failed',
+              lessonDoc: data.lessonDoc,
+              resource: data.resource || data.lessonDoc.resource || null,
+              generationMode: data.generationMode || 'ai',
               cachedAt: Date.now(),
             }))
-          } catch (_) {}
+          } catch {}
         }
+      } catch (loadError) {
+        setError(loadError?.message || 'Could not load this lesson right now.')
+      } finally {
+        setLoading(false)
       }
-      setLoading(false)
     }
+
     load()
-  }, [concept, taskTitle, goal, knowledgeKey, cacheKey, presetLesson, reloadTick, sourceTaskPayloadKey, fallbackResource])
+  }, [cacheKey, concept, goal, knowledge, presetLesson, reloadTick, sourceTaskPayload, taskTitle])
 
-  const totalSlides = slides.length
-  const isLastSlide = current === totalSlides - 1
-
-  const [quizPassed, setQuizPassed] = useState(false)
-  const [comboCount, setComboCount] = useState(0)
-  const [comboMax, setComboMax] = useState(0)
-  const [assistantUsageCount, setAssistantUsageCount] = useState(0)
-  const startTimeRef = useRef(null)
-  function handleRetryLesson() {
-    if (typeof window !== 'undefined') {
-      try { window.localStorage.removeItem(cacheKey) } catch (_) {}
-    }
-    setReloadTick((value) => value + 1)
-  }
-
-  const handleNext = () => {
-    if (isLastSlide) {
-      if (quiz && !showQuiz) setShowQuiz(true)
-      else if (showQuiz && !quizPassed) return // block until quiz is answered correctly
-      else if (onComplete) {
-        const completionTimeSec = startTimeRef.current
-          ? Math.round((Date.now() - startTimeRef.current) / 1000)
-          : 0
-        onComplete({
-          completionTimeSec,
-          assistantUsageCount,
-          comboMax,
-          quizPerfect: Boolean(quiz && comboMax > 0),
-        })
-      }
-    } else { setCurrent(c => c + 1) }
-  }
-  const handleBack = () => {
-    if (showQuiz) setShowQuiz(false)
-    else if (current > 0) setCurrent(c => c - 1)
-  }
-
-  const slide   = slides[current]
-  const [isMobile, setIsMobile] = useState(false)
+  // Scroll to newly revealed section
   useEffect(() => {
-    const check = () => setIsMobile(window.innerWidth < 980)
-    check()
-    window.addEventListener('resize', check)
-    return () => window.removeEventListener('resize', check)
-  }, [])
+    if (currentSection === 0) return
+    const refMap = [null, explanationRef, whyRef, mistakeRef, takeawaysRef]
+    const ref = refMap[currentSection]
+    if (ref?.current) {
+      setTimeout(() => {
+        ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }, 80)
+    }
+  }, [currentSection])
 
-  async function handleAskAssistant() {
-    const question = assistantInput.trim()
-    if (!question || assistantLoading) return
-    setAssistantInput('')
-    setAssistantMessages((prev) => prev.concat({ role: 'user', text: question }))
-    setAssistantLoading(true)
-    try {
-      setAssistantUsageCount((count) => count + 1)
-      const res = await fetch('/api/lesson-assistant', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question, concept, goal, mode: aiMode, slide: slide ? { title: slide.title, content: slide.content } : null }) })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data?.error || 'Assistant failed')
-      setAssistantMessages((prev) => prev.concat({ role: 'assistant', text: data?.answer || 'No answer.', tips: Array.isArray(data?.tips) ? data.tips : [], links: Array.isArray(data?.links) ? data.links : [] }))
-    } catch (_) {
-      setAssistantMessages((prev) => prev.concat({ role: 'assistant', text: 'I ran into a temporary issue. Please try again.', tips: [], links: [] }))
-    } finally { setAssistantLoading(false) }
+  // Unlock completion when all sections revealed
+  useEffect(() => {
+    if (currentSection >= 4) setReadyForCompletion(true)
+  }, [currentSection])
+
+  function advanceSection() {
+    setCurrentSection((s) => Math.min(s + 1, 4))
   }
 
-  const slideTypeIcon = { intro: 'scroll', concept: 'lightbulb', diagram: 'chart', example: 'microscope', practice: 'wrench', summary: 'check_circle' }
+  function handleRetry() {
+    if (typeof window !== 'undefined') {
+      try { window.localStorage.removeItem(cacheKey) } catch {}
+    }
+    setReloadTick((v) => v + 1)
+    setCurrentSection(0)
+    setReadyForCompletion(false)
+  }
+
+  function handleComplete() {
+    if (!lessonDoc || !readyForCompletion || !confidenceLevel || reflection.trim().length < 20) return
+    setSubmitting(true)
+    const completionTimeSec = startTimeRef.current
+      ? Math.round((Date.now() - startTimeRef.current) / 1000)
+      : 0
+    onComplete?.({
+      fromLesson: true,
+      completionTimeSec,
+      confidenceLevel,
+      assistantUsageCount,
+      takeaway: reflection.trim(),
+      taughtPointsCount: Array.isArray(lessonDoc.taughtPoints) ? lessonDoc.taughtPoints.length : 0,
+    })
+  }
+
+  // Pick gate for a given afterSection key
+  function getGate(afterSection) {
+    if (!lessonDoc?.interactions) return null
+    return lessonDoc.interactions.find((g) => g.afterSection === afterSection) || null
+  }
 
   return (
     <>
-      <style>{`
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        @keyframes slideLeft { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: translateX(0); } }
-        @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
-        @keyframes comboPopIn { 0% { transform: scale(0.6); opacity: 0; } 70% { transform: scale(1.15); } 100% { transform: scale(1); opacity: 1; } }
-        @keyframes redVignette { 0% { opacity: 0; } 20% { opacity: 1; } 100% { opacity: 0; } }
-        @keyframes comboBurst { 0% { transform: scale(0.8); opacity: 0; } 50% { transform: scale(1.2); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
-      `}</style>
+      <style>{LESSON_CSS}</style>
 
-      <div className="overlay-slide-up" style={{
-        position: 'fixed', inset: 0, zIndex: 200,
-        background: 'linear-gradient(180deg, #06060f 0%, #080814 100%)',
-        fontFamily: "'DM Sans', -apple-system, 'SF Pro Display', system-ui, sans-serif",
-        display: 'flex', flexDirection: 'column',
-        overflow: 'hidden',
-        WebkitFontSmoothing: 'antialiased',
-      }}>
-
-        {/* ── Top bar ── */}
-        <div style={{ padding: '14px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.08)', background: 'rgba(6,6,15,0.88)', backdropFilter: 'blur(28px) saturate(200%)', WebkitBackdropFilter: 'blur(28px) saturate(200%)', boxShadow: 'inset 0 -1px 0 rgba(255,255,255,0.04)' }}>
-          {/* Close */}
-          <button onClick={onClose} className="interactive-icon" style={{ width: 36, height: 36, background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.10)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#8e8e93', transition: 'all 0.18s', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.12)'; e.currentTarget.style.color = '#f5f5f7' }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = '#8e8e93' }}
+      <div
+        className="overlay-slide-up"
+        style={{
+          position: 'fixed',
+          inset: 0,
+          zIndex: 200,
+          background: 'linear-gradient(180deg,#06060f 0%,#080814 100%)',
+          fontFamily: font,
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+        }}
+      >
+        {/* ── Top bar ────────────────────────────────── */}
+        <div
+          style={{
+            padding: '14px 20px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            borderBottom: '1px solid rgba(255,255,255,0.08)',
+            background: 'rgba(6,6,15,0.88)',
+            backdropFilter: 'blur(28px)',
+            WebkitBackdropFilter: 'blur(28px)',
+          }}
+        >
+          <button
+            onClick={onClose}
+            style={{
+              width: 36,
+              height: 36,
+              background: 'rgba(255,255,255,0.07)',
+              border: '1px solid rgba(255,255,255,0.10)',
+              borderRadius: 10,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              color: '#8e8e93',
+            }}
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
           </button>
 
-          {/* Progress dots */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            {slides.map((_, i) => (
-              <div key={i} style={{ width: i === current ? 22 : 8, height: 8, borderRadius: 9999, background: i < current ? '#0ef5c2' : i === current ? 'linear-gradient(90deg, #0ef5c2, #00d4ff)' : 'rgba(255,255,255,0.10)', transition: 'all 0.35s cubic-bezier(0.16,1,0.3,1)', boxShadow: i === current ? '0 0 10px rgba(14,245,194,0.45)' : 'none' }} />
-            ))}
-            {quiz && <div style={{ width: showQuiz ? 22 : 8, height: 8, borderRadius: 9999, background: showQuiz ? 'linear-gradient(90deg, #00d4ff, #0087e8)' : 'rgba(255,255,255,0.10)', transition: 'all 0.35s cubic-bezier(0.16,1,0.3,1)' }} />}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div
+              style={{
+                padding: '6px 14px',
+                borderRadius: 9999,
+                border: '1px solid rgba(14,245,194,0.22)',
+                background: 'rgba(14,245,194,0.08)',
+                color: '#0ef5c2',
+                fontSize: 11,
+                fontWeight: 800,
+                letterSpacing: '0.1em',
+                textTransform: 'uppercase',
+              }}
+            >
+              Concept Lesson
+            </div>
+            {lessonDoc && <ProgressBar current={currentSection} total={TOTAL_PHASES} />}
           </div>
 
-          {/* AI assistant toggle */}
-          <button onClick={() => setAssistantOpen((v) => !v)} className="interactive-icon"
-            style={{ width: 36, height: 36, background: assistantOpen ? 'rgba(14,245,194,0.12)' : 'rgba(255,255,255,0.07)', border: `1px solid ${assistantOpen ? 'rgba(14,245,194,0.35)' : 'rgba(255,255,255,0.10)'}`, color: assistantOpen ? '#0ef5c2' : '#8e8e93', borderRadius: 10, display: 'grid', placeItems: 'center', cursor: 'pointer', fontSize: 17, transition: 'all 0.2s', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', boxShadow: assistantOpen ? 'inset 0 1px 0 rgba(14,245,194,0.25)' : 'inset 0 1px 0 rgba(255,255,255,0.08)' }}
-          >
-            <IconGlyph name="sparkles" size={16} strokeWidth={2.5} color={assistantOpen ? '#0ef5c2' : '#8e8e93'} />
-          </button>
+          <div style={{ width: 36, textAlign: 'right', fontSize: 12, color: generationMode === 'structured' ? '#8e8e93' : '#0ef5c2', fontWeight: 700 }}>
+            {generationMode === 'structured' ? 'Ready' : 'AI'}
+          </div>
         </div>
 
-        {/* ── Content ── */}
-        <div style={{ flex: 1, overflow: 'hidden', padding: '0 20px', display: 'flex', gap: 16 }}>
-          <div style={{ flex: 1, overflow: 'auto' }}>
-            <div style={{ maxWidth: 680, margin: '0 auto', padding: '20px 0 130px' }}>
+        {/* ── Scrollable content ─────────────────────── */}
+        <div
+          ref={scrollRef}
+          style={{ flex: 1, overflowY: 'auto', padding: '24px 20px 160px' }}
+        >
+          <div style={{ maxWidth: 860, margin: '0 auto', display: 'grid', gap: 18 }}>
 
-              {loading ? (
-                <div style={{ textAlign: 'center', paddingTop: 80 }}>
-                  <div style={{ width: 44, height: 44, border: '3px solid rgba(255,255,255,0.06)', borderTopColor: '#0ef5c2', borderRadius: '50%', animation: 'spin 0.65s linear infinite', margin: '0 auto 22px', boxShadow: '0 0 20px rgba(14,245,194,0.12)' }} />
-                  <p style={{ color: '#8e8e93', fontSize: 14 }}>Generating your lesson...</p>
-                  <p style={{ color: '#3a3a3c', fontSize: 12, marginTop: 6 }}>Building slides with diagrams and examples</p>
-                </div>
-              ) : error ? (
-                <div style={{ textAlign: 'center', paddingTop: 80 }}>
-                  <p style={{ color: '#ff6961', marginBottom: 16 }}>{error}</p>
-                  <div style={{ display: 'flex', justifyContent: 'center', gap: 10, flexWrap: 'wrap' }}>
-                    <button onClick={handleRetryLesson} style={{ padding: '10px 20px', background: 'linear-gradient(135deg, #0ef5c2, #00d4ff)', border: 'none', borderRadius: 12, color: '#06060f', cursor: 'pointer', fontFamily: "'DM Sans', sans-serif", fontWeight: 800, boxShadow: '0 0 20px rgba(14,245,194,0.18)' }}>Try Again</button>
-                    <button onClick={onClose} style={{ padding: '10px 20px', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12, color: '#8e8e93', cursor: 'pointer', fontFamily: "'DM Sans', sans-serif", backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}>Go back</button>
-                  </div>
-                </div>
-              ) : showQuiz ? (
-                <QuizView
-                  quiz={quiz}
-                  comboCount={comboCount}
-                  onComplete={() => {
-                    setQuizPassed(true)
-                    if (onComplete) {
-                      const completionTimeSec = startTimeRef.current
-                        ? Math.round((Date.now() - startTimeRef.current) / 1000)
-                        : 0
-                      onComplete({
-                        completionTimeSec,
-                        assistantUsageCount,
-                        comboMax: Math.max(comboMax, 1),
-                        quizPerfect: true,
-                        quizScore: 100,
-                      })
-                    }
+            {/* Loading */}
+            {loading && (
+              <div style={{ textAlign: 'center', paddingTop: 80 }}>
+                <div
+                  style={{
+                    width: 46,
+                    height: 46,
+                    border: '3px solid rgba(255,255,255,0.06)',
+                    borderTopColor: '#0ef5c2',
+                    borderRadius: '50%',
+                    animation: 'spin 0.65s linear infinite',
+                    margin: '0 auto 18px',
                   }}
-                  onWrongAnswer={() => { setComboCount(0); if (onHeartLost) onHeartLost() }}
-                  onCorrectAnswer={() => { setComboCount(c => { const next = c + 1; setComboMax(m => Math.max(m, next)); return next }) }}
                 />
-              ) : slide ? (
-                <div key={slide.id} style={{ animation: 'slideLeft 0.32s cubic-bezier(0.16,1,0.3,1)' }}>
-                  {/* Slide type badge */}
-                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '5px 14px', marginBottom: 18, background: 'rgba(14,245,194,0.08)', border: '1px solid rgba(14,245,194,0.20)', borderRadius: 9999, fontSize: 11, fontWeight: 700, color: '#0ef5c2', textTransform: 'uppercase', letterSpacing: '1px', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', boxShadow: 'inset 0 1px 0 rgba(14,245,194,0.20)' }}>
-                    <IconGlyph name={slideTypeIcon[slide.type] || 'file'} size={13} strokeWidth={2.4} color="#0ef5c2" /> {slide.type}
-                  </div>
+                <p style={{ margin: 0, color: '#c8d6e5', fontSize: 15 }}>Building a concept lesson that actually teaches the idea…</p>
+              </div>
+            )}
 
-                  {/* Title */}
-                  <h1 style={{ fontSize: 26, fontWeight: 800, color: '#f5f5f7', letterSpacing: '-0.6px', lineHeight: 1.25, marginBottom: 22 }}>
-                    {slide.title}
+            {/* Error */}
+            {!loading && error && (
+              <div style={{ textAlign: 'center', paddingTop: 80 }}>
+                <p style={{ color: '#ff8d8d', fontSize: 16, marginBottom: 18 }}>{error}</p>
+                <div style={{ display: 'flex', justifyContent: 'center', gap: 12 }}>
+                  <button
+                    onClick={handleRetry}
+                    style={{
+                      padding: '12px 22px',
+                      borderRadius: 14,
+                      border: 'none',
+                      background: 'linear-gradient(135deg,#0ef5c2,#00d4ff)',
+                      color: '#06060f',
+                      fontSize: 15,
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      fontFamily: font,
+                    }}
+                  >
+                    Try Again
+                  </button>
+                  {sourceTaskPayload.resourceUrl && (
+                    <a
+                      href={sourceTaskPayload.resourceUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        padding: '12px 22px',
+                        borderRadius: 14,
+                        border: '1px solid rgba(255,255,255,0.12)',
+                        background: 'rgba(255,255,255,0.05)',
+                        color: '#c8d6e5',
+                        fontSize: 15,
+                        fontWeight: 700,
+                        textDecoration: 'none',
+                      }}
+                    >
+                      Open Resource
+                    </a>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ── Lesson content ──────────────────────── */}
+            {!loading && !error && lessonDoc && (
+              <>
+                {/* SECTION 0: Hook (always visible) */}
+                <section style={{ animation: 'fadeIn 0.28s ease both' }}>
+                  <div
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '7px 14px',
+                      borderRadius: 9999,
+                      border: '1px solid rgba(14,245,194,0.22)',
+                      background: 'rgba(14,245,194,0.07)',
+                      color: '#0ef5c2',
+                      fontSize: 11,
+                      fontWeight: 800,
+                      letterSpacing: '0.1em',
+                      textTransform: 'uppercase',
+                      marginBottom: 16,
+                    }}
+                  >
+                    <IconGlyph name="book" size={13} strokeWidth={2.4} color="#0ef5c2" />
+                    Day Focus
+                  </div>
+                  <h1
+                    style={{
+                      margin: 0,
+                      color: '#f5f5f7',
+                      fontSize: 'clamp(34px, 5vw, 58px)',
+                      lineHeight: 1.02,
+                      letterSpacing: '-0.05em',
+                      fontWeight: 900,
+                      maxWidth: 860,
+                    }}
+                  >
+                    {lessonDoc.title}
                   </h1>
+                  <p style={{ margin: '18px 0 0', color: '#c8d6e5', fontSize: 18, lineHeight: 1.75, maxWidth: 820 }}>
+                    {lessonDoc.hook}
+                  </p>
+                </section>
 
-                  <DiagramView diagram={slide.diagram} />
+                {/* Gate after hook */}
+                {currentSection === 0 && (
+                  <LessonGate
+                    {...(getGate('hook') || { type: 'ready_check' })}
+                    onPass={advanceSection}
+                  />
+                )}
 
-                  {/* Content */}
-                  <div style={{ color: '#8e8e93', fontSize: 16, lineHeight: 1.78, whiteSpace: 'pre-wrap' }}>
-                    {slide.content?.split('\n\n').map((para, i) => (
-                      <p key={i} style={{ marginBottom: 16 }}>{para}</p>
-                    ))}
-                  </div>
-
-                  {/* Code blocks */}
-                  {Array.isArray(slide.codeBlocks) && slide.codeBlocks.length > 0 && (
-                    <div style={{ marginTop: 8 }}>
-                      {slide.codeBlocks.map((cb, i) => (
-                        <CodeBlock key={i} language={cb.language} code={cb.code} caption={cb.caption} />
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Key takeaway */}
-                  {slide.keyTakeaway && (
-                    <div style={{ marginTop: 24, padding: '16px 20px', background: 'rgba(14,245,194,0.06)', border: '1px solid rgba(14,245,194,0.20)', borderRadius: 18, display: 'flex', alignItems: 'flex-start', gap: 12, backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', boxShadow: 'inset 0 1px 0 rgba(14,245,194,0.18)' }}>
-                      <div style={{ width: 30, height: 30, borderRadius: '26%', background: 'rgba(14,245,194,0.12)', border: '1px solid rgba(14,245,194,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: 'inset 0 1px 0 rgba(14,245,194,0.22)' }}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0ef5c2" strokeWidth="2.5" strokeLinecap="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                {/* SECTION 1: Explanation */}
+                {currentSection >= 1 && (
+                  <div ref={explanationRef}>
+                    <LessonSection eyebrow="Plain English" title="What this really means">
+                      <div style={{ display: 'grid', gap: 14 }}>
+                        {ensureParagraphs(lessonDoc.plainEnglishExplanation).map((paragraph, index) => (
+                          <p key={index} style={{ margin: 0, color: '#c8d6e5', fontSize: 16, lineHeight: 1.8 }}>
+                            {paragraph}
+                          </p>
+                        ))}
                       </div>
-                      <p style={{ color: '#0ef5c2', fontSize: 14, fontWeight: 600, lineHeight: 1.55 }}>{slide.keyTakeaway}</p>
-                    </div>
-                  )}
-                </div>
-              ) : null}
-            </div>
-          </div>
+                    </LessonSection>
 
-          {/* ── Desktop assistant panel ── */}
-          {assistantOpen && !isMobile && (
-            <aside style={{ width: 340, flexShrink: 0, height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', margin: '16px 0', background: 'linear-gradient(145deg, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.04) 40%, rgba(110,170,255,0.06) 100%)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 22, backdropFilter: 'blur(32px) saturate(200%)', WebkitBackdropFilter: 'blur(32px) saturate(200%)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.20), 0 20px 44px rgba(0,0,0,0.30)', animation: 'fadeIn 0.3s cubic-bezier(0.16,1,0.3,1)' }}>
-              <div style={{ padding: '14px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div style={{ width: 28, height: 28, borderRadius: '26%', background: 'rgba(14,245,194,0.10)', border: '1px solid rgba(14,245,194,0.22)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'inset 0 1px 0 rgba(14,245,194,0.22)' }}>
-                  <IconGlyph name="sparkles" size={13} strokeWidth={2.5} color="#0ef5c2" />
-                </div>
-                <span style={{ color: '#f5f5f7', fontWeight: 700, fontSize: 14 }}>Lesson Assistant</span>
-              </div>
-              <div style={{ flex: 1, overflow: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {assistantMessages.map((msg, idx) => (
-                  <div key={idx} style={{ padding: '11px 14px', borderRadius: 16, background: msg.role === 'assistant' ? 'rgba(14,245,194,0.07)' : 'rgba(255,255,255,0.06)', border: `1px solid ${msg.role === 'assistant' ? 'rgba(14,245,194,0.18)' : 'rgba(255,255,255,0.10)'}`, backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', boxShadow: msg.role === 'assistant' ? 'inset 0 1px 0 rgba(14,245,194,0.14)' : 'inset 0 1px 0 rgba(255,255,255,0.08)' }}>
-                    <p style={{ margin: 0, color: msg.role === 'assistant' ? '#c8f7eb' : '#f5f5f7', fontSize: 13, lineHeight: 1.58 }}>{msg.text}</p>
-                    {msg.tips?.length > 0 && <ul style={{ margin: '8px 0 0', paddingLeft: 18, color: '#8e8e93', fontSize: 12, lineHeight: 1.5 }}>{msg.tips.map((tip) => <li key={tip}>{tip}</li>)}</ul>}
-                    {msg.links?.length > 0 && <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>{msg.links.map((link) => <a key={`${link.title}-${link.url}`} href={link.url} target="_blank" rel="noreferrer" style={{ color: '#0ef5c2', fontSize: 12, textDecoration: 'none' }}>{link.title}</a>)}</div>}
+                    {/* Gate after explanation */}
+                    {currentSection === 1 && (
+                      <div style={{ marginTop: 18 }}>
+                        <LessonGate
+                          {...(getGate('explanation') || { type: 'ready_check' })}
+                          onPass={advanceSection}
+                        />
+                      </div>
+                    )}
                   </div>
-                ))}
-                {assistantLoading && <p style={{ color: '#636366', fontSize: 12, margin: 0, fontStyle: 'italic' }}>Thinking...</p>}
-              </div>
-              <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', padding: 10, display: 'flex', gap: 8 }}>
-                <input value={assistantInput} onChange={(e) => setAssistantInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleAskAssistant() }} placeholder="Ask about this slide..."
-                  style={{ flex: 1, background: 'rgba(0,0,0,0.30)', border: '1px solid rgba(255,255,255,0.10)', borderRadius: 12, color: '#f5f5f7', padding: '10px 14px', fontSize: 13, fontFamily: "'DM Sans', sans-serif", outline: 'none' }}
-                />
-                <button onClick={handleAskAssistant} disabled={assistantLoading || !assistantInput.trim()}
-                  style={{ padding: '10px 14px', borderRadius: 12, border: 'none', background: 'linear-gradient(135deg, #0ef5c2, #00d4ff)', color: '#06060f', fontWeight: 700, cursor: assistantLoading ? 'default' : 'pointer', fontSize: 13, boxShadow: '0 0 16px rgba(14,245,194,0.25), inset 0 1px 0 rgba(255,255,255,0.40)' }}
-                >Ask</button>
-              </div>
-            </aside>
-          )}
+                )}
+
+                {/* SECTION 2: Why It Matters + Worked Example (unlocked together, no gate between) */}
+                {currentSection >= 2 && (
+                  <div ref={whyRef} style={{ display: 'grid', gap: 18 }}>
+                    <LessonSection eyebrow="Why It Matters" title={`Why ${lessonDoc.title} matters`}>
+                      <p style={{ margin: 0, color: '#c8d6e5', fontSize: 16, lineHeight: 1.8 }}>{lessonDoc.whyItMatters}</p>
+                    </LessonSection>
+
+                    <LessonSection eyebrow="Worked Example" title={lessonDoc.workedExample?.title || 'Worked example'}>
+                      <p style={{ margin: 0, marginBottom: 16, color: '#c8d6e5', fontSize: 16, lineHeight: 1.8 }}>
+                        {lessonDoc.workedExample?.setup}
+                      </p>
+                      <BulletList items={lessonDoc.workedExample?.walkthrough || []} accent="#00d4ff" />
+                      <div
+                        style={{
+                          marginTop: 18,
+                          padding: '14px 16px',
+                          borderRadius: 18,
+                          background: 'rgba(0,212,255,0.05)',
+                          border: '1px solid rgba(0,212,255,0.18)',
+                        }}
+                      >
+                        <div style={{ fontSize: 11, fontWeight: 800, color: '#00d4ff', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>
+                          What to notice
+                        </div>
+                        <p style={{ margin: 0, color: '#c8d6e5', fontSize: 15, lineHeight: 1.7 }}>
+                          {lessonDoc.workedExample?.result}
+                        </p>
+                      </div>
+                    </LessonSection>
+
+                    {/* Gate after worked example */}
+                    {currentSection === 2 && (
+                      <LessonGate
+                        {...(getGate('workedExample') || { type: 'ready_check' })}
+                        onPass={advanceSection}
+                      />
+                    )}
+                  </div>
+                )}
+
+                {/* SECTION 3: Common Mistake */}
+                {currentSection >= 3 && (
+                  <div ref={mistakeRef}>
+                    <LessonSection eyebrow="Common Mistake" title="Where people usually trip">
+                      <div style={{ display: 'grid', gap: 12 }}>
+                        <div>
+                          <div style={{ fontSize: 12, fontWeight: 800, color: '#ff9f7a', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>
+                            The mistake
+                          </div>
+                          <p style={{ margin: 0, color: '#f5f5f7', fontSize: 16, lineHeight: 1.75 }}>{lessonDoc.commonMistake?.mistake}</p>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 12, fontWeight: 800, color: '#8e8e93', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>
+                            Why it happens
+                          </div>
+                          <p style={{ margin: 0, color: '#c8d6e5', fontSize: 15, lineHeight: 1.75 }}>{lessonDoc.commonMistake?.whyItHappens}</p>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 12, fontWeight: 800, color: '#0ef5c2', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>
+                            Better move
+                          </div>
+                          <p style={{ margin: 0, color: '#c8d6e5', fontSize: 15, lineHeight: 1.75 }}>{lessonDoc.commonMistake?.fix}</p>
+                        </div>
+                      </div>
+                    </LessonSection>
+
+                    {/* Gate after common mistake */}
+                    {currentSection === 3 && (
+                      <div style={{ marginTop: 18 }}>
+                        <LessonGate
+                          {...(getGate('commonMistake') || { type: 'ready_check' })}
+                          onPass={advanceSection}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* SECTION 4: Takeaways + Bridge + Checkpoint (all unlocked after last gate) */}
+                {currentSection >= 4 && (
+                  <div ref={takeawaysRef} style={{ display: 'grid', gap: 18 }}>
+                    <div style={{ display: 'grid', gap: 18, gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
+                      <LessonSection eyebrow="Key Takeaways" title="What should stick">
+                        <BulletList items={lessonDoc.keyTakeaways || []} accent="#0ef5c2" />
+                      </LessonSection>
+                      <LessonSection eyebrow="Taught Scope" title="What later tasks are allowed to use">
+                        <div style={{ display: 'grid', gap: 16 }}>
+                          <div>
+                            <div style={{ fontSize: 12, fontWeight: 800, color: '#00d4ff', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>
+                              Allowed concepts
+                            </div>
+                            <BulletList items={lessonDoc.allowedConcepts || []} accent="#00d4ff" />
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 12, fontWeight: 800, color: '#A78BFA', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>
+                              Taught points
+                            </div>
+                            <BulletList items={lessonDoc.taughtPoints || []} accent="#A78BFA" />
+                          </div>
+                        </div>
+                      </LessonSection>
+                    </div>
+
+                    <LessonSection eyebrow="Bridge" title="What happens next">
+                      <p style={{ margin: 0, color: '#c8d6e5', fontSize: 16, lineHeight: 1.8 }}>{lessonDoc.practiceBridge}</p>
+                      {resource?.url && (
+                        <a
+                          href={resource.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{
+                            marginTop: 14,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            color: '#00d4ff',
+                            fontSize: 14,
+                            fontWeight: 700,
+                            textDecoration: 'none',
+                          }}
+                        >
+                          {resource.title || 'Open supporting resource'} <IconGlyph name="share" size={14} strokeWidth={2.3} color="#00d4ff" />
+                        </a>
+                      )}
+                    </LessonSection>
+
+                    <LessonSection eyebrow="Checkpoint" title="Finish the handoff into practice">
+                      <p style={{ margin: 0, marginBottom: 14, color: '#c8d6e5', fontSize: 16, lineHeight: 1.8 }}>
+                        {lessonDoc.completionCheck?.prompt}
+                      </p>
+                      <BulletList items={lessonDoc.completionCheck?.expectedSignals || []} accent="#0ef5c2" />
+                      <div
+                        style={{
+                          marginTop: 18,
+                          padding: '14px 16px',
+                          borderRadius: 18,
+                          background: 'rgba(14,245,194,0.06)',
+                          border: '1px solid rgba(14,245,194,0.2)',
+                        }}
+                      >
+                        <div style={{ fontSize: 12, fontWeight: 800, color: '#0ef5c2', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>
+                          Lesson checkpoint unlocked
+                        </div>
+                        <p style={{ margin: 0, color: '#c8d6e5', fontSize: 14, lineHeight: 1.7 }}>
+                          {lessonDoc.completionCheck?.nextStep}
+                        </p>
+                      </div>
+                    </LessonSection>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         </div>
 
-        {/* ── Bottom navigation ── */}
-        {!loading && !error && (
-          <div style={{ padding: '14px 20px 30px', borderTop: '1px solid rgba(255,255,255,0.08)', background: 'rgba(6,6,15,0.90)', backdropFilter: 'blur(28px) saturate(200%)', WebkitBackdropFilter: 'blur(28px) saturate(200%)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)' }}>
-            <div style={{ maxWidth: 600, margin: '0 auto', display: 'flex', gap: 12 }}>
-              <button onClick={handleBack} disabled={current === 0 && !showQuiz} className="interactive-secondary"
-                style={{ padding: '14px 26px', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 16, color: current === 0 && !showQuiz ? '#3a3a3c' : '#8e8e93', fontSize: 15, fontWeight: 600, cursor: current === 0 && !showQuiz ? 'default' : 'pointer', fontFamily: "'DM Sans', sans-serif", transition: 'all 0.2s', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08)' }}
-                onMouseEnter={(e) => { if (current > 0 || showQuiz) { e.currentTarget.style.color = '#f5f5f7'; e.currentTarget.style.background = 'rgba(255,255,255,0.12)' } }}
-                onMouseLeave={(e) => { e.currentTarget.style.color = current === 0 && !showQuiz ? '#3a3a3c' : '#8e8e93'; e.currentTarget.style.background = 'rgba(255,255,255,0.07)' }}
-              >
-                Back
-              </button>
-              <button onClick={handleNext}
-                disabled={showQuiz && !quizPassed}
-                className="interactive-cta"
-                style={{ flex: 1, padding: '14px', background: (showQuiz && !quizPassed) ? 'rgba(255,255,255,0.08)' : 'linear-gradient(135deg, #0ef5c2, #00d4ff)', border: 'none', borderRadius: 16, color: (showQuiz && !quizPassed) ? '#636366' : '#06060f', fontSize: 16, fontWeight: 700, cursor: (showQuiz && !quizPassed) ? 'default' : 'pointer', fontFamily: "'DM Sans', sans-serif", boxShadow: (showQuiz && !quizPassed) ? 'none' : '0 0 32px rgba(14,245,194,0.28), inset 0 1px 0 rgba(255,255,255,0.48)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, transition: 'all 0.22s cubic-bezier(0.16,1,0.3,1)' }}
-                onMouseEnter={(e) => { if (!(showQuiz && !quizPassed)) { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 0 44px rgba(14,245,194,0.40), inset 0 1px 0 rgba(255,255,255,0.48)' } }}
-                onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = (showQuiz && !quizPassed) ? 'none' : '0 0 32px rgba(14,245,194,0.28), inset 0 1px 0 rgba(255,255,255,0.48)' }}
-              >
-                {showQuiz ? (quizPassed ? 'Finish Lesson' : 'Answer the Quiz') : isLastSlide ? (quiz ? 'Check My Understanding' : 'Finish Lesson') : 'Next'}
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#06060f" strokeWidth="2.5" strokeLinecap="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
-              </button>
+        {/* ── Bottom footer (reflection + completion) ── */}
+        {lessonDoc && currentSection >= 4 && (
+          <div
+            style={{
+              padding: '14px 20px 28px',
+              borderTop: '1px solid rgba(255,255,255,0.08)',
+              background: 'rgba(6,6,15,0.92)',
+              backdropFilter: 'blur(28px)',
+              WebkitBackdropFilter: 'blur(28px)',
+              animation: 'sectionReveal 0.4s ease',
+            }}
+          >
+            <div style={{ maxWidth: 860, margin: '0 auto', display: 'grid', gap: 16 }}>
+              <textarea
+                value={reflection}
+                onChange={(event) => setReflection(event.target.value)}
+                placeholder="In your own words: what did you just learn, what mistake will you avoid, and how will you use it in the next task?"
+                rows={4}
+                style={{
+                  width: '100%',
+                  padding: '16px 18px',
+                  borderRadius: 18,
+                  border: '1px solid rgba(255,255,255,0.12)',
+                  background: 'rgba(255,255,255,0.04)',
+                  color: '#f5f5f7',
+                  fontSize: 15,
+                  lineHeight: 1.7,
+                  fontFamily: font,
+                  resize: 'vertical',
+                  outline: 'none',
+                }}
+              />
+
+              <ConfidenceSelector
+                value={confidenceLevel}
+                onChange={setConfidenceLevel}
+                accent="#0ef5c2"
+                borderColor="rgba(14,245,194,0.22)"
+                background="rgba(14,245,194,0.05)"
+                label="How ready are you to use this concept in the next task?"
+              />
+
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                <button
+                  onClick={onClose}
+                  style={{
+                    padding: '14px 22px',
+                    borderRadius: 16,
+                    border: '1px solid rgba(255,255,255,0.12)',
+                    background: 'rgba(255,255,255,0.05)',
+                    color: '#8e8e93',
+                    fontSize: 15,
+                    fontWeight: 700,
+                    fontFamily: font,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Back
+                </button>
+                <button
+                  onClick={handleComplete}
+                  disabled={!confidenceLevel || reflection.trim().length < 20 || submitting}
+                  style={{
+                    flex: 1,
+                    minWidth: 220,
+                    padding: '14px 22px',
+                    borderRadius: 16,
+                    border: 'none',
+                    background: !confidenceLevel || reflection.trim().length < 20
+                      ? 'rgba(255,255,255,0.05)'
+                      : 'linear-gradient(135deg,#0ef5c2,#00d4ff)',
+                    color: !confidenceLevel || reflection.trim().length < 20 ? '#636366' : '#06060f',
+                    fontSize: 16,
+                    fontWeight: 800,
+                    fontFamily: font,
+                    cursor: submitting ? 'default' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                  }}
+                >
+                  {submitting ? (
+                    <>
+                      <div style={{ width: 14, height: 14, border: '2px solid rgba(6,6,15,0.2)', borderTopColor: '#06060f', borderRadius: '50%', animation: 'spin 0.65s linear infinite' }} />
+                      Saving…
+                    </>
+                  ) : (
+                    'Complete concept and unlock next task'
+                  )}
+                </button>
+              </div>
             </div>
+          </div>
+        )}
+
+        {/* Hint in footer when not all sections unlocked yet */}
+        {lessonDoc && currentSection < 4 && (
+          <div
+            style={{
+              padding: '12px 20px',
+              borderTop: '1px solid rgba(255,255,255,0.06)',
+              background: 'rgba(6,6,15,0.85)',
+              backdropFilter: 'blur(18px)',
+              textAlign: 'center',
+            }}
+          >
+            <p style={{ margin: 0, color: '#636366', fontSize: 13, fontWeight: 600 }}>
+              Answer the checkpoint above to unlock the next section
+            </p>
           </div>
         )}
       </div>
 
-      {/* ── Mobile assistant sheet ── */}
-      {assistantOpen && isMobile && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 220, background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', display: 'flex', justifyContent: 'flex-end' }}>
-          <div style={{ width: '92%', maxWidth: 420, background: 'linear-gradient(145deg, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0.05) 100%)', borderLeft: '1px solid rgba(255,255,255,0.14)', height: '100%', display: 'flex', flexDirection: 'column', backdropFilter: 'blur(40px) saturate(200%)', WebkitBackdropFilter: 'blur(40px) saturate(200%)', boxShadow: 'inset 1px 0 0 rgba(255,255,255,0.08), -32px 0 64px rgba(0,0,0,0.40)', animation: 'fadeIn 0.28s cubic-bezier(0.16,1,0.3,1)' }}>
-            <div style={{ padding: '14px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ color: '#f5f5f7', fontWeight: 700 }}>Lesson Assistant</span>
-              <button onClick={() => setAssistantOpen(false)} style={{ border: 'none', background: 'rgba(255,255,255,0.08)', borderRadius: 8, color: '#8e8e93', fontSize: 18, width: 32, height: 32, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
-            </div>
-            <div style={{ flex: 1, overflow: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {assistantMessages.map((msg, idx) => (
-                <div key={idx} style={{ padding: '11px 14px', borderRadius: 16, background: msg.role === 'assistant' ? 'rgba(14,245,194,0.07)' : 'rgba(255,255,255,0.06)', border: `1px solid ${msg.role === 'assistant' ? 'rgba(14,245,194,0.18)' : 'rgba(255,255,255,0.10)'}` }}>
-                  <p style={{ margin: 0, color: msg.role === 'assistant' ? '#c8f7eb' : '#f5f5f7', fontSize: 13, lineHeight: 1.55 }}>{msg.text}</p>
-                </div>
-              ))}
-            </div>
-            <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', padding: 10, display: 'flex', gap: 8 }}>
-              <input value={assistantInput} onChange={(e) => setAssistantInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleAskAssistant() }} placeholder="Ask about this slide..."
-                style={{ flex: 1, background: 'rgba(0,0,0,0.30)', border: '1px solid rgba(255,255,255,0.10)', borderRadius: 12, color: '#f5f5f7', padding: '10px 14px', fontSize: 13, fontFamily: "'DM Sans', sans-serif", outline: 'none' }}
-              />
-              <button onClick={handleAskAssistant} disabled={assistantLoading || !assistantInput.trim()}
-                style={{ padding: '10px 14px', borderRadius: 12, border: 'none', background: 'linear-gradient(135deg, #0ef5c2, #00d4ff)', color: '#06060f', fontWeight: 700, cursor: 'pointer', boxShadow: '0 0 16px rgba(14,245,194,0.25), inset 0 1px 0 rgba(255,255,255,0.40)' }}
-              >Ask</button>
-            </div>
-          </div>
-        </div>
+      {lessonDoc && (
+        <AIAssistant
+          concept={concept}
+          goal={goal}
+          mode={aiMode}
+          context={`Concept lesson: ${lessonDoc.title}`}
+          onAsk={() => setAssistantUsageCount((count) => count + 1)}
+        />
       )}
     </>
   )

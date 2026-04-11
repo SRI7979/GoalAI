@@ -1,59 +1,11 @@
 import { getOpenAIModel } from '@/lib/openaiModels'
-
-function sanitizeUrl(url) {
-  try {
-    const parsed = new URL(url)
-    if (!['http:', 'https:'].includes(parsed.protocol)) return null
-    return parsed.toString()
-  } catch (_) {
-    return null
-  }
-}
-
-function buildReliableImageUrl(query = '') {
-  const seed = encodeURIComponent(String(query || 'education').toLowerCase())
-  return `https://picsum.photos/seed/${seed}/1200/700`
-}
-
-function buildImageSearchQuery({ concept, slideTitle, imageQuery, slideType }) {
-  const base = String(imageQuery || '').trim() || `${slideTitle || concept} ${concept}`
-  const typeHint = slideType === 'diagram' ? 'diagram chart' : 'education'
-  return `${base} ${concept} ${typeHint}`.replace(/\s+/g, ' ').trim()
-}
-
-async function resolveRelevantImageFromWikipedia(query) {
-  const endpoint = new URL('https://en.wikipedia.org/w/api.php')
-  endpoint.searchParams.set('action', 'query')
-  endpoint.searchParams.set('format', 'json')
-  endpoint.searchParams.set('formatversion', '2')
-  endpoint.searchParams.set('generator', 'search')
-  endpoint.searchParams.set('gsrsearch', query)
-  endpoint.searchParams.set('gsrlimit', '6')
-  endpoint.searchParams.set('prop', 'pageimages|description')
-  endpoint.searchParams.set('piprop', 'original|thumbnail')
-  endpoint.searchParams.set('pithumbsize', '1200')
-  try {
-    const res = await fetch(endpoint.toString(), {
-      headers: { 'User-Agent': 'PathAI-LessonGenerator/1.0 (educational)' },
-    })
-    if (!res.ok) return null
-    const data = await res.json()
-    const pages = Array.isArray(data?.query?.pages) ? data.query.pages : []
-    for (const page of pages) {
-      const url = page?.original?.source || page?.thumbnail?.source || null
-      if (!url) continue
-      if (url.toLowerCase().endsWith('.svg')) continue
-      return { url, caption: page?.description || page?.title || '' }
-    }
-  } catch (_) { return null }
-  return null
-}
-
-// ─── Detect if this is a programming/code topic ────────────────────────────
-function isProgrammingTopic(concept = '', goal = '') {
-  const text = `${concept} ${goal}`.toLowerCase()
-  return /python|javascript|typescript|java\b|c\+\+|c#|rust\b|golang|ruby|swift|kotlin|sql|html|css|react|angular|vue|node|django|flask|express|api|rest|graphql|function|variable|loop|array|object|class|method|algorithm|data structure|programming|coding|code|syntax|terminal|bash|shell|git|database|query|recursion/.test(text)
-}
+import {
+  buildStructuredConceptLessonDoc,
+  extractJsonObject,
+  formatLearningContractForPrompt,
+  normalizeConceptLessonDoc,
+  repairJsonString,
+} from '@/lib/conceptLesson'
 
 function buildLessonError(code, message) {
   const error = new Error(message)
@@ -61,151 +13,19 @@ function buildLessonError(code, message) {
   return error
 }
 
-export async function generateLessonFromOpenAI({ concept, taskTitle, goal, knowledge, openaiApiKey }) {
-  if (!concept || !goal) throw buildLessonError('missing_inputs', 'Missing concept or goal')
-  if (!openaiApiKey) throw buildLessonError('missing_api_key', 'Missing OPENAI_API_KEY')
-
-  const isProg = isProgrammingTopic(concept, goal)
-
-  const codeBlockSchema = isProg
-    ? `"codeBlocks": [
-      {
-        "language": "python",
-        "code": "# actual runnable code with output comments\\nx = 10\\nprint(x)  # Output: 10",
-        "caption": "what this code demonstrates"
-      }
-    ],`
-    : `"codeBlocks": [],`
-
-  const codeBlockRules = isProg
-    ? `- Slides 2–5 MUST each include 1–2 codeBlocks with real, runnable, commented code
-- Language must match the topic (python, javascript, typescript, sql, bash, etc.)
-- Include "# Output: ..." or "// Output: ..." comments so learners see results
-- Code examples should progress: slide 2 = bare minimum, slide 4 = practical real-world use
-- Use meaningful variable names (not x/y/z — use names like age, price, username)
-- Practice slide: show a common mistake, then the correct fix
-- Slide 1 (intro) and slide 6 (summary): codeBlocks can be empty []`
-    : `- codeBlocks must be an empty array [] for non-programming topics`
-
-  const prompt = `You are an expert teacher creating a rich, visual, slide-based micro-lesson.
-
-TOPIC: ${concept}
-TASK: ${taskTitle || concept}
-LEARNING GOAL: ${goal}
-${knowledge ? `STUDENT ALREADY KNOWS: ${knowledge}` : 'STUDENT LEVEL: Beginner — no prior knowledge assumed'}
-
-Create a lesson with exactly 6 slides. Return ONLY valid JSON — no markdown, no backticks, no commentary outside the JSON.
-
-{
-  "slides": [
-    {
-      "id": 1,
-      "title": "What You'll Learn",
-      "type": "intro",
-      "content": "Welcoming intro paragraph. Then bullet-point list (use \\n• format) of the 5 things covered.",
-      "diagram": { "type": "none", "nodes": [], "connections": [] },
-      "codeBlocks": [],
-      "image": { "query": "specific educational image query", "alt": "alt text", "caption": "caption" },
-      "keyTakeaway": "One memorable sentence."
-    },
-    {
-      "id": 2,
-      "title": "Core Concept",
-      "type": "concept",
-      "content": "2-3 paragraphs explaining the idea with a real-world analogy. Be specific, warm, and encouraging.",
-      "diagram": {
-        "type": "flowchart|hierarchy|comparison|steps",
-        "nodes": [
-          {"label": "meaningful label", "color": "teal|amber|blue|red|gray", "level": 0},
-          {"label": "meaningful label", "color": "blue", "level": 1}
-        ],
-        "connections": [{"from": 0, "to": 1, "label": "relationship"}]
-      },
-      ${codeBlockSchema}
-      "image": { "query": "specific query", "alt": "alt text", "caption": "caption" },
-      "keyTakeaway": "One sentence."
-    },
-    {
-      "id": 3,
-      "title": "Visual Breakdown",
-      "type": "diagram",
-      "content": "Explain the diagram below. Walk through each part.",
-      "diagram": {
-        "type": "steps",
-        "nodes": [
-          {"label": "Step 1 label", "color": "teal", "level": 0},
-          {"label": "Step 2 label", "color": "blue", "level": 1},
-          {"label": "Step 3 label", "color": "amber", "level": 2},
-          {"label": "Step 4 label", "color": "red", "level": 3}
-        ],
-        "connections": [
-          {"from": 0, "to": 1, "label": "then"},
-          {"from": 1, "to": 2, "label": "then"},
-          {"from": 2, "to": 3, "label": "finally"}
-        ]
-      },
-      ${codeBlockSchema}
-      "image": { "query": "query", "alt": "alt", "caption": "" },
-      "keyTakeaway": "One sentence."
-    },
-    {
-      "id": 4,
-      "title": "Worked Example",
-      "type": "example",
-      "content": "Walk through a real, concrete example step by step. Make it relatable.",
-      "diagram": { "type": "none", "nodes": [], "connections": [] },
-      ${codeBlockSchema}
-      "image": { "query": "query", "alt": "alt", "caption": "" },
-      "keyTakeaway": "One sentence."
-    },
-    {
-      "id": 5,
-      "title": "Try It Yourself",
-      "type": "practice",
-      "content": "A challenge with clear instructions. Show a common mistake and its fix. Give a hint.",
-      "diagram": { "type": "none", "nodes": [], "connections": [] },
-      ${codeBlockSchema}
-      "image": { "query": "query", "alt": "alt", "caption": "" },
-      "keyTakeaway": "One sentence."
-    },
-    {
-      "id": 6,
-      "title": "Summary",
-      "type": "summary",
-      "content": "Recap what was learned. Bullet list of key points. Mention what comes next.",
-      "diagram": { "type": "none", "nodes": [], "connections": [] },
-      "codeBlocks": [],
-      "image": { "query": "query", "alt": "alt", "caption": "" },
-      "keyTakeaway": "One sentence."
-    }
-  ],
-  "quiz": {
-    "question": "A question that tests genuine understanding, not trivia",
-    "options": ["Plausible A", "Plausible B", "Plausible C", "Plausible D"],
-    "correctIndex": 0,
-    "explanation": "Why the correct answer is right and why the others are wrong"
-  }
-}
-
-RULES:
-${codeBlockRules}
-- Diagrams must have 4–6 nodes with real, meaningful labels (no "Node 1", "Step A" etc.)
-- Connection labels must be verbs: "calls", "returns", "stores", "extends", "passes to", etc.
-- Image queries must be specific (e.g. "Python list indexing diagram tutorial", not "education")
-- keyTakeaway must be one memorable, standalone sentence
-- Quiz: all 4 options must be plausible — no obviously wrong answers
-- Content paragraphs: 2-4 sentences, clear, warm, encouraging tone
-- Never use generic filler text`
-
-  let openaiRes
+async function callOpenAI(prompt, openaiApiKey) {
+  let response
   try {
-    openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+    response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${openaiApiKey}` },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${openaiApiKey}`,
+      },
       body: JSON.stringify({
         model: getOpenAIModel('lesson'),
-        max_tokens: 3000,
-        temperature: 0.3,
+        max_tokens: 2800,
+        temperature: 0.28,
         messages: [{ role: 'user', content: prompt }],
       }),
     })
@@ -213,56 +33,162 @@ ${codeBlockRules}
     throw buildLessonError('openai_request_failed', error?.message || 'OpenAI request failed')
   }
 
-  if (!openaiRes.ok) {
-    const errText = await openaiRes.text()
+  if (!response.ok) {
+    const errText = await response.text()
     throw buildLessonError('openai_http_error', `OpenAI lesson error: ${errText}`)
   }
 
-  const openaiData = await openaiRes.json()
-  const text = openaiData.choices?.[0]?.message?.content || ''
+  const data = await response.json()
+  return data?.choices?.[0]?.message?.content || ''
+}
 
-  let jsonStr = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim()
-  const firstBrace = jsonStr.indexOf('{')
-  if (firstBrace >= 0) jsonStr = jsonStr.slice(firstBrace)
+function parseLessonJson(raw, context) {
+  const extracted = extractJsonObject(raw)
+  if (!extracted) {
+    throw buildLessonError('invalid_json', 'No JSON object returned for lesson')
+  }
 
-  let parsed
   try {
-    parsed = JSON.parse(jsonStr)
-  } catch (error) {
-    throw buildLessonError('invalid_json', error?.message || 'Could not parse lesson JSON')
-  }
-  if (!Array.isArray(parsed?.slides) || parsed.slides.length === 0) {
-    throw buildLessonError('empty_slides', 'No slides generated')
-  }
-
-  const normalizedSlides = await Promise.all(parsed.slides.map(async (slide, index) => {
-    const imageQuery    = String(slide?.image?.query || '').trim() || `${slide?.title || concept} education`
-    const sourceUrl     = sanitizeUrl(slide?.image?.url)
-    const semanticQuery = buildImageSearchQuery({
-      concept, slideTitle: slide?.title, imageQuery, slideType: slide?.type,
-    })
-
-    const wikiImage = await resolveRelevantImageFromWikipedia(semanticQuery)
-    const imageUrl  = sourceUrl && !sourceUrl.includes('source.unsplash.com')
-      ? sourceUrl
-      : (wikiImage?.url || buildReliableImageUrl(semanticQuery))
-
-    return {
-      id:         Number(slide?.id) || index + 1,
-      title:      String(slide?.title   || `Slide ${index + 1}`).trim(),
-      type:       String(slide?.type    || 'concept').trim().toLowerCase(),
-      content:    String(slide?.content || '').trim(),
-      diagram:    slide?.diagram || { type: 'none', nodes: [], connections: [] },
-      codeBlocks: Array.isArray(slide?.codeBlocks) ? slide.codeBlocks : [],
-      image: {
-        query:   imageQuery,
-        alt:     String(slide?.image?.alt     || `Illustration for ${concept}`).trim(),
-        caption: String(slide?.image?.caption || wikiImage?.caption || '').trim(),
-        url:     imageUrl,
-      },
-      keyTakeaway: String(slide?.keyTakeaway || '').trim(),
+    const parsed = JSON.parse(extracted)
+    return normalizeConceptLessonDoc(parsed?.lessonDoc || parsed, context)
+  } catch (_) {
+    try {
+      const repaired = repairJsonString(raw)
+      const parsed = JSON.parse(repaired)
+      return normalizeConceptLessonDoc(parsed?.lessonDoc || parsed, context)
+    } catch (error) {
+      throw buildLessonError('invalid_json', error?.message || 'Could not parse lesson JSON')
     }
-  }))
+  }
+}
 
-  return { slides: normalizedSlides, quiz: parsed?.quiz || null }
+export async function generateLessonFromOpenAI({
+  concept,
+  taskTitle,
+  goal,
+  knowledge,
+  taskDescription,
+  taskAction,
+  taskOutcome,
+  resourceUrl,
+  resourceTitle,
+  learningContract,
+  openaiApiKey,
+}) {
+  if (!concept || !goal) throw buildLessonError('missing_inputs', 'Missing concept or goal')
+  if (!openaiApiKey) throw buildLessonError('missing_api_key', 'Missing OPENAI_API_KEY')
+
+  const context = {
+    concept,
+    taskTitle,
+    goal,
+    knowledge,
+    taskDescription,
+    taskAction,
+    taskOutcome,
+    resourceUrl,
+    resourceTitle,
+    learningContract,
+  }
+
+  const prompt = `You are an elite teacher writing a concept lesson for a premium learning app.
+
+GOAL: ${goal}
+TASK TITLE: ${taskTitle || concept}
+CONCEPT FOCUS: ${concept}
+${knowledge ? `PRIOR KNOWLEDGE: ${knowledge}` : 'PRIOR KNOWLEDGE: beginner / assume very little'}
+${taskDescription ? `TASK DESCRIPTION: ${taskDescription}` : ''}
+${taskAction ? `NEXT TASK HANDOFF: ${taskAction}` : ''}
+${taskOutcome ? `TARGET OUTCOME: ${taskOutcome}` : ''}
+${resourceTitle ? `PRIMARY RESOURCE: ${resourceTitle}${resourceUrl ? ` (${resourceUrl})` : ''}` : ''}
+
+LEARNING CONTRACT:
+${formatLearningContractForPrompt(learningContract)}
+
+Write a single-page teaching lesson. The student should finish understanding the concept well enough to enter guided practice without encountering brand-new ideas.
+
+Return ONLY valid JSON with this exact shape:
+{
+  "lessonDoc": {
+    "title": "specific title",
+    "hook": "2-3 sentence opening that makes the topic feel important and approachable",
+    "plainEnglishExplanation": "2-4 short paragraphs in plain language. No filler. Teach the actual concept.",
+    "whyItMatters": "1 short paragraph connecting the idea to the learner's real goal",
+    "workedExample": {
+      "title": "example title",
+      "setup": "the scenario in 2-3 sentences",
+      "walkthrough": ["step 1", "step 2", "step 3"],
+      "result": "what the learner should notice from the example"
+    },
+    "commonMistake": {
+      "mistake": "the mistake",
+      "whyItHappens": "why beginners make it",
+      "fix": "how to avoid it"
+    },
+    "keyTakeaways": ["takeaway 1", "takeaway 2", "takeaway 3"],
+    "practiceBridge": "clear handoff into the next practice task",
+    "allowedConcepts": ["concept 1", "concept 2"],
+    "taughtPoints": ["point 1", "point 2", "point 3"],
+    "completionCheck": {
+      "prompt": "short reflection or self-check prompt",
+      "expectedSignals": ["signal 1", "signal 2", "signal 3"],
+      "nextStep": "what to do next"
+    },
+    "interactions": [
+      {
+        "afterSection": "hook",
+        "type": "true_false",
+        "statement": "A statement about the concept the learner just read in the hook — true or false",
+        "correct": true,
+        "explanation": "Why this is true/false — 1 sentence"
+      },
+      {
+        "afterSection": "explanation",
+        "type": "fill_blank",
+        "sentence": "A sentence with ___ where the key term goes",
+        "answer": "the answer",
+        "explanation": "Why this answer is correct — 1 sentence"
+      },
+      {
+        "afterSection": "workedExample",
+        "type": "predict",
+        "question": "What will happen if...? (based on the worked example)",
+        "code": "optional short code snippet if programming topic, else omit",
+        "options": ["Option A", "Option B", "Option C", "Option D"],
+        "correctIndex": 0,
+        "explanation": "Why this option is correct — 1 sentence"
+      },
+      {
+        "afterSection": "commonMistake",
+        "type": "spot_error",
+        "question": "What is wrong with this? (based on the common mistake)",
+        "code": "optional short code or scenario showing the mistake",
+        "options": ["Option A", "Option B", "Option C", "Option D"],
+        "correctIndex": 0,
+        "explanation": "Why this is the error — 1 sentence"
+      }
+    ]
+  }
+}
+
+STRICT RULES:
+- Teach, do not present. No slides. No images.
+- Do not introduce concepts outside ALLOWED CONCEPTS or beyond TAUGHT POINTS.
+- The explanation must feel like a real teacher helping a motivated learner, not template filler.
+- Use one concrete worked example.
+- Keep the writing specific to ${goal}, not generic study advice.
+- The practiceBridge must prepare the learner for the next task, not repeat the whole lesson.
+- For interactions: make them test the actual content of this lesson, not generic trivia. Keep code snippets short (≤5 lines). If the topic is not programming, omit the code field entirely.
+- Never mention being an AI, JSON, schema, or the prompt.
+- Do not add markdown fences.`
+
+  const raw = await callOpenAI(prompt, openaiApiKey)
+  const lessonDoc = parseLessonJson(raw, context)
+
+  return {
+    lessonDoc: normalizeConceptLessonDoc(lessonDoc, context),
+    generationMode: 'ai',
+    cacheable: true,
+    resource: lessonDoc.resource || buildStructuredConceptLessonDoc(context).resource || null,
+  }
 }
