@@ -1,5 +1,5 @@
 import { generateLessonFromOpenAI } from '@/lib/lessonGenerator'
-import { buildDeterministicLesson } from '@/lib/deterministicLesson'
+import { buildStructuredConceptLessonDoc, normalizeConceptLessonDoc } from '@/lib/conceptLesson'
 
 export async function POST(request) {
   let concept = 'your topic'
@@ -16,6 +16,7 @@ export async function POST(request) {
       taskOutcome,
       resourceUrl,
       resourceTitle,
+      learningContract,
     } = body
 
     if (!concept || !goal) {
@@ -29,6 +30,12 @@ export async function POST(request) {
       taskTitle,
       goal,
       knowledge,
+      taskDescription,
+      taskAction,
+      taskOutcome,
+      resourceUrl,
+      resourceTitle,
+      learningContract,
       openaiApiKey: process.env.OPENAI_API_KEY,
     })
 
@@ -41,10 +48,10 @@ export async function POST(request) {
         cacheable: true,
       })
       return Response.json({
-        ...lesson,
+        lessonDoc: normalizeConceptLessonDoc(lesson.lessonDoc, body),
         generationMode: 'ai',
         cacheable: true,
-        resource,
+        resource: lesson.resource || resource || null,
       })
     } catch (primaryError) {
       const primaryReason = primaryError?.code || 'unknown_generation_error'
@@ -65,10 +72,10 @@ export async function POST(request) {
           recoveredFrom: primaryReason,
         })
         return Response.json({
-          ...retriedLesson,
+          lessonDoc: normalizeConceptLessonDoc(retriedLesson.lessonDoc, body),
           generationMode: 'ai',
           cacheable: true,
-          resource,
+          resource: retriedLesson.resource || resource || null,
         })
       } catch (retryError) {
         const retryReason = retryError?.code || primaryReason
@@ -79,7 +86,7 @@ export async function POST(request) {
           taskTitle,
         })
 
-        const fallbackLesson = buildDeterministicLesson({
+        const fallbackLesson = buildStructuredConceptLessonDoc({
           concept,
           taskTitle,
           goal,
@@ -89,21 +96,22 @@ export async function POST(request) {
           taskOutcome,
           resourceUrl,
           resourceTitle,
+          learningContract,
           fallbackReason: retryReason,
         })
 
         return Response.json({
-          ...fallbackLesson,
-          generationMode: 'deterministic',
+          lessonDoc: normalizeConceptLessonDoc(fallbackLesson, body),
+          generationMode: 'structured',
           cacheable: true,
-          resource: fallbackLesson.resource || resource,
+          resource: fallbackLesson.resource || resource || null,
         })
       }
     }
   } catch (error) {
     console.error('Lesson API error:', error)
     if (body?.goal) {
-      const fallbackLesson = buildDeterministicLesson({
+      const fallbackLesson = buildStructuredConceptLessonDoc({
         concept,
         taskTitle: body?.taskTitle,
         goal: body?.goal,
@@ -113,11 +121,12 @@ export async function POST(request) {
         taskOutcome: body?.taskOutcome,
         resourceUrl: body?.resourceUrl,
         resourceTitle: body?.resourceTitle,
+        learningContract: body?.learningContract,
         fallbackReason: error?.code || error?.message || 'route_error',
       })
       return Response.json({
-        ...fallbackLesson,
-        generationMode: 'deterministic',
+        lessonDoc: normalizeConceptLessonDoc(fallbackLesson, body),
+        generationMode: 'structured',
         cacheable: true,
         resource: fallbackLesson.resource || null,
       })

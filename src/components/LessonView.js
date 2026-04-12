@@ -3,8 +3,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import AIAssistant from '@/components/AIAssistant'
 import ConfidenceSelector from '@/components/ConfidenceSelector'
+import DiagramView, { KeyConceptCard } from '@/components/DiagramView'
 import IconGlyph from '@/components/IconGlyph'
 import LessonGate from '@/components/LessonGate'
+import Mascot from '@/components/Mascot'
 
 const font = "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif"
 
@@ -15,10 +17,22 @@ const LESSON_CSS = `
     from { opacity: 0; transform: translateY(12px); }
     to   { opacity: 1; transform: translateY(0); }
   }
+  @keyframes sectionSlideIn {
+    from { opacity: 0; transform: translateX(15px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+  @keyframes mascotBubbleIn {
+    from { opacity: 0; transform: scale(0.8) translateY(8px); }
+    to   { opacity: 1; transform: scale(1) translateY(0); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    @keyframes fadeIn { from { opacity: 0; transform: none; } to { opacity: 1; transform: none; } }
+    @keyframes sectionReveal { from { opacity: 0; transform: none; } to { opacity: 1; transform: none; } }
+    @keyframes sectionSlideIn { from { opacity: 0; transform: none; } to { opacity: 1; transform: none; } }
+  }
 `
 
-// How many "phases" are there (0 = only hook visible, 4 = all unlocked)
-const TOTAL_PHASES = 5
+const TOTAL_PHASES = 6
 
 function LessonSection({ eyebrow, title, children, accent = '#0ef5c2', revealed = true }) {
   if (!revealed) return null
@@ -101,7 +115,7 @@ function ensureParagraphs(text = '') {
 }
 
 function ProgressBar({ current, total }) {
-  const pct = Math.round((current / (total - 1)) * 100)
+  const pct = Math.round((current / Math.max(1, total - 1)) * 100)
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
       <div style={{ fontSize: 12, color: '#8e8e93', fontWeight: 700, whiteSpace: 'nowrap' }}>
@@ -130,6 +144,96 @@ function ProgressBar({ current, total }) {
   )
 }
 
+function firstSentence(text = '') {
+  const sentence = String(text || '').split(/(?<=[.!?])\s+/)[0]
+  return sentence || 'One clear mental model before the next task.'
+}
+
+function buildVisualConfig(section, lessonDoc, accent = '#0ef5c2') {
+  const title = lessonDoc?.title || 'Today\'s concept'
+  const takeaways = Array.isArray(lessonDoc?.keyTakeaways) ? lessonDoc.keyTakeaways : []
+  const walkthrough = Array.isArray(lessonDoc?.workedExample?.walkthrough) ? lessonDoc.workedExample.walkthrough : []
+
+  if (section === 'explanation') {
+    return {
+      type: 'flowchart',
+      title: 'Mental model',
+      nodes: [
+        { id: 'name', label: `Name ${title}`, color: accent, edgeLabel: 'then' },
+        { id: 'notice', label: 'Notice when it matters', color: '#00d4ff', edgeLabel: 'then' },
+        { id: 'use', label: 'Use it once on purpose', color: '#A78BFA' },
+      ],
+    }
+  }
+
+  if (section === 'why') {
+    return {
+      type: 'comparison',
+      title: 'Before vs after',
+      nodes: [
+        { id: 'before', label: 'Without the idea', color: '#FBBF24' },
+        { id: 'after', label: 'With the idea', color: accent },
+        { id: 'guess', label: 'Guessing', color: '#F59E0B' },
+        { id: 'decide', label: 'Clear decision', color: '#0ef5c2' },
+      ],
+    }
+  }
+
+  if (section === 'workedExample') {
+    return {
+      type: 'steps',
+      title: 'Worked path',
+      nodes: (walkthrough.length > 0 ? walkthrough : ['Name the idea', 'Apply it', 'Check the result']).slice(0, 5).map((item, index) => ({
+        id: `step-${index}`,
+        label: item.replace(/^step\s*\d+[:.)-]?\s*/i, '').slice(0, 56),
+        color: index === 0 ? accent : index === 1 ? '#00d4ff' : '#A78BFA',
+      })),
+    }
+  }
+
+  if (section === 'mistake') {
+    return {
+      type: 'comparison',
+      title: 'Spot the move',
+      nodes: [
+        { id: 'mistake', label: 'The tempting mistake', color: '#FF8C42' },
+        { id: 'fix', label: 'The better move', color: accent },
+        { id: 'vague', label: 'Vague output', color: '#FF453A' },
+        { id: 'specific', label: 'Specific reasoning', color: '#34D399' },
+      ],
+    }
+  }
+
+  if (section === 'takeaways') {
+    return {
+      type: 'hierarchy',
+      title: 'What sticks',
+      nodes: [
+        { id: 'core', label: title, color: accent },
+        ...(takeaways.length > 0 ? takeaways : ['Explain it', 'Use it', 'Avoid the mistake']).slice(0, 4).map((item, index) => ({
+          id: `takeaway-${index}`,
+          label: item.slice(0, 58),
+          color: ['#0ef5c2', '#00d4ff', '#A78BFA', '#FBBF24'][index] || accent,
+        })),
+      ],
+    }
+  }
+
+  return null
+}
+
+function LessonVisual({ section, lessonDoc, fallbackText, accent = '#0ef5c2' }) {
+  const config = buildVisualConfig(section, lessonDoc, accent)
+  if (config) return <DiagramView {...config} accent={accent} />
+  return (
+    <KeyConceptCard
+      term={lessonDoc?.title || 'Key concept'}
+      definition={fallbackText || firstSentence(lessonDoc?.hook)}
+      accent={accent}
+    />
+  )
+}
+
 export default function LessonViewer({
   concept,
   taskTitle,
@@ -152,9 +256,11 @@ export default function LessonViewer({
   const [confidenceLevel, setConfidenceLevel] = useState('')
   const [reflection, setReflection] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  // Gated sections: 0=hook only, 1=+explanation, 2=+why+worked, 3=+mistake, 4=+takeaways (all)
+  // Gated sections: 0 hook, 1 explanation, 2 why/example, 3 mistake, 4 takeaways, 5 completion checkpoint.
   const [currentSection, setCurrentSection] = useState(0)
   const [readyForCompletion, setReadyForCompletion] = useState(false)
+  const [mascotPose, setMascotPose] = useState('default')
+  const [mascotMessage, setMascotMessage] = useState(null)
 
   const startTimeRef = useRef(null)
   const scrollRef = useRef(null)
@@ -162,6 +268,8 @@ export default function LessonViewer({
   const whyRef = useRef(null)
   const mistakeRef = useRef(null)
   const takeawaysRef = useRef(null)
+  const checkpointRef = useRef(null)
+  const mascotTimerRef = useRef(null)
 
   const cacheKey = useMemo(() => {
     const fallbackKey = `${goal || 'goal'}::${concept || 'concept'}::${taskTitle || 'task'}`
@@ -257,7 +365,7 @@ export default function LessonViewer({
   // Scroll to newly revealed section
   useEffect(() => {
     if (currentSection === 0) return
-    const refMap = [null, explanationRef, whyRef, mistakeRef, takeawaysRef]
+    const refMap = [null, explanationRef, whyRef, mistakeRef, takeawaysRef, checkpointRef]
     const ref = refMap[currentSection]
     if (ref?.current) {
       setTimeout(() => {
@@ -268,11 +376,46 @@ export default function LessonViewer({
 
   // Unlock completion when all sections revealed
   useEffect(() => {
-    if (currentSection >= 4) setReadyForCompletion(true)
+    if (currentSection >= 5) setReadyForCompletion(true)
   }, [currentSection])
 
+  useEffect(() => () => {
+    if (mascotTimerRef.current) window.clearTimeout(mascotTimerRef.current)
+  }, [])
+
   function advanceSection() {
-    setCurrentSection((s) => Math.min(s + 1, 4))
+    setCurrentSection((s) => {
+      const next = Math.min(s + 1, TOTAL_PHASES - 1)
+      if (next === 3) announceMascot('wave', pickMessage('halfway'))
+      if (next === 5) announceMascot('celebrate', pickMessage('almostDone'))
+      return next
+    })
+  }
+
+  function pickMessage(type) {
+    const pools = {
+      correct: ['Nice!', 'Got it!', 'Spot on!', 'You know this!', 'Exactly right!'],
+      wrong: ['Try again!', 'Almost!', 'Not quite!', 'Think about it!', 'Close!'],
+      halfway: ['Halfway there!', 'Keep it up!', 'You’re cruising!', 'Still with you!', 'Good rhythm!'],
+      almostDone: ['Almost done!', 'Final stretch!', 'You’ve got this!', 'Bring it home!', 'One last check!'],
+    }
+    const list = pools[type] || pools.correct
+    return list[Math.floor(Math.random() * list.length)]
+  }
+
+  function announceMascot(pose, message, duration = 1600) {
+    setMascotPose(pose)
+    setMascotMessage(message)
+    if (mascotTimerRef.current) window.clearTimeout(mascotTimerRef.current)
+    mascotTimerRef.current = window.setTimeout(() => {
+      setMascotPose('default')
+      setMascotMessage(null)
+    }, duration)
+  }
+
+  function handleGateFeedback(result) {
+    if (result === 'correct') announceMascot('celebrate', pickMessage('correct'))
+    else announceMascot('sad', pickMessage('wrong'))
   }
 
   function handleRetry() {
@@ -488,6 +631,9 @@ export default function LessonViewer({
                   >
                     {lessonDoc.title}
                   </h1>
+                  <div style={{ marginTop: 22 }}>
+                    <LessonVisual section="hook" lessonDoc={lessonDoc} fallbackText={lessonDoc.hook} />
+                  </div>
                   <p style={{ margin: '18px 0 0', color: '#c8d6e5', fontSize: 18, lineHeight: 1.75, maxWidth: 820 }}>
                     {lessonDoc.hook}
                   </p>
@@ -497,6 +643,7 @@ export default function LessonViewer({
                 {currentSection === 0 && (
                   <LessonGate
                     {...(getGate('hook') || { type: 'ready_check' })}
+                    onFeedback={handleGateFeedback}
                     onPass={advanceSection}
                   />
                 )}
@@ -505,6 +652,9 @@ export default function LessonViewer({
                 {currentSection >= 1 && (
                   <div ref={explanationRef}>
                     <LessonSection eyebrow="Plain English" title="What this really means">
+                      <div style={{ marginBottom: 18 }}>
+                        <LessonVisual section="explanation" lessonDoc={lessonDoc} fallbackText={firstSentence(lessonDoc.plainEnglishExplanation)} />
+                      </div>
                       <div style={{ display: 'grid', gap: 14 }}>
                         {ensureParagraphs(lessonDoc.plainEnglishExplanation).map((paragraph, index) => (
                           <p key={index} style={{ margin: 0, color: '#c8d6e5', fontSize: 16, lineHeight: 1.8 }}>
@@ -519,6 +669,7 @@ export default function LessonViewer({
                       <div style={{ marginTop: 18 }}>
                         <LessonGate
                           {...(getGate('explanation') || { type: 'ready_check' })}
+                          onFeedback={handleGateFeedback}
                           onPass={advanceSection}
                         />
                       </div>
@@ -530,10 +681,16 @@ export default function LessonViewer({
                 {currentSection >= 2 && (
                   <div ref={whyRef} style={{ display: 'grid', gap: 18 }}>
                     <LessonSection eyebrow="Why It Matters" title={`Why ${lessonDoc.title} matters`}>
+                      <div style={{ marginBottom: 18 }}>
+                        <LessonVisual section="why" lessonDoc={lessonDoc} fallbackText={lessonDoc.whyItMatters} />
+                      </div>
                       <p style={{ margin: 0, color: '#c8d6e5', fontSize: 16, lineHeight: 1.8 }}>{lessonDoc.whyItMatters}</p>
                     </LessonSection>
 
                     <LessonSection eyebrow="Worked Example" title={lessonDoc.workedExample?.title || 'Worked example'}>
+                      <div style={{ marginBottom: 18 }}>
+                        <LessonVisual section="workedExample" lessonDoc={lessonDoc} fallbackText={lessonDoc.workedExample?.setup} accent="#00d4ff" />
+                      </div>
                       <p style={{ margin: 0, marginBottom: 16, color: '#c8d6e5', fontSize: 16, lineHeight: 1.8 }}>
                         {lessonDoc.workedExample?.setup}
                       </p>
@@ -560,6 +717,7 @@ export default function LessonViewer({
                     {currentSection === 2 && (
                       <LessonGate
                         {...(getGate('workedExample') || { type: 'ready_check' })}
+                        onFeedback={handleGateFeedback}
                         onPass={advanceSection}
                       />
                     )}
@@ -570,6 +728,9 @@ export default function LessonViewer({
                 {currentSection >= 3 && (
                   <div ref={mistakeRef}>
                     <LessonSection eyebrow="Common Mistake" title="Where people usually trip">
+                      <div style={{ marginBottom: 18 }}>
+                        <LessonVisual section="mistake" lessonDoc={lessonDoc} fallbackText={lessonDoc.commonMistake?.mistake} accent="#FF8C42" />
+                      </div>
                       <div style={{ display: 'grid', gap: 12 }}>
                         <div>
                           <div style={{ fontSize: 12, fontWeight: 800, color: '#ff9f7a', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>
@@ -597,6 +758,7 @@ export default function LessonViewer({
                       <div style={{ marginTop: 18 }}>
                         <LessonGate
                           {...(getGate('commonMistake') || { type: 'ready_check' })}
+                          onFeedback={handleGateFeedback}
                           onPass={advanceSection}
                         />
                       </div>
@@ -609,6 +771,9 @@ export default function LessonViewer({
                   <div ref={takeawaysRef} style={{ display: 'grid', gap: 18 }}>
                     <div style={{ display: 'grid', gap: 18, gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
                       <LessonSection eyebrow="Key Takeaways" title="What should stick">
+                        <div style={{ marginBottom: 18 }}>
+                          <LessonVisual section="takeaways" lessonDoc={lessonDoc} fallbackText={(lessonDoc.keyTakeaways || [])[0]} />
+                        </div>
                         <BulletList items={lessonDoc.keyTakeaways || []} accent="#0ef5c2" />
                       </LessonSection>
                       <LessonSection eyebrow="Taught Scope" title="What later tasks are allowed to use">
@@ -652,6 +817,21 @@ export default function LessonViewer({
                       )}
                     </LessonSection>
 
+                    {currentSection === 4 && (
+                      <LessonGate
+                        {...(getGate('takeaways') || {
+                          type: 'reflect',
+                          question: 'In your own words, what will you use from this lesson in the next task?',
+                        })}
+                        onFeedback={handleGateFeedback}
+                        onPass={advanceSection}
+                      />
+                    )}
+                  </div>
+                )}
+
+                {currentSection >= 5 && (
+                  <div ref={checkpointRef}>
                     <LessonSection eyebrow="Checkpoint" title="Finish the handoff into practice">
                       <p style={{ margin: 0, marginBottom: 14, color: '#c8d6e5', fontSize: 16, lineHeight: 1.8 }}>
                         {lessonDoc.completionCheck?.prompt}
@@ -682,7 +862,7 @@ export default function LessonViewer({
         </div>
 
         {/* ── Bottom footer (reflection + completion) ── */}
-        {lessonDoc && currentSection >= 4 && (
+        {lessonDoc && currentSection >= 5 && (
           <div
             style={{
               padding: '14px 20px 28px',
@@ -778,7 +958,7 @@ export default function LessonViewer({
         )}
 
         {/* Hint in footer when not all sections unlocked yet */}
-        {lessonDoc && currentSection < 4 && (
+        {lessonDoc && currentSection < 5 && (
           <div
             style={{
               padding: '12px 20px',
@@ -794,6 +974,22 @@ export default function LessonViewer({
           </div>
         )}
       </div>
+
+      {lessonDoc && (
+        <div
+          style={{
+            position: 'fixed',
+            right: 18,
+            bottom: currentSection >= 5 ? 190 : 74,
+            zIndex: 260,
+            opacity: mascotMessage ? 1 : 0.62,
+            pointerEvents: 'none',
+            transition: 'bottom 0.2s ease, opacity 0.2s ease',
+          }}
+        >
+          <Mascot pose={mascotPose} message={mascotMessage} size={44} animate />
+        </div>
+      )}
 
       {lessonDoc && (
         <AIAssistant

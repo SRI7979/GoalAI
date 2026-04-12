@@ -166,6 +166,11 @@ Return ONLY valid JSON with this exact shape:
         "options": ["Option A", "Option B", "Option C", "Option D"],
         "correctIndex": 0,
         "explanation": "Why this is the error — 1 sentence"
+      },
+      {
+        "afterSection": "takeaways",
+        "type": "reflect",
+        "question": "In your own words, what will you use from this lesson in the next task?"
       }
     ]
   }
@@ -179,6 +184,7 @@ STRICT RULES:
 - Keep the writing specific to ${goal}, not generic study advice.
 - The practiceBridge must prepare the learner for the next task, not repeat the whole lesson.
 - For interactions: make them test the actual content of this lesson, not generic trivia. Keep code snippets short (≤5 lines). If the topic is not programming, omit the code field entirely.
+- Include exactly 5 interactions: hook, explanation, workedExample, commonMistake, and takeaways.
 - Never mention being an AI, JSON, schema, or the prompt.
 - Do not add markdown fences.`
 

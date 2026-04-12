@@ -316,21 +316,56 @@ function normalizeInteractions(interactions, context) {
   const goal = cleanText(context?.goal || '')
 
   const defaults = [
-    { afterSection: 'hook', type: 'ready_check' },
+    {
+      afterSection: 'hook',
+      type: 'true_false',
+      statement: `${concept} is the focus for this lesson, not the entire goal all at once.`,
+      correct: true,
+      explanation: `Right — the lesson narrows the goal into one usable idea so practice has a clear target.`,
+    },
     {
       afterSection: 'explanation',
-      type: 'true_false',
-      statement: `Understanding ${concept} is essential for making progress on ${goal || 'this topic'}.`,
-      correct: true,
-      explanation: `Correct — ${concept} is a foundational idea that everything else builds on.`,
+      type: 'fill_blank',
+      sentence: `The main idea today is ___ .`,
+      answer: concept,
+      explanation: `${concept} is the day-level focus that later tasks should stay inside.`,
     },
-    { afterSection: 'workedExample', type: 'ready_check' },
-    { afterSection: 'commonMistake', type: 'ready_check' },
+    {
+      afterSection: 'workedExample',
+      type: 'predict',
+      question: `What should you do before using ${concept} in practice?`,
+      options: [
+        `Name the job ${concept} is doing`,
+        'Jump to advanced edge cases',
+        'Ignore the example and memorize terms',
+        'Change topics entirely',
+      ],
+      correctIndex: 0,
+      explanation: `The safest next move is to name the role of ${concept}, then apply it deliberately.`,
+    },
+    {
+      afterSection: 'commonMistake',
+      type: 'spot_error',
+      question: `Which habit is the mistake to avoid with ${concept}?`,
+      options: [
+        'Using the concept in one concrete example',
+        'Explaining the idea in plain language',
+        'Collecting jargon without a usable decision rule',
+        'Checking your answer against the lesson scope',
+      ],
+      correctIndex: 2,
+      explanation: `Jargon feels like progress, but it does not prove that ${concept} is usable.`,
+    },
+    {
+      afterSection: 'takeaways',
+      type: 'reflect',
+      question: `In your own words, how will you use ${concept} in the next task?`,
+    },
   ]
 
   if (!Array.isArray(interactions) || interactions.length === 0) return defaults
 
-  const normalized = interactions.slice(0, 4).map((item, i) => {
+  const normalized = interactions.slice(0, 5).map((item, i) => {
     if (!item || typeof item !== 'object') return defaults[i] || defaults[0]
     const type = item.type || 'ready_check'
     const base = { afterSection: item.afterSection || defaults[i]?.afterSection || 'hook', type }
@@ -364,7 +399,7 @@ function normalizeInteractions(interactions, context) {
     return base
   })
 
-  while (normalized.length < 4) normalized.push(defaults[normalized.length] || defaults[0])
+  while (normalized.length < 5) normalized.push(defaults[normalized.length] || defaults[0])
   return normalized
 }
 
