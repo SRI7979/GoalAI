@@ -15,10 +15,19 @@ const DIAGRAM_CSS = `
     from { opacity: 0; transform: translate(-50%, -50%) scale(0.9); }
     to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
   }
+  @keyframes pathaiDiagramDash {
+    from { stroke-dashoffset: 24; }
+    to   { stroke-dashoffset: 0; }
+  }
+  .pathai-diagram-node:hover {
+    transform: translate(-50%, -50%) scale(1.04) !important;
+    box-shadow: 0 8px 26px rgba(0,0,0,0.34) !important;
+  }
   @media (prefers-reduced-motion: reduce) {
     @keyframes pathaiDiagramNodeIn { from { opacity: 0; } to { opacity: 1; } }
     @keyframes pathaiDiagramLineDraw { from { opacity: 0; } to { opacity: 1; } }
     @keyframes pathaiDiagramLabelIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes pathaiDiagramDash { from { stroke-dashoffset: 0; } to { stroke-dashoffset: 0; } }
   }
 `
 
@@ -280,7 +289,7 @@ export default function DiagramView({
                 strokeDashoffset={isActive ? undefined : 220}
                 style={{
                   animation: isActive
-                    ? 'pathaiDiagramLineDraw 0.55s ease forwards'
+                    ? 'pathaiDiagramLineDraw 0.55s ease forwards, pathaiDiagramDash 0.75s linear infinite'
                     : `pathaiDiagramLineDraw 0.5s ease ${0.2 + positionedNodes.length * 0.06 + index * 0.05}s forwards`,
                 }}
               />
@@ -322,6 +331,7 @@ export default function DiagramView({
         {positionedNodes.map((node, index) => (
           <div
             key={node.id}
+            className="pathai-diagram-node"
             style={{
               position: 'absolute',
               left: `${node.x}%`,
