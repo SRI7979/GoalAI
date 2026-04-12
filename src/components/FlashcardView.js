@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import AIAssistant from './AIAssistant'
 import IconGlyph from '@/components/IconGlyph'
+import InteractiveQuestion from '@/components/InteractiveQuestion'
 
 const font = "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif"
 
@@ -14,6 +15,9 @@ export default function FlashcardView({ task, goal, knowledge, onClose, onComple
   const [showHint, setShowHint] = useState(false)
   const [done, setDone] = useState(false)
   const [completing, setCompleting] = useState(false)
+  const [checkpointActive, setCheckpointActive] = useState(false)
+  const [checkpointScore, setCheckpointScore] = useState(0)
+  const learningContract = task?._learningContract || task?.learningContract || task?.lessonSeed?.learningContract || null
 
   useEffect(() => {
     async function load() {
@@ -29,7 +33,16 @@ export default function FlashcardView({ task, goal, knowledge, onClose, onComple
         const res = await fetch('/api/flashcards', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ concept: task._concept || task.title, taskTitle: task.title, goal, knowledge }),
+          body: JSON.stringify({
+            concept: task._concept || task.title,
+            taskTitle: task.title,
+            goal,
+            knowledge,
+            taskDescription: task.description,
+            taskAction: task.action,
+            taskOutcome: task.outcome,
+            learningContract,
+          }),
         })
         const data = await res.json()
         if (data.cards) {
@@ -40,7 +53,7 @@ export default function FlashcardView({ task, goal, knowledge, onClose, onComple
       setLoading(false)
     }
     load()
-  }, [task.id, task.title, goal, knowledge, task._concept])
+  }, [task.id, task.title, goal, knowledge, task._concept, task.description, task.action, task.outcome, learningContract])
 
   function goNext(markKnown) {
     if (markKnown) setKnown(k => new Set([...k, current]))
@@ -48,9 +61,37 @@ export default function FlashcardView({ task, goal, knowledge, onClose, onComple
     setShowHint(false)
     if (current + 1 >= cards.length) {
       setDone(true)
+    } else if ((current + 1) % 4 === 0) {
+      setCheckpointActive(true)
     } else {
       setCurrent(c => c + 1)
     }
+  }
+
+  function buildCheckpointQuestion() {
+    const source = cards[current] || cards[0] || {}
+    const distractors = cards
+      .filter((item) => item !== source)
+      .map((item) => item.back)
+      .filter(Boolean)
+      .slice(0, 3)
+    const options = [source.back || 'The answer shown on the card', ...distractors]
+    while (options.length < 4) options.push(`Not ${source.front || 'this card'}`)
+    return {
+      type: 'multiple_choice',
+      question: `Checkpoint: which answer matches "${source.front || 'this card'}"?`,
+      options: options.slice(0, 4),
+      correctIndex: 0,
+      explanation: 'This quick check proves you can retrieve the card before moving on.',
+    }
+  }
+
+  function handleCheckpointResult(correct) {
+    if (correct) setCheckpointScore((score) => score + 1)
+    window.setTimeout(() => {
+      setCheckpointActive(false)
+      setCurrent((c) => c + 1)
+    }, 900)
   }
 
   const handleComplete = () => {
@@ -116,6 +157,21 @@ export default function FlashcardView({ task, goal, knowledge, onClose, onComple
               <p style={{ color: '#636366', marginBottom: 16 }}>Could not load flashcards.</p>
               <button onClick={onClose} style={{ padding: '10px 24px', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12, color: '#8e8e93', fontSize: 14, cursor: 'pointer', fontFamily: font }}>Go Back</button>
             </div>
+          ) : checkpointActive ? (
+            <div style={{ width: '100%', maxWidth: 520, animation: 'fadeIn 0.3s ease both' }}>
+              <div style={{ marginBottom: 18, textAlign: 'center' }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '7px 12px', borderRadius: 9999, background: 'rgba(167,139,250,0.10)', border: '1px solid rgba(167,139,250,0.24)', color: '#A78BFA', fontSize: 11, fontWeight: 900, letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+                  Retention checkpoint
+                </div>
+                <p style={{ margin: '12px 0 0', color: '#8e8e93', fontSize: 13 }}>
+                  Every fourth card, prove one memory before the deck keeps moving.
+                </p>
+              </div>
+              <InteractiveQuestion
+                {...buildCheckpointQuestion()}
+                onResult={handleCheckpointResult}
+              />
+            </div>
           ) : done ? (
             <div style={{ textAlign: 'center', animation: 'popIn 0.45s cubic-bezier(0.34,1.56,0.64,1) both', maxWidth: 400 }}>
               <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
@@ -130,6 +186,11 @@ export default function FlashcardView({ task, goal, knowledge, onClose, onComple
               {known.size < cards.length && (
                 <p style={{ fontSize: 13, color: '#636366', marginBottom: 8 }}>
                   {cards.length - known.size} card{cards.length - known.size !== 1 ? 's' : ''} to review again.
+                </p>
+              )}
+              {checkpointScore > 0 && (
+                <p style={{ fontSize: 13, color: '#34D399', marginBottom: 8 }}>
+                  {checkpointScore} checkpoint{checkpointScore === 1 ? '' : 's'} passed during review.
                 </p>
               )}
               {/* Mastery bar */}
@@ -194,7 +255,7 @@ export default function FlashcardView({ task, goal, knowledge, onClose, onComple
           <div style={{ maxWidth: 500, margin: '0 auto' }}>
             {done ? (
               <div style={{ display: 'flex', gap: 12 }}>
-                <button onClick={() => { setCurrent(0); setFlipped(false); setKnown(new Set()); setDone(false) }} style={{ flex: 1, padding: '14px', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 16, color: '#8e8e93', fontSize: 15, fontWeight: 600, cursor: 'pointer', fontFamily: font }}>Restart</button>
+                <button onClick={() => { setCurrent(0); setFlipped(false); setKnown(new Set()); setDone(false); setCheckpointActive(false); setCheckpointScore(0) }} style={{ flex: 1, padding: '14px', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 16, color: '#8e8e93', fontSize: 15, fontWeight: 600, cursor: 'pointer', fontFamily: font }}>Restart</button>
                 <button onClick={handleComplete} disabled={completing} style={{
                   flex: 1, padding: '14px',
                   background: completing ? 'rgba(167,139,250,0.08)' : 'linear-gradient(135deg,#A78BFA,#818CF8)',
@@ -208,7 +269,7 @@ export default function FlashcardView({ task, goal, knowledge, onClose, onComple
                   ) : 'Complete'}
                 </button>
               </div>
-            ) : !loading && cards.length > 0 ? (
+            ) : !loading && cards.length > 0 && !checkpointActive ? (
               <div style={{ display: 'flex', gap: 10 }}>
                 <button onClick={() => goNext(false)} style={{
                   flex: 1, padding: '14px',

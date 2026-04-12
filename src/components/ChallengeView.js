@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react'
 import AIAssistant from './AIAssistant'
 import ConfidenceSelector from './ConfidenceSelector'
 import IconGlyph from '@/components/IconGlyph'
+import InteractiveQuestion from '@/components/InteractiveQuestion'
 
 const font = "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif"
 
@@ -19,11 +20,13 @@ export default function ChallengeView({ task, goal, knowledge, onClose, onComple
   const [timeLeft, setTimeLeft] = useState(0)
   const [hintIndex, setHintIndex] = useState(-1)
   const [showSolution, setShowSolution] = useState(false)
+  const [checkpointAnswered, setCheckpointAnswered] = useState(false)
   const [timeUp, setTimeUp] = useState(false)
   const [completing, setCompleting] = useState(false)
   const [assistantUsageCount, setAssistantUsageCount] = useState(0)
   const [confidenceLevel, setConfidenceLevel] = useState('')
   const timerRef = useRef(null)
+  const learningContract = task?._learningContract || task?.learningContract || task?.lessonSeed?.learningContract || null
 
   useEffect(() => {
     async function load() {
@@ -39,7 +42,19 @@ export default function ChallengeView({ task, goal, knowledge, onClose, onComple
         const res = await fetch('/api/challenge', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ concept: task._concept || task.title, taskTitle: task.title, goal, knowledge }),
+          body: JSON.stringify({
+            concept: task._concept || task.title,
+            taskTitle: task.title,
+            goal,
+            knowledge,
+            taskDescription: task.description,
+            taskAction: task.action,
+            taskOutcome: task.outcome,
+            resourceUrl: task.resourceUrl,
+            resourceTitle: task.resourceTitle,
+            difficulty: task._difficulty || task.difficultyLevel || 2,
+            learningContract,
+          }),
         })
         const data = await res.json()
         if (data.title) {
@@ -50,7 +65,7 @@ export default function ChallengeView({ task, goal, knowledge, onClose, onComple
       setLoading(false)
     }
     load()
-  }, [task.id, task.title, goal, knowledge, task._concept])
+  }, [task.id, task.title, goal, knowledge, task._concept, task.description, task.action, task.outcome, task.resourceUrl, task.resourceTitle, task._difficulty, task.difficultyLevel, learningContract])
 
   useEffect(() => {
     if (!started || timeUp) return
@@ -185,6 +200,26 @@ export default function ChallengeView({ task, goal, knowledge, onClose, onComple
                     </button>
                   )}
                 </div>
+
+                {challenge.checkpointQuestion && !showSolution && (
+                  <div style={{ marginBottom: 20, padding: '16px 18px', background: 'rgba(245,158,11,0.04)', border: '1px solid rgba(245,158,11,0.16)', borderRadius: 18 }}>
+                    <div style={{ fontSize: 11, fontWeight: 800, color: '#F59E0B', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: 12 }}>
+                      Strategy check
+                    </div>
+                    <InteractiveQuestion
+                      {...challenge.checkpointQuestion}
+                      correctIndex={Number.isFinite(challenge.checkpointQuestion.correctIndex)
+                        ? challenge.checkpointQuestion.correctIndex
+                        : Number(challenge.checkpointQuestion.correct_index) || 0}
+                      onResult={() => setCheckpointAnswered(true)}
+                    />
+                    {checkpointAnswered && (
+                      <p style={{ margin: '12px 0 0', color: '#8e8e93', fontSize: 12, lineHeight: 1.5 }}>
+                        Good. Now solve the challenge with that strategy in mind.
+                      </p>
+                    )}
+                  </div>
+                )}
 
                 <ConfidenceSelector
                   value={confidenceLevel}

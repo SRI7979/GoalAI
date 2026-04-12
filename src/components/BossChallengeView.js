@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from 'react'
 import ConfidenceSelector from './ConfidenceSelector'
 import IconGlyph from '@/components/IconGlyph'
+import InteractiveQuestion from '@/components/InteractiveQuestion'
 
 const font = "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif"
 
@@ -17,7 +18,6 @@ export default function BossChallengeView({ task, goal, knowledge, onClose, onCo
   const [currentPhase, setCurrentPhase] = useState(0)
   const [bossHP, setBossHP] = useState(100)
   const [playerHP, setPlayerHP] = useState(100)
-  const [phase1Answers, setPhase1Answers] = useState({})
   const [phase1Revealed, setPhase1Revealed] = useState({})
   const [phaseResponse, setPhaseResponse] = useState('')
   const [phaseResult, setPhaseResult] = useState(null)
@@ -68,13 +68,9 @@ export default function BossChallengeView({ task, goal, knowledge, onClose, onCo
     load()
   }, [task, goal, knowledge])
 
-  function handleQuizAnswer(qIdx, optIdx) {
+  function handleInteractiveQuizAnswer(qIdx, correct, detail = {}) {
     if (phase1Revealed[qIdx] !== undefined) return
-    const phase = boss.phases[currentPhase]
-    const q = phase.questions[qIdx]
-    const correct = optIdx === q.correctIndex
-
-    setPhase1Answers(prev => ({ ...prev, [qIdx]: optIdx }))
+    void detail
     setPhase1Revealed(prev => ({ ...prev, [qIdx]: correct }))
 
     if (correct) {
@@ -146,7 +142,6 @@ export default function BossChallengeView({ task, goal, knowledge, onClose, onCo
       setCurrentPhase(p => p + 1)
       setPhaseResponse('')
       setPhaseResult(null)
-      setPhase1Answers({})
       setPhase1Revealed({})
     } else {
       // All phases complete
@@ -368,55 +363,22 @@ function handleComplete() {
                   <div>
                     {phase.questions.map((q, qi) => (
                       <div key={qi} style={{ marginBottom: 20 }}>
-                        <p style={{ color: '#f5f5f7', fontSize: 16, fontWeight: 700, lineHeight: 1.4, marginBottom: 12 }}>
-                          {qi + 1}. {q.question}
-                        </p>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                          {q.options.map((opt, oi) => {
-                            const revealed = phase1Revealed[qi] !== undefined
-                            const isCorrect = oi === q.correctIndex
-                            const isSelected = phase1Answers[qi] === oi
-                            let bg = 'rgba(255,255,255,0.04)'
-                            let border = 'rgba(255,255,255,0.10)'
-                            let color = '#f5f5f7'
-                            if (revealed) {
-                              if (isCorrect) { bg = 'rgba(14,245,194,0.08)'; border = 'rgba(14,245,194,0.35)'; color = '#0ef5c2' }
-                              else if (isSelected) { bg = 'rgba(255,69,58,0.08)'; border = 'rgba(255,69,58,0.35)'; color = '#FF453A' }
-                              else { color = '#636366' }
-                            }
-                            return (
-                              <button key={oi} onClick={() => handleQuizAnswer(qi, oi)} style={{
-                                padding: '12px 16px', background: bg,
-                                border: `1.5px solid ${border}`, borderRadius: 12,
-                                cursor: revealed ? 'default' : 'pointer',
-                                textAlign: 'left', color, fontSize: 14, fontWeight: 600,
-                                fontFamily: font, transition: 'all 0.18s',
-                                display: 'flex', gap: 10, alignItems: 'center',
-                              }}>
-                                <span style={{
-                                  width: 24, height: 24, borderRadius: 6,
-                                  background: revealed && isCorrect ? 'rgba(14,245,194,0.15)' : revealed && isSelected ? 'rgba(255,69,58,0.15)' : 'rgba(255,255,255,0.06)',
-                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                  fontSize: 11, fontWeight: 800, flexShrink: 0,
-                                  color: revealed && isCorrect ? '#0ef5c2' : revealed && isSelected ? '#FF453A' : '#636366',
-                                }}>
-                                  {revealed && isCorrect ? <IconGlyph name="check" size={12} strokeWidth={2.8} color="#0ef5c2" /> : revealed && isSelected ? <IconGlyph name="x" size={12} strokeWidth={2.6} color="#FF453A" /> : ['A','B','C','D'][oi]}
-                                </span>
-                                {opt}
-                              </button>
-                            )
-                          })}
-                        </div>
-                        {phase1Revealed[qi] !== undefined && q.explanation && (
-                          <div style={{
-                            marginTop: 8, padding: '10px 14px',
-                            background: phase1Revealed[qi] ? 'rgba(14,245,194,0.04)' : 'rgba(255,69,58,0.04)',
-                            border: `1px solid ${phase1Revealed[qi] ? 'rgba(14,245,194,0.15)' : 'rgba(255,69,58,0.15)'}`,
-                            borderRadius: 10,
-                          }}>
-                            <p style={{ margin: 0, color: '#8e8e93', fontSize: 12, lineHeight: 1.5 }}>{q.explanation}</p>
-                          </div>
-                        )}
+                        <InteractiveQuestion
+                          key={`${currentPhase}-${qi}-${q.question}`}
+                          type={q.type || (qi % 2 === 0 ? 'multiple_choice' : 'spot_error')}
+                          question={`${qi + 1}. ${q.question}`}
+                          statement={q.statement}
+                          sentence={q.sentence}
+                          answer={q.answer}
+                          correct={q.correct}
+                          options={q.options || []}
+                          correctIndex={Number.isFinite(q.correctIndex) ? q.correctIndex : Number(q.correct_index) || 0}
+                          code={q.code || q.code_or_situation || ''}
+                          steps={q.steps || []}
+                          pairs={q.pairs || []}
+                          explanation={q.explanation}
+                          onResult={(correct, detail) => handleInteractiveQuizAnswer(qi, correct, detail)}
+                        />
                       </div>
                     ))}
                   </div>

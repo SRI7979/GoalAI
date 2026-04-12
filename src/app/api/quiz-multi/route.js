@@ -1,4 +1,5 @@
 import { getOpenAIModel } from '@/lib/openaiModels'
+import { formatLearningContractForPrompt } from '@/lib/conceptLesson'
 
 export async function POST(request) {
   try {
@@ -11,6 +12,10 @@ export async function POST(request) {
       questionCount,
       examTitle,
       moduleTitles,
+      taskDescription,
+      taskAction,
+      taskOutcome,
+      learningContract,
     } = await request.json()
     if (!concept || !goal) return Response.json({ error: 'Missing concept or goal' }, { status: 400 })
 
@@ -29,11 +34,13 @@ EXAM TITLE: ${examTitle || `Final Course Exam: ${goal}`}
 COURSE CONCEPTS TO COVER: ${conceptList.join(', ') || concept}
 COURSE MODULES: ${moduleList.join(', ') || 'Use the full course progression'}
 ${knowledge ? `The learner started with this background: ${knowledge}.` : ''}
+${taskDescription ? `DAY CONTEXT: ${taskDescription}` : ''}
 
 Return ONLY valid JSON — no markdown, no backticks:
 {
   "questions": [
     {
+      "type": "multiple_choice",
       "question": "Question text?",
       "options": ["Option A", "Option B", "Option C", "Option D"],
       "correctIndex": 0,
@@ -45,6 +52,7 @@ Return ONLY valid JSON — no markdown, no backticks:
 FINAL EXAM REQUIREMENTS:
 - Cover the full breadth of the course, not just one concept
 - Include a mix of foundation, application, debugging, comparison, synthesis, and transfer questions
+- Prefer mixed interaction types when useful: multiple_choice, true_false, fill_blank, spot_error, order_steps
 - At least 40% of the exam should require combining 2 or more concepts
 - At least 3 questions should feel like real-world scenarios or mini case studies
 - Questions should become slightly more demanding as the exam progresses
@@ -55,11 +63,18 @@ FINAL EXAM REQUIREMENTS:
 - Avoid trivia and memorization; test durable understanding and decision-making`
       : `You are designing a quiz for a premium learning app. Create exactly ${totalQuestions} multiple-choice questions about "${concept}" for someone learning "${goal}".
 ${knowledge ? `The student already knows: ${knowledge}. Don't test basics they already know.` : ''}
+${taskDescription ? `DAY CONTEXT: ${taskDescription}` : ''}
+${taskAction ? `TASK ACTION: ${taskAction}` : ''}
+${taskOutcome ? `TARGET OUTCOME: ${taskOutcome}` : ''}
+
+LEARNING CONTRACT:
+${formatLearningContractForPrompt(learningContract)}
 
 Return ONLY valid JSON — no markdown, no backticks:
 {
   "questions": [
     {
+      "type": "multiple_choice",
       "question": "Question text?",
       "options": ["Option A", "Option B", "Option C", "Option D"],
       "correctIndex": 0,
@@ -74,13 +89,18 @@ QUIZ QUALITY REQUIREMENTS:
 - Question 3: Comparison — "what's the difference between X and Y?"
 - Question 4: Debugging — "what's wrong with this approach?" or "which would NOT work?"
 - Question 5: Synthesis — requires combining multiple concepts to answer
-- Each question must have exactly 4 options
+- Mix interaction types across the set: at least 3 multiple_choice questions and up to 2 of true_false, fill_blank, spot_error, or order_steps
+- For multiple_choice and spot_error, include exactly 4 options
+- For fill_blank, include sentence with ___ and answer
+- For true_false, include statement and correct boolean
+- For order_steps, include steps in correct order
 - Wrong answers must be PLAUSIBLE — no obviously silly options. Use common misconceptions as distractors
 - Explanations must be 2-3 sentences: (1) why the right answer is correct, (2) why the most tempting wrong answer is wrong, (3) a memorable takeaway
 - Use real-world scenarios and code examples where relevant
 - Frame questions as problems to solve, not definitions to recall
 - NEVER use "All of the above" or "None of the above" as options
 - AVOID questions that test memorization of arbitrary details — test understanding
+- Stay strictly inside the allowed concepts and taught points from the learning contract
 - Make the student THINK, not just remember`
 
     const res = await fetch('https://api.openai.com/v1/chat/completions', {

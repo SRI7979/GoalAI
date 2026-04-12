@@ -1,6 +1,7 @@
 import { getOpenAIModel } from '@/lib/openaiModels'
 import { getSupabaseServerClient } from '@/lib/supabaseServer'
 import { AI_INTERACTION_TYPES, getBossConfig } from '@/lib/learningEngine'
+import { formatLearningContractForPrompt } from '@/lib/conceptLesson'
 
 function extractAccessToken(request) {
   const authHeader = request.headers.get('authorization') || request.headers.get('Authorization')
@@ -30,13 +31,19 @@ async function callOpenAI(prompt, options = {}) {
 }
 
 // ── GUIDED PRACTICE ─────────────────────────────────────────────────────────
-async function generateGuidedPractice({ concept, goal, difficulty, knowledge }) {
+async function generateGuidedPractice({ concept, goal, difficulty, knowledge, learningContract, taskAction, taskOutcome, taskDescription }) {
   const prompt = `You are a learning coach creating a guided practice exercise.
 
 CONCEPT: ${concept}
 GOAL: ${goal}
 DIFFICULTY: ${difficulty}/5
 PRIOR KNOWLEDGE: ${knowledge || 'Beginner'}
+${taskDescription ? `DAY CONTEXT: ${taskDescription}` : ''}
+${taskAction ? `INTENDED PRACTICE ACTION: ${taskAction}` : ''}
+${taskOutcome ? `TARGET OUTCOME: ${taskOutcome}` : ''}
+
+LEARNING CONTRACT:
+${formatLearningContractForPrompt(learningContract)}
 
 Create a scaffolded practice exercise with progressive hints. The student should apply what they just learned, NOT just recall facts.
 
@@ -53,6 +60,33 @@ Return ONLY valid JSON:
   ],
   "solution": "The complete correct answer/approach",
   "explanation": "Why this solution works — connect it back to the concept",
+  "interactiveQuestions": [
+    {
+      "type": "multiple_choice",
+      "question": "A quick application question",
+      "options": ["A", "B", "C", "D"],
+      "correctIndex": 0,
+      "explanation": "Why the correct option works"
+    },
+    {
+      "type": "fill_blank",
+      "sentence": "The key move is to ___ before solving.",
+      "answer": "name the goal",
+      "explanation": "Why this wording is acceptable"
+    },
+    {
+      "type": "true_false",
+      "statement": "A statement testing the taught scope.",
+      "correct": true,
+      "explanation": "Why this is true or false"
+    },
+    {
+      "type": "order_steps",
+      "question": "Put these steps in the best order.",
+      "steps": ["Step 1", "Step 2", "Step 3", "Step 4"],
+      "explanation": "Why this sequence makes sense"
+    }
+  ],
   "checkpoints": [
     {"id": "cp1", "question": "Quick check: what's the first step you'd take?", "answer": "Expected reasoning"},
     {"id": "cp2", "question": "Why did you choose this approach?", "answer": "Expected reasoning"}
@@ -63,6 +97,9 @@ RULES:
 - The scenario must be REALISTIC and SPECIFIC — not abstract
 - Hints must be progressive: vague → specific → nearly complete
 - Checkpoints verify understanding, not just completion
+- Mix question types in interactiveQuestions: multiple_choice, fill_blank, true_false, order_steps, spot_error when appropriate
+- Stay strictly inside the allowed concepts and taught points from the learning contract
+- Do not introduce new frameworks, tools, or jargon outside the taught scope
 - Difficulty ${difficulty}: ${difficulty <= 2 ? 'straightforward application' : difficulty <= 3 ? 'moderate complexity, some reasoning needed' : 'complex scenario, multi-step reasoning'}
 - Make it feel like a mentor is guiding them, not an exam`
 
@@ -71,13 +108,19 @@ RULES:
 }
 
 // ── CHALLENGE MODE ──────────────────────────────────────────────────────────
-async function generateChallenge({ concept, goal, difficulty, knowledge }) {
+async function generateChallenge({ concept, goal, difficulty, knowledge, learningContract, taskDescription, taskAction, taskOutcome }) {
   const prompt = `You are creating a challenge problem that tests DEEP understanding, not surface recall.
 
 CONCEPT: ${concept}
 GOAL: ${goal}
 DIFFICULTY: ${difficulty}/5
 PRIOR KNOWLEDGE: ${knowledge || 'Beginner'}
+${taskDescription ? `DAY CONTEXT: ${taskDescription}` : ''}
+${taskAction ? `CHALLENGE ACTION: ${taskAction}` : ''}
+${taskOutcome ? `SUCCESS TARGET: ${taskOutcome}` : ''}
+
+LEARNING CONTRACT:
+${formatLearningContractForPrompt(learningContract)}
 
 Create a challenging problem that forces the student to think critically. This is harder than regular practice — minimal guidance.
 
@@ -100,6 +143,7 @@ RULES:
 - This is a CHALLENGE — it should make them think hard
 - Include edge cases or tricky aspects
 - The problem should have multiple valid approaches
+- Stay inside the taught scope from the learning contract
 - Don't give away the solution in the description
 - Test conceptual understanding, not memorization`
 
@@ -108,7 +152,7 @@ RULES:
 }
 
 // ── AI INTERACTION ──────────────────────────────────────────────────────────
-async function generateAIInteraction({ concept, goal, interactionType, knowledge }) {
+async function generateAIInteraction({ concept, goal, interactionType, knowledge, learningContract, taskDescription, taskAction, taskOutcome }) {
   const typeConfig = AI_INTERACTION_TYPES[interactionType] || AI_INTERACTION_TYPES.explain
 
   const prompts = {
@@ -167,12 +211,19 @@ Return ONLY valid JSON:
 
 CONCEPT: ${concept}
 PRIOR KNOWLEDGE: ${knowledge || 'Beginner'}
+${taskDescription ? `DAY CONTEXT: ${taskDescription}` : ''}
+${taskAction ? `TASK ACTION: ${taskAction}` : ''}
+${taskOutcome ? `TARGET OUTCOME: ${taskOutcome}` : ''}
+
+LEARNING CONTRACT:
+${formatLearningContractForPrompt(learningContract)}
 
 ${prompts[interactionType] || prompts.explain}
 
 RULES:
 - Make it specific to ${concept}, not generic
 - The scenario should feel like a real conversation with a mentor
+- Stay within the allowed concepts and taught points from the learning contract
 - Tailor complexity to the learner's level`
 
   const raw = await callOpenAI(prompt, { temperature: 0.5 })
@@ -266,13 +317,16 @@ Return ONLY valid JSON:
       "type": "quiz",
       "questions": [
         {
+          "type": "multiple_choice",
           "question": "Challenging question covering ${concepts[0] || 'key concept'}",
           "options": ["A", "B", "C", "D"],
           "correctIndex": 0,
           "explanation": "Why this is correct"
         },
         {
+          "type": "spot_error",
           "question": "Another question covering a different concept",
+          "code": "optional short broken code/logic if relevant",
           "options": ["A", "B", "C", "D"],
           "correctIndex": 1,
           "explanation": "Why this is correct"
@@ -305,6 +359,7 @@ Return ONLY valid JSON:
 RULES:
 - Each phase tests different cognitive skills (recall, apply, synthesize)
 - Questions should be harder than regular quizzes
+- Boss quiz phases should use harder interaction types when possible: multiple_choice, spot_error, order_steps, match_pairs
 - Phase 3 should require combining multiple concepts
 - Make it feel epic and game-like
 - Boss name: ${bossConfig.name}`

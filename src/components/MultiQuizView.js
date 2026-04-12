@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react'
 import AIAssistant from './AIAssistant'
 import ConfidenceSelector from './ConfidenceSelector'
+import InteractiveQuestion from '@/components/InteractiveQuestion'
 import { getCanonicalTaskType } from '@/lib/taskTaxonomy'
 import IconGlyph from '@/components/IconGlyph'
 
@@ -30,6 +31,7 @@ export default function MultiQuizView({ task, goal, knowledge, onClose, onComple
   const [assistantUsageCount, setAssistantUsageCount] = useState(0)
   const [confidenceLevel, setConfidenceLevel] = useState('')
   const startTimeRef = useRef(null)
+  const learningContract = task?._learningContract || task?.learningContract || task?.lessonSeed?.learningContract || null
 
   useEffect(() => {
     async function load() {
@@ -49,6 +51,7 @@ export default function MultiQuizView({ task, goal, knowledge, onClose, onComple
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             concept: task._concept || task.title,
+            taskTitle: task.title,
             goal,
             knowledge,
             scope: isCourseFinalExam ? 'course_final' : 'standard',
@@ -56,6 +59,10 @@ export default function MultiQuizView({ task, goal, knowledge, onClose, onComple
             coveredConcepts: isCourseFinalExam ? task?._courseTopics || [] : undefined,
             moduleTitles: isCourseFinalExam ? task?._courseModules || [] : undefined,
             examTitle: isCourseFinalExam ? task.title : undefined,
+            taskDescription: task.description,
+            taskAction: task.action,
+            taskOutcome: task.outcome,
+            learningContract,
           }),
         })
         const data = await res.json()
@@ -67,14 +74,18 @@ export default function MultiQuizView({ task, goal, knowledge, onClose, onComple
       setLoading(false)
     }
     load()
-  }, [task.id, task.title, goal, knowledge, task._concept, isCourseFinalExam, task?._courseTopics, task?._courseModules])
+  }, [task.id, task.title, goal, knowledge, task._concept, isCourseFinalExam, task?._courseTopics, task?._courseModules, task.description, task.action, task.outcome, learningContract])
 
-  function handleSelect(idx) {
+  function handleQuestionResult(correct, detail = {}) {
     if (answered) return
-    setSelected(idx)
+    const selectedIndex = Number.isFinite(detail.selectedIndex)
+      ? detail.selectedIndex
+      : correct
+        ? questions[current].correctIndex
+        : -1
+    setSelected(selectedIndex)
     setAnswered(true)
-    const correct = idx === questions[current].correctIndex
-    setResults(prev => [...prev, { questionIdx: current, selectedIdx: idx, correct }])
+    setResults(prev => [...prev, { questionIdx: current, selectedIdx: selectedIndex, correct }])
     if (correct) {
       setScore(s => s + 1)
       setCombo(c => {
@@ -238,6 +249,9 @@ export default function MultiQuizView({ task, goal, knowledge, onClose, onComple
                   {questions.map((qq, i) => {
                     const result = results.find(r => r.questionIdx === i)
                     const correct = result?.correct ?? false
+                    const optionList = Array.isArray(qq.options) ? qq.options : []
+                    const correctAnswer = optionList[qq.correctIndex] || qq.answer || (qq.correct === true ? 'True' : qq.correct === false ? 'False' : 'See explanation')
+                    const selectedAnswer = optionList[result?.selectedIdx ?? -1] || (result?.selectedIdx === -1 ? 'Submitted answer' : 'Not recorded')
                     return (
                       <div key={i} style={{ padding:'14px 16px', background: correct ? 'rgba(14,245,194,0.03)' : 'rgba(255,69,58,0.03)', border:`1px solid ${correct ? 'rgba(14,245,194,0.12)' : 'rgba(255,69,58,0.12)'}`, borderRadius:16 }}>
                         <div style={{ display:'flex', gap:10, alignItems:'flex-start' }}>
@@ -251,11 +265,11 @@ export default function MultiQuizView({ task, goal, knowledge, onClose, onComple
                             <div style={{ fontSize:14, color:'#f5f5f7', fontWeight:600, marginBottom:6, lineHeight:1.4 }}>{qq.question}</div>
                             {!correct && (
                               <div style={{ fontSize:12, color:'#FF453A', marginBottom:4 }}>
-                                Your answer: {qq.options[result?.selectedIdx ?? 0]}
+                                Your answer: {selectedAnswer}
                               </div>
                             )}
                             <div style={{ fontSize:12, color: correct ? '#34D399' : '#8e8e93', marginBottom:4 }}>
-                              Correct: {qq.options[qq.correctIndex]}
+                              Correct: {correctAnswer}
                             </div>
                             <div style={{ fontSize:12, color:'#636366', lineHeight:1.5 }}>{qq.explanation}</div>
                           </div>
@@ -333,67 +347,22 @@ export default function MultiQuizView({ task, goal, knowledge, onClose, onComple
                   )}
                 </div>
 
-                <h2 style={{ fontSize:20, fontWeight:800, color:'#f5f5f7', lineHeight:1.4, marginBottom:28, letterSpacing:'-0.3px' }}>
-                  {q.question}
-                </h2>
-
-                <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-                  {q.options.map((opt, i) => {
-                    const isCorrect = i === q.correctIndex
-                    const isSelected = i === selected
-                    let bg = 'rgba(255,255,255,0.04)'
-                    let border = 'rgba(255,255,255,0.10)'
-                    let color = '#f5f5f7'
-                    let letterBg = 'rgba(255,255,255,0.06)'
-                    let letterColor = '#636366'
-                    if (answered) {
-                      if (isCorrect) {
-                        bg = 'rgba(14,245,194,0.08)'; border = 'rgba(14,245,194,0.35)'; color = '#0ef5c2'
-                        letterBg = 'rgba(14,245,194,0.15)'; letterColor = '#0ef5c2'
-                      } else if (isSelected && !isCorrect) {
-                        bg = 'rgba(255,69,58,0.08)'; border = 'rgba(255,69,58,0.35)'; color = '#FF453A'
-                        letterBg = 'rgba(255,69,58,0.15)'; letterColor = '#FF453A'
-                      } else {
-                        bg = 'rgba(255,255,255,0.02)'; color = '#636366'
-                      }
-                    }
-                    return (
-                      <button key={i} onClick={() => handleSelect(i)}
-                        style={{
-                          padding:'14px 16px', background:bg, border:`1.5px solid ${border}`,
-                          borderRadius:14, cursor: answered ? 'default' : 'pointer',
-                          textAlign:'left', color, fontSize:15, fontWeight:600,
-                          fontFamily:font, transition:'all 0.18s',
-                          display:'flex', gap:12, alignItems:'center',
-                          animation: answered && isCorrect ? 'correctPulse 0.3s ease' : 'none',
-                        }}
-                        onMouseEnter={e => { if (!answered) { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.18)' } }}
-                        onMouseLeave={e => { if (!answered) { e.currentTarget.style.background = bg; e.currentTarget.style.borderColor = border } }}
-                      >
-                        <span style={{ width:28, height:28, borderRadius:8, background:letterBg, display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:800, flexShrink:0, color:letterColor, transition:'all 0.18s' }}>
-                          {answered && isCorrect ? <IconGlyph name="check" size={12} strokeWidth={2.8} color="#0ef5c2" /> : answered && isSelected && !isCorrect ? <IconGlyph name="x" size={12} strokeWidth={2.6} color="#FF453A" /> : ['A','B','C','D'][i]}
-                        </span>
-                        <span style={{ lineHeight:1.4 }}>{opt}</span>
-                      </button>
-                    )
-                  })}
-                </div>
-
-                {answered && (
-                  <div style={{
-                    marginTop:20, padding:'16px 18px',
-                    background: selected === q.correctIndex ? 'rgba(14,245,194,0.05)' : 'rgba(255,69,58,0.05)',
-                    border:`1px solid ${selected === q.correctIndex ? 'rgba(14,245,194,0.18)' : 'rgba(255,69,58,0.18)'}`,
-                    borderRadius:16, animation:'fadeIn 0.25s ease both',
-                  }}>
-                    <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
-                      <div style={{ fontSize:12, fontWeight:800, color: selected === q.correctIndex ? '#0ef5c2' : '#FF453A', textTransform:'uppercase', letterSpacing:'1px' }}>
-                        {selected === q.correctIndex ? 'Correct' : 'Incorrect'}
-                      </div>
-                    </div>
-                    <p style={{ fontSize:14, color:'#9ca3af', margin:0, lineHeight:1.7 }}>{q.explanation}</p>
-                  </div>
-                )}
+                <InteractiveQuestion
+                  key={`${current}-${q.question}`}
+                  type={q.type || q.questionType || 'multiple_choice'}
+                  question={q.question}
+                  statement={q.statement}
+                  sentence={q.sentence}
+                  answer={q.answer}
+                  correct={q.correct}
+                  options={q.options || []}
+                  correctIndex={Number.isFinite(q.correctIndex) ? q.correctIndex : Number(q.correct_index) || 0}
+                  code={q.code || q.code_or_situation || ''}
+                  steps={q.steps || q.order || []}
+                  pairs={q.pairs || []}
+                  explanation={q.explanation}
+                  onResult={handleQuestionResult}
+                />
               </div>
             )}
           </div>

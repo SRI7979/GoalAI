@@ -1,5 +1,6 @@
 import { getOpenAIModel } from '@/lib/openaiModels'
 import { buildDeterministicChallenge } from '@/lib/deterministicLesson'
+import { formatLearningContractForPrompt } from '@/lib/conceptLesson'
 
 export async function POST(request) {
   let body = null
@@ -17,6 +18,7 @@ export async function POST(request) {
       resourceUrl,
       resourceTitle,
       difficulty,
+      learningContract,
     } = body || {}
 
     if (!concept || !goal) {
@@ -25,6 +27,12 @@ export async function POST(request) {
 
     const prompt = `You are designing a timed challenge for a premium learning app. Create an engaging, practical challenge about "${taskTitle || concept}" for someone learning "${goal}".
 ${knowledge ? `The student already knows: ${knowledge}. Challenge them at their level, not below it.` : ''}
+${taskDescription ? `DAY CONTEXT: ${taskDescription}` : ''}
+${taskAction ? `TASK ACTION: ${taskAction}` : ''}
+${taskOutcome ? `TARGET OUTCOME: ${taskOutcome}` : ''}
+
+LEARNING CONTRACT:
+${formatLearningContractForPrompt(learningContract)}
 
 Return ONLY valid JSON — no markdown, no backticks:
 {
@@ -33,6 +41,13 @@ Return ONLY valid JSON — no markdown, no backticks:
   "timeLimit": 600,
   "difficulty": "beginner",
   "hints": ["Hint 1", "Hint 2", "Hint 3"],
+  "checkpointQuestion": {
+    "type": "multiple_choice",
+    "question": "Which strategy should you try first?",
+    "options": ["A", "B", "C", "D"],
+    "correctIndex": 0,
+    "explanation": "Why this strategy fits the challenge"
+  },
   "solution": "The complete solution with explanation"
 }
 
@@ -53,6 +68,8 @@ CHALLENGE QUALITY REQUIREMENTS:
   * Explain WHY this approach works
   * Mention common mistakes students make when solving this
   * Include a "bonus thought" — how to extend or optimize the solution
+- Stay within the allowed concepts and taught points from the learning contract
+- checkpointQuestion should be a quick strategy check before the learner completes the challenge; use multiple_choice or spot_error
 - The challenge should feel like a puzzle to solve, not homework to complete
 - Ground it in a real-world scenario when possible ("Build a function that a real app would use")`
 

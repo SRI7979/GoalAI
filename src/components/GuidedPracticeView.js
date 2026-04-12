@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import AIAssistant from './AIAssistant'
 import ConfidenceSelector from './ConfidenceSelector'
 import IconGlyph from '@/components/IconGlyph'
+import InteractiveQuestion from '@/components/InteractiveQuestion'
 
 const font = "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif"
 
@@ -20,12 +21,15 @@ export default function GuidedPracticeView({ task, goal, knowledge, onClose, onC
   const [checkpointIdx, setCheckpointIdx] = useState(0)
   const [checkpointAnswer, setCheckpointAnswer] = useState('')
   const [checkpointResults, setCheckpointResults] = useState([])
+  const [interactiveIdx, setInteractiveIdx] = useState(0)
+  const [interactiveResults, setInteractiveResults] = useState([])
   const [phase, setPhase] = useState('practice') // practice | checkpoint | solution | done
   const [submitting, setSubmitting] = useState(false)
   const [showSolution, setShowSolution] = useState(false)
   const [assistantUsageCount, setAssistantUsageCount] = useState(0)
   const [confidenceLevel, setConfidenceLevel] = useState('')
   const startTimeRef = useRef(null)
+  const learningContract = task?._learningContract || task?.learningContract || task?.lessonSeed?.learningContract || null
 
   useEffect(() => {
     async function load() {
@@ -46,9 +50,14 @@ export default function GuidedPracticeView({ task, goal, knowledge, onClose, onC
           body: JSON.stringify({
             action: 'guided_practice',
             concept: task._concept || task.title,
+            taskTitle: task.title,
             goal,
             difficulty: task._difficulty || 2,
             knowledge,
+            taskDescription: task.description,
+            taskAction: task.action,
+            taskOutcome: task.outcome,
+            learningContract,
           }),
         })
         const data = await res.json()
@@ -60,7 +69,7 @@ export default function GuidedPracticeView({ task, goal, knowledge, onClose, onC
       setLoading(false)
     }
     load()
-  }, [task, goal, knowledge])
+  }, [task, goal, knowledge, learningContract])
 
   const revealHint = useCallback(() => {
     if (practice && hintsRevealed < (practice.hints?.length || 0)) {
@@ -84,6 +93,26 @@ export default function GuidedPracticeView({ task, goal, knowledge, onClose, onC
     }
   }
 
+  const handleInteractiveResult = (isCorrect, detail = {}) => {
+    const questions = practice?.interactiveQuestions || []
+    const currentQuestion = questions[interactiveIdx]
+    const submittedAnswer = detail.answer || (detail.selectedIndex != null ? detail.selectedIndex : detail.selected ?? '')
+    setCheckpointResults(prev => [...prev, {
+      question: currentQuestion?.question || currentQuestion?.statement || currentQuestion?.sentence || `Checkpoint ${interactiveIdx + 1}`,
+      answer: submittedAnswer,
+      expected: currentQuestion?.answer || currentQuestion?.options?.[currentQuestion?.correctIndex] || currentQuestion?.correct,
+      correct: isCorrect,
+    }])
+    setInteractiveResults((prev) => [...prev, { index: interactiveIdx, correct: isCorrect }])
+    window.setTimeout(() => {
+      if (interactiveIdx + 1 < questions.length) {
+        setInteractiveIdx((idx) => idx + 1)
+      } else {
+        setPhase('solution')
+      }
+    }, 900)
+  }
+
   const handleComplete = () => {
     if (!confidenceLevel) return
     setSubmitting(true)
@@ -103,6 +132,7 @@ export default function GuidedPracticeView({ task, goal, knowledge, onClose, onC
 
   const hints = practice?.hints || []
   const checkpoints = practice?.checkpoints || []
+  const interactiveQuestions = practice?.interactiveQuestions || practice?.questions || []
 
   return (
     <>
@@ -306,7 +336,35 @@ export default function GuidedPracticeView({ task, goal, knowledge, onClose, onC
                 )}
 
                 {/* Checkpoint questions */}
-                {phase === 'checkpoint' && checkpoints.length > 0 && (
+                {phase === 'checkpoint' && interactiveQuestions.length > 0 && (
+                  <div style={{ animation: 'slideUp 0.3s ease both' }}>
+                    <div style={{
+                      padding: '16px 20px', background: 'rgba(0,212,255,0.06)',
+                      border: '1px solid rgba(0,212,255,0.20)', borderRadius: 16,
+                      marginBottom: 20,
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
+                        <div style={{ fontSize: 11, fontWeight: 800, color: '#00d4ff', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                          Interactive check {interactiveIdx + 1}/{interactiveQuestions.length}
+                        </div>
+                        <div style={{ fontSize: 12, fontWeight: 800, color: '#0ef5c2' }}>
+                          {interactiveResults.filter((result) => result.correct).length} correct
+                        </div>
+                      </div>
+                      <InteractiveQuestion
+                        key={`${interactiveIdx}-${interactiveQuestions[interactiveIdx]?.question || interactiveQuestions[interactiveIdx]?.sentence}`}
+                        {...interactiveQuestions[interactiveIdx]}
+                        correctIndex={Number.isFinite(interactiveQuestions[interactiveIdx]?.correctIndex)
+                          ? interactiveQuestions[interactiveIdx].correctIndex
+                          : Number(interactiveQuestions[interactiveIdx]?.correct_index) || 0}
+                        explanation={interactiveQuestions[interactiveIdx]?.explanation}
+                        onResult={handleInteractiveResult}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {phase === 'checkpoint' && interactiveQuestions.length === 0 && checkpoints.length > 0 && (
                   <div style={{ animation: 'slideUp 0.3s ease both' }}>
                     <div style={{
                       padding: '16px 20px', background: 'rgba(129,140,248,0.06)',
