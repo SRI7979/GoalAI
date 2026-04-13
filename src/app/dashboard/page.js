@@ -13,10 +13,8 @@ import {
   rerollLearningTask,
 } from '@/lib/progressionClient'
 import LessonViewer from '@/components/LessonView'
-import VideoView from '@/components/VideoView'
 import ProjectView from '@/components/ProjectView'
 import MultiQuizView from '@/components/MultiQuizView'
-import ReadingView from '@/components/ReadingView'
 import FlashcardView from '@/components/FlashcardView'
 import ChallengeView from '@/components/ChallengeView'
 import ProjectViewer from '@/components/ProjectViewer'
@@ -220,6 +218,26 @@ function getFilteredTasks(tasks, energy) {
   return tasks
 }
 
+const FREE_COURSE_DAY_LIMIT = 3
+
+function isPrebuiltCourseGoal(goal) {
+  const constraints = Array.isArray(goal?.constraints)
+    ? goal.constraints.join(' ')
+    : String(goal?.constraints || '')
+  return /(?:^|\s)(?:Course|Prebuilt course):/i.test(constraints)
+}
+
+function isFreeTierGoal(goal) {
+  const tier = String(goal?.access_tier || goal?.plan_tier || goal?.subscription_tier || '').toLowerCase()
+  return ['free', 'starter'].includes(tier)
+}
+
+function isCourseDayPaywalled(goal, row) {
+  return isPrebuiltCourseGoal(goal)
+    && isFreeTierGoal(goal)
+    && Number(row?.day_number || 1) > FREE_COURSE_DAY_LIMIT
+}
+
 // ─── SVG icons ─────────────────────────────────────────────────────────────────
 const BoltIcon     = ({sz=13}) => <svg width={sz} height={sz} viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
 const ArrowRight   = ({sz=14}) => <svg width={sz} height={sz} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
@@ -231,6 +249,7 @@ const StatsIcon    = () => <svg width="22" height="22" viewBox="0 0 24 24" fill=
 const SettingsIcon = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
 const ShopIcon     = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2L3 7v13a2 2 0 002 2h14a2 2 0 002-2V7l-3-5H6z"/><line x1="3" y1="7" x2="21" y2="7"/><path d="M16 11a4 4 0 01-8 0"/></svg>
 const BadgesIcon   = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89L17 22l-5-3-5 3 1.523-9.11"/></svg>
+const CoursesIcon  = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="7" height="7" rx="1.6"/><rect x="14" y="4" width="7" height="7" rx="1.6"/><rect x="3" y="15" width="7" height="5" rx="1.6"/><rect x="14" y="15" width="7" height="5" rx="1.6"/></svg>
 const PathBoltLogo = ({ size = 28 }) => (
   <div style={{
     width:size,height:size,borderRadius:'28%',
@@ -1207,7 +1226,9 @@ function TaskPreview({ task, onClose, onStart, onComplete, onReroll, rerollCount
   const info = getTaskDisplayConfig(normalizedTask)
   const me   = isCompleting === task.id
   const anyCompleting = Boolean(isCompleting)
-  const canUseReroll = canRerollTask(task) && rerollCount > 0 && !anyCompleting && rerollingTaskId !== task.id
+  const isLocked = Boolean(normalizedTask._locked)
+  const requiresLessonCompletion = normalizedTask.type === 'concept'
+  const canUseReroll = canRerollTask(task) && rerollCount > 0 && !anyCompleting && rerollingTaskId !== task.id && !isLocked
   const label = info.actionLabel || 'Start'
 
   return (
@@ -1272,6 +1293,24 @@ function TaskPreview({ task, onClose, onStart, onComplete, onReroll, rerollCount
           <p style={{fontSize:14,color:T.textSec,lineHeight:1.65,marginBottom:16}}>
             {normalizedTask.description}
           </p>
+        )}
+
+        {isLocked && (
+          <div style={{
+            padding:'14px 16px',
+            background:'rgba(251,191,36,0.08)',
+            border:'1px solid rgba(251,191,36,0.18)',
+            borderRadius:16,
+            marginBottom:16,
+          }}>
+            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6,color:'#FBBF24',fontSize:12,fontWeight:800,letterSpacing:'0.08em',textTransform:'uppercase'}}>
+              <IconGlyph name="lock" size={14} strokeWidth={2.4} color="#FBBF24"/>
+              Locked in sequence
+            </div>
+            <p style={{margin:0,fontSize:14,color:T.textSec,lineHeight:1.6}}>
+              {normalizedTask._lockedReason || 'Finish the earlier task in today\'s mission first.'}
+            </p>
+          </div>
         )}
 
         {/* What to expect */}
@@ -1340,34 +1379,42 @@ function TaskPreview({ task, onClose, onStart, onComplete, onReroll, rerollCount
               </button>
             )}
             <div style={{display:'flex',gap:10}}>
-            <button onClick={() => { onClose(); onStart(task) }} className="interactive-secondary" style={{
+            <button onClick={() => {
+              if (anyCompleting || isLocked) return
+              onClose()
+              onStart(task)
+            }} className="interactive-secondary" style={{
               flex:1, padding:'14px 12px',
-              background:'rgba(14,245,194,0.06)',
-              border:`1px solid ${T.tealBorder}`, borderRadius:14,
-              color:T.teal, fontSize:14, fontWeight:700,
-              cursor: anyCompleting ? 'default' : 'pointer', fontFamily:T.font,
+              background:isLocked ? 'rgba(255,255,255,0.04)' : 'rgba(14,245,194,0.06)',
+              border:`1px solid ${isLocked ? T.border : T.tealBorder}`, borderRadius:14,
+              color:isLocked ? T.textMuted : T.teal, fontSize:14, fontWeight:700,
+              cursor: anyCompleting || isLocked ? 'default' : 'pointer', fontFamily:T.font,
               display:'flex', alignItems:'center', justifyContent:'center', gap:6,
-              opacity: anyCompleting ? 0.5 : 1,
+              opacity: anyCompleting || isLocked ? 0.5 : 1,
               transition:'all 0.18s',
             }}
-            onMouseEnter={e=>{if(!anyCompleting)e.currentTarget.style.background='rgba(14,245,194,0.12)'}}
-            onMouseLeave={e=>{e.currentTarget.style.background='rgba(14,245,194,0.06)'}}>
+            onMouseEnter={e=>{if(!anyCompleting && !isLocked)e.currentTarget.style.background='rgba(14,245,194,0.12)'}}
+            onMouseLeave={e=>{e.currentTarget.style.background=isLocked ? 'rgba(255,255,255,0.04)' : 'rgba(14,245,194,0.06)'}}>
               <PlayIcon/> {label}
             </button>
             <button
-              disabled={anyCompleting}
+              disabled={anyCompleting || isLocked || requiresLessonCompletion}
               className={anyCompleting ? undefined : 'interactive-cta'}
-              onClick={e => { onClose(); onComplete(task, e) }}
+              onClick={e => {
+                if (anyCompleting || isLocked || requiresLessonCompletion) return
+                onClose()
+                onComplete(task, e)
+              }}
               style={{
                 flex:'none', padding:'14px 20px',
-                background: anyCompleting ? 'rgba(255,255,255,0.04)' : T.primaryGradient,
-                border: anyCompleting ? `1px solid ${T.border}` : 'none',
-                borderRadius:14, color: anyCompleting ? T.textMuted : T.ink,
+                background: anyCompleting || isLocked || requiresLessonCompletion ? 'rgba(255,255,255,0.04)' : T.primaryGradient,
+                border: anyCompleting || isLocked || requiresLessonCompletion ? `1px solid ${T.border}` : 'none',
+                borderRadius:14, color: anyCompleting || isLocked || requiresLessonCompletion ? T.textMuted : T.ink,
                 fontSize:14, fontWeight:800,
-                cursor: anyCompleting ? 'default' : 'pointer', fontFamily:T.font,
+                cursor: anyCompleting || isLocked || requiresLessonCompletion ? 'default' : 'pointer', fontFamily:T.font,
                 boxShadow: anyCompleting ? 'none' : '0 0 24px rgba(14,245,194,0.28)',
                 display:'flex', alignItems:'center', justifyContent:'center', gap:6,
-                opacity: anyCompleting && !me ? 0.5 : 1,
+                opacity: (anyCompleting && !me) || isLocked || requiresLessonCompletion ? 0.5 : 1,
                 transition:'all 0.20s',
               }}
             >
@@ -1376,6 +1423,11 @@ function TaskPreview({ task, onClose, onStart, onComplete, onReroll, rerollCount
                 : anyCompleting ? 'Wait…' : <><BoltIcon sz={13}/>Complete</>}
             </button>
             </div>
+            {requiresLessonCompletion && !isLocked && (
+              <p style={{margin:0,fontSize:12,color:T.textMuted,lineHeight:1.55}}>
+                Concept tasks unlock the rest of the day only after you finish the lesson handoff from inside the concept view.
+              </p>
+            )}
           </div>
         )}
       </div>
@@ -1389,6 +1441,7 @@ function TaskItem({ task, onPreview, index }) {
   const ts      = taskStyle(normalizedTask)
   const xp      = xpForTask(normalizedTask)
   const info    = getTaskDisplayConfig(normalizedTask)
+  const isLocked = Boolean(normalizedTask._locked)
   const isCourseFinalTask = isCourseFinalExamTask(task)
   const finalExamMeta = task?._courseFinal || {}
   const finalExamAttemptsRemaining = Math.max(0, (Number(finalExamMeta.maxAttempts) || 3) - (Number(finalExamMeta.attemptsUsed) || 0))
@@ -1407,10 +1460,10 @@ function TaskItem({ task, onPreview, index }) {
           : 'inset 0 1px 0 rgba(255,255,255,0.06)',
         transition:'all 0.22s cubic-bezier(0.16,1,0.3,1)',
         animation:`fadeUp 0.35s ${index*0.04}s both`,
-        opacity: task.completed ? 0.68 : 1,
+        opacity: task.completed ? 0.68 : isLocked ? 0.82 : 1,
         cursor:'pointer',
       }}
-      onMouseEnter={e=>{if(!task.completed)e.currentTarget.style.borderColor='rgba(255,255,255,0.16)'}}
+      onMouseEnter={e=>{if(!task.completed)e.currentTarget.style.borderColor=isLocked ? 'rgba(251,191,36,0.18)' : 'rgba(255,255,255,0.16)'}}
       onMouseLeave={e=>{e.currentTarget.style.borderColor=task.completed?'rgba(14,245,194,0.14)':T.border}}
     >
       {/* Type badge + duration + xp status */}
@@ -1422,6 +1475,11 @@ function TaskItem({ task, onPreview, index }) {
         <span style={{fontSize:11,color:T.textMuted,fontWeight:600}}>
           {normalizedTask.estimatedTimeMin || normalizedTask.durationMin || 0} min
         </span>
+        {isLocked && !task.completed && (
+          <span style={{fontSize:10,fontWeight:800,color:'#FBBF24',letterSpacing:'0.08em',textTransform:'uppercase'}}>
+            Locked
+          </span>
+        )}
         <span style={{
           marginLeft:'auto', fontSize:11, fontWeight:700,
           color: task.completed ? T.teal : '#FBBF24',
@@ -1476,7 +1534,9 @@ function TaskItem({ task, onPreview, index }) {
       {/* Tap to preview hint */}
       {!task.completed && (
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:10}}>
-          <span style={{fontSize:11,color:T.textMuted,fontWeight:500}}>Tap to preview</span>
+          <span style={{fontSize:11,color:T.textMuted,fontWeight:500}}>
+            {isLocked ? (normalizedTask._lockedReason || 'Complete the earlier task first') : 'Tap to preview'}
+          </span>
           <ArrowRight sz={12}/>
         </div>
       )}
@@ -1580,6 +1640,35 @@ function mergeRowsByDayNumber(existingRows, incomingRows) {
 
 function normalizeTaskList(tasks) {
   return normalizeLearningTasks(Array.isArray(tasks) ? tasks : [])
+}
+
+function getTaskLockState(task, taskList = []) {
+  const normalizedTasks = normalizeTaskList(taskList)
+  const firstIncompleteIndex = normalizedTasks.findIndex((entry) => !entry.completed)
+  if (firstIncompleteIndex === -1) return { locked: false, reason: '' }
+
+  const currentIndex = normalizedTasks.findIndex((entry) => String(entry.id) === String(task?.id))
+  if (currentIndex === -1) return { locked: false, reason: '' }
+  if (normalizedTasks[currentIndex]?.completed || currentIndex <= firstIncompleteIndex) {
+    return { locked: false, reason: '' }
+  }
+
+  return {
+    locked: true,
+    reason: `Complete "${normalizedTasks[firstIncompleteIndex]?.title || 'the previous task'}" first.`,
+  }
+}
+
+function annotateTaskLocks(taskList = []) {
+  const normalizedTasks = normalizeTaskList(taskList)
+  return normalizedTasks.map((task) => {
+    const lockState = getTaskLockState(task, normalizedTasks)
+    return {
+      ...task,
+      _locked: lockState.locked,
+      _lockedReason: lockState.reason,
+    }
+  })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2453,8 +2542,12 @@ export default function Dashboard() {
   const handleTabSelect = useCallback((nextTab) => {
     if (nextTab === activeTab) return
     tabScrollPositionsRef.current[activeTab] = window.scrollY
+    if (nextTab === 'courses') {
+      router.push('/courses')
+      return
+    }
     setActiveTab(nextTab)
-  }, [activeTab])
+  }, [activeTab, router])
 
   // XP boost countdown timer
   useEffect(() => {
@@ -2549,6 +2642,15 @@ export default function Dashboard() {
   const completeTask = useCallback(async (task, event, metrics = {}) => {
     if (task.completed || completing) return
     const normalizedTask = normalizeLearningTask(task)
+    const lockState = getTaskLockState(task, tasks)
+    if (lockState.locked) {
+      setError(lockState.reason)
+      return
+    }
+    if (normalizedTask.type === 'concept' && !metrics?.fromLesson) {
+      setError('Finish the concept lesson from inside the lesson view to unlock the next task.')
+      return
+    }
 
     if (taskReloadTimerRef.current) {
       clearTimeout(taskReloadTimerRef.current)
@@ -3216,11 +3318,12 @@ export default function Dashboard() {
   }, [switchingGoal, goal, load])
 
   // ─── Computed ───────────────────────────────────────────────────────────────
-  const visibleTasks = useMemo(() => getFilteredTasks(normalizeTaskList(tasks), energy), [tasks, energy])
+  const visibleTasks = useMemo(() => getFilteredTasks(annotateTaskLocks(tasks), energy), [tasks, energy])
   const activeViewerTask = showLesson ? normalizeLearningTask(showLesson) : null
   const activeViewerType = activeViewerTask?.type || ''
   const activeViewerPresentation = activeViewerTask?.presentation || ''
   const hiddenCount = tasks.length - visibleTasks.length
+  const courseDayLocked = isCourseDayPaywalled(goal, todayRow)
   const expectedCourseSpan = Math.max(
     Number(totalDaysPlanned) || 0,
     Number(goal?.total_days) || 0,
@@ -3422,6 +3525,15 @@ export default function Dashboard() {
                 cursor:'pointer',fontFamily:T.font,
                 boxShadow:'0 0 24px rgba(14,245,194,0.25)',
               }}>+ New Goal</button>
+              <button onClick={() => { setShowGoalsSidebar(false); router.push('/courses') }} style={{
+                width:'100%',padding:'11px',
+                marginTop:10,
+                background:'rgba(255,255,255,0.04)',
+                border:`1px solid ${T.border}`,
+                borderRadius:14,
+                color:T.text,fontWeight:800,fontSize:13,
+                cursor:'pointer',fontFamily:T.font,
+              }}>Browse more courses</button>
             </div>
           </div>
         </>
@@ -3621,10 +3733,18 @@ export default function Dashboard() {
           rerollCount={inventoryCounts.taskReroll || 0}
           onClose={() => setPreviewTask(null)}
           onStart={t => {
+            const lockState = getTaskLockState(t, tasks)
+            if (lockState.locked) {
+              setError(lockState.reason)
+              return
+            }
             setPreviewTask(null)
             if (heartsRemaining === 0) { setShowNoHearts(true); return }
             const normalizedPreviewTask = normalizeLearningTask(t)
-            setShowLesson(normalizeLearningTask({ ...normalizedPreviewTask, _concept: todayRow?.covered_topics?.[0] || normalizedPreviewTask.title }))
+            setShowLesson(normalizeLearningTask({
+              ...normalizedPreviewTask,
+              _concept: normalizedPreviewTask._concept || todayRow?.covered_topics?.[0] || normalizedPreviewTask.title,
+            }))
           }}
           onComplete={(t, e) => {
             setPreviewTask(null)
@@ -3648,24 +3768,7 @@ export default function Dashboard() {
 
       {/* Task viewer — routed by canonical task family */}
 
-      {activeViewerTask && activeViewerType === 'concept' && activeViewerPresentation === 'video' && (
-        <VideoView
-          task={activeViewerTask}
-          goal={goal?.goal_text}
-          onClose={() => setShowLesson(null)}
-          onComplete={(payload) => handleLessonComplete(activeViewerTask, payload)}
-        />
-      )}
-      {activeViewerTask && activeViewerType === 'concept' && activeViewerPresentation === 'reading' && (
-        <ReadingView
-          task={activeViewerTask}
-          goal={goal?.goal_text}
-          knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
-          onClose={() => setShowLesson(null)}
-          onComplete={(payload) => handleLessonComplete(activeViewerTask, payload)}
-        />
-      )}
-      {activeViewerTask && activeViewerType === 'concept' && !['video', 'reading'].includes(activeViewerPresentation) && (
+      {activeViewerTask && activeViewerType === 'concept' && (
         <LessonViewer
           concept={activeViewerTask._concept || activeViewerTask.title}
           taskTitle={activeViewerTask.title}
@@ -4282,14 +4385,47 @@ export default function Dashboard() {
             {/* Task list */}
             <StaggerBlock index={8}>
               <div style={{maxWidth:600,margin:'0 auto',padding:'14px 20px 0',display:'grid',gap:10}}>
-                {todayRow ? visibleTasks.length > 0 ? (
+                {courseDayLocked ? (
+                  <div style={{
+                    border:`1px solid ${T.tealBorder}`,
+                    borderRadius:24,
+                    background:'linear-gradient(145deg, rgba(14,245,194,0.10), rgba(132,163,255,0.07))',
+                    padding:'22px 20px',
+                    boxShadow:'0 22px 52px rgba(0,0,0,0.24)',
+                  }}>
+                    <div style={{fontSize:11,fontWeight:900,letterSpacing:'0.14em',textTransform:'uppercase',color:T.teal,marginBottom:8}}>
+                      Course preview complete
+                    </div>
+                    <h3 style={{margin:'0 0 8px',fontSize:22,lineHeight:1.05,color:T.text}}>
+                      Upgrade to Pro to continue this path.
+                    </h3>
+                    <p style={{margin:'0 0 16px',fontSize:14,lineHeight:1.55,color:T.textMuted}}>
+                      The first {FREE_COURSE_DAY_LIMIT} days are fully unlocked. Your selected course is saved, so you can keep going from this exact mission after upgrading.
+                    </p>
+                    <button onClick={() => router.push('/pricing')} style={{
+                      width:'100%',padding:'13px',
+                      border:'none',borderRadius:16,
+                      background:T.primaryGradient,
+                      color:T.ink,fontWeight:900,fontSize:14,
+                      cursor:'pointer',fontFamily:T.font,
+                      boxShadow:'0 0 28px rgba(14,245,194,0.20)',
+                    }}>
+                      Upgrade to Pro
+                    </button>
+                  </div>
+                ) : todayRow ? visibleTasks.length > 0 ? (
                   visibleTasks.map((task, i) => (
                     <TaskItem key={`${String(task.id || 'task')}:${i}`} task={task} isCompleting={completing}
                       onComplete={completeTask}
                       onOpenLesson={t => {
+                        const lockState = getTaskLockState(t, tasks)
+                        if (lockState.locked) { setError(lockState.reason); return }
                         if (heartsRemaining === 0) { setShowNoHearts(true); return }
                         const normalizedOpenTask = normalizeLearningTask(t)
-                        setShowLesson(normalizeLearningTask({ ...normalizedOpenTask, _concept: todayRow?.covered_topics?.[0] || normalizedOpenTask.title }))
+                        setShowLesson(normalizeLearningTask({
+                          ...normalizedOpenTask,
+                          _concept: normalizedOpenTask._concept || todayRow?.covered_topics?.[0] || normalizedOpenTask.title,
+                        }))
                       }}
                       onPreview={t => setPreviewTask(t)}
                       index={i}/>
@@ -4783,9 +4919,10 @@ export default function Dashboard() {
         borderTop:`1px solid ${T.border}`,
       }} className="safe-bottom-nav">
         <div style={{maxWidth:600,margin:'0 auto',
-          display:'grid',gridTemplateColumns:'repeat(6, 1fr)'}}>
+          display:'grid',gridTemplateColumns:'repeat(7, 1fr)'}}>
           {[
             {key:'home',     label:'Home',   Icon:HomeIcon    },
+            {key:'courses',  label:'Courses', Icon:CoursesIcon },
             {key:'badges',   label:'Badges', Icon:BadgesIcon  },
             {key:'shop',     label:'Shop',   Icon:ShopIcon    },
             {key:'stats',    label:'Stats',  Icon:StatsIcon   },

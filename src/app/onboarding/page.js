@@ -11,6 +11,7 @@ import ScrollReveal from '@/components/premium/ScrollReveal'
 import { createLocalGoalBundle, isLocalAccessUser } from '@/lib/localGoalStore'
 import { getSafeSupabaseSession, getSafeSupabaseUser, supabaseData } from '@/lib/supabase'
 import { consumeSupabaseAuthRedirect } from '@/lib/supabaseAuth'
+import { getCourseById } from '@/lib/courses'
 
 const STEPS = [
   'What do you want to learn?',
@@ -429,6 +430,7 @@ export default function OnboardingPage() {
   const [genStep, setGenStep] = useState(0)
   const [buildReady, setBuildReady] = useState(false)
   const [error, setError] = useState('')
+  const [courseIntent, setCourseIntent] = useState(null)
 
   useEffect(() => {
     void (async () => {
@@ -447,6 +449,22 @@ export default function OnboardingPage() {
     })()
   }, [router])
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const params = new URLSearchParams(window.location.search)
+    const urlCourseId = params.get('course')
+    let storedIntent = null
+    try {
+      storedIntent = JSON.parse(window.localStorage.getItem('pathai-course-intent') || 'null')
+    } catch {}
+    const course = getCourseById(urlCourseId || storedIntent?.id)
+    if (!course) return
+    setCourseIntent(course)
+    setPresetGoal(course.goalText)
+    setCustomGoal('')
+    setStep(2)
+  }, [])
+
   const goal = useMemo(() => customGoal.trim() || presetGoal, [customGoal, presetGoal])
   const family = useMemo(() => detectGoalFamily(goal), [goal])
   const accent = useMemo(() => getFamilyAccent(family), [family])
@@ -464,6 +482,7 @@ export default function OnboardingPage() {
 
   const currentQuestion = questions[questionIndex]
   const allQuestionsAnswered = questions.length > 0 && questions.every((question) => Boolean(answers[question.id]))
+  const skipDiagnostic = Boolean(courseIntent?.concepts?.length)
 
   useEffect(() => {
     setAnswers({})
@@ -501,6 +520,8 @@ export default function OnboardingPage() {
       `Diagnostic score: ${diagnosticScore}/${questions.length * 2}`,
       `Preferred pace: ${pace}`,
       `Path style: ${pathStyle === 'explore' ? 'exploration' : 'structured path'}`,
+      courseIntent ? `Prebuilt course: ${courseIntent.title}` : '',
+      courseIntent?.concepts?.length ? `Course concepts: ${courseIntent.concepts.join(', ')}` : '',
     ].join('. ')
 
     try {
@@ -544,6 +565,8 @@ export default function OnboardingPage() {
             `Diagnostic score: ${diagnosticScore}/${questions.length * 2}`,
             `Pace: ${pace}`,
             `Path style: ${pathStyle}`,
+            courseIntent ? `Course: ${courseIntent.title}` : '',
+            courseIntent?.concepts?.length ? `Course concepts: ${courseIntent.concepts.join(', ')}` : '',
           ],
           status: 'active',
           total_days: cadence.mode === 'goal' ? cadence.days : 0,
@@ -625,6 +648,7 @@ export default function OnboardingPage() {
     recommendedLevel,
     router,
     user,
+    courseIntent,
   ])
 
   useEffect(() => {
@@ -1284,7 +1308,9 @@ export default function OnboardingPage() {
                 <h2 className="font-display">{STEPS[step - 1]}</h2>
                 <p>
                   {step === 1 && 'Choose a launch direction or type your own goal. The route builder uses that signal to shape the first mission.'}
-                  {step === 2 && 'Pick the structure and pace that should define your route. This changes how PathAI sequences your daily work.'}
+                  {step === 2 && (courseIntent
+                    ? `${courseIntent.title} is selected. Pick the structure and pace, then PathAI will build the course route.`
+                    : 'Pick the structure and pace that should define your route. This changes how PathAI sequences your daily work.')}
                   {step === 3 && 'A quick diagnostic lets us aim the right starting depth instead of dropping you into a generic beginner course.'}
                   {step === 4 && 'We are building your first route right now, with the first mission ready as soon as generation finishes.'}
                 </p>
@@ -1368,11 +1394,18 @@ export default function OnboardingPage() {
                       </div>
 
                       <div className="onboarding-footer">
-                        <button type="button" className="onboarding-secondary interactive-secondary" onClick={() => goToStep(1, -1)}>
+                        <button
+                          type="button"
+                          className="onboarding-secondary interactive-secondary"
+                          onClick={() => {
+                            if (courseIntent) router.push('/courses')
+                            else goToStep(1, -1)
+                          }}
+                        >
                           Back
                         </button>
-                        <button type="button" className="onboarding-primary interactive-cta" onClick={() => goToStep(3, 1)}>
-                          Continue
+                        <button type="button" className="onboarding-primary interactive-cta" onClick={() => goToStep(skipDiagnostic ? 4 : 3, 1)}>
+                          {skipDiagnostic ? 'Build course path' : 'Continue'}
                         </button>
                       </div>
                     </>
@@ -1479,7 +1512,7 @@ export default function OnboardingPage() {
 
                       {!loading && !buildReady ? (
                         <div className="onboarding-footer">
-                          <button type="button" className="onboarding-secondary interactive-secondary" onClick={() => goToStep(3, -1)}>
+                          <button type="button" className="onboarding-secondary interactive-secondary" onClick={() => goToStep(skipDiagnostic ? 2 : 3, -1)}>
                             Back
                           </button>
                           <button type="button" className="onboarding-primary interactive-cta" onClick={startGeneration}>
