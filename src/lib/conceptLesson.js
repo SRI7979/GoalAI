@@ -11,6 +11,132 @@ function titleCase(value = '') {
     .join(' ')
 }
 
+function escapeRegExp(value = '') {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+const META_LESSON_REWRITES = [
+  { pattern: /\bconcepts are tools\b/gi, replacement: 'specific ideas only matter when you use them' },
+  { pattern: /\bexamples prove the idea works\b/gi, replacement: 'examples show how the idea works in practice' },
+  { pattern: /\bmistakes show the boundary\b/gi, replacement: 'mistakes reveal where the rule stops working' },
+  { pattern: /\bpractice turns memory into skill\b/gi, replacement: 'repeated use makes the skill easier to apply' },
+  { pattern: /\bsupports progress toward (?:your|the) goal\b/gi, replacement: 'matters in real tasks' },
+  { pattern: /\bin plain language\b/gi, replacement: 'clearly' },
+  { pattern: /\bthis is your foundation\b/gi, replacement: 'this is the core idea' },
+  { pattern: /\bbuilding blocks\b/gi, replacement: 'core parts' },
+  { pattern: /\bhelps you on your journey\b/gi, replacement: 'helps in practice' },
+]
+
+function stripMetaLessonLanguage(value = '') {
+  return META_LESSON_REWRITES.reduce(
+    (text, rule) => text.replace(rule.pattern, rule.replacement),
+    String(value || ''),
+  )
+}
+
+function sentenceLimit(value = '', max = 2) {
+  if (!max) return cleanText(value)
+  const sentences = cleanText(value)
+    .split(/(?<=[.!?])\s+/)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean)
+  return sentences.slice(0, max).join(' ')
+}
+
+function humanizeGoalSubject(goal = '') {
+  const text = cleanText(goal)
+    .replace(/^i\s+want\s+to\s+learn\s+(?:how\s+to\s+)?/i, '')
+    .replace(/^(learn|master|understand|build|study)\s+/i, '')
+    .replace(/\s+from\s+(?:complete\s+)?scratch$/i, '')
+    .trim()
+  const lower = text.toLowerCase()
+  if (/\bgit\b/.test(lower)) return 'Git workflow'
+  if (/\bios\b|swift|xcode|swiftui/.test(lower)) return 'iOS apps'
+  if (/python/.test(lower)) return 'Python'
+  if (/javascript/.test(lower)) return 'JavaScript'
+  if (/react/.test(lower)) return 'React'
+  if (/sql/.test(lower)) return 'SQL'
+  if (/machine learning|\bml\b/.test(lower)) return 'machine learning'
+  const words = titleCase(text).split(' ').filter(Boolean)
+  return words.slice(0, 4).join(' ') || 'this skill'
+}
+
+export function getLessonDisplayFocus({ concept, taskTitle, goal } = {}) {
+  const raw = cleanText(taskTitle || concept || 'Today\'s concept')
+  const subject = humanizeGoalSubject(goal)
+  let focus = raw
+    .replace(/:?\s*key\s+ideas?$/i, '')
+    .replace(/^introduction\s+to\s+/i, '')
+    .replace(/^intro\s+to\s+/i, '')
+    .replace(/^learn\s+/i, '')
+    .replace(/\s+for\s+real\s+development\s+workflows/i, '')
+    .trim()
+
+  focus = focus
+    .replace(/\bfoundations?\b/gi, '')
+    .replace(/\bbasics?\b/gi, '')
+    .replace(/\boverview\b/gi, '')
+    .trim()
+
+  const lower = focus.toLowerCase()
+  if (/^introduction$|^intro$/.test(lower)) {
+    return subject
+  }
+
+  const subjectNeedle = subject.toLowerCase().replace(/\s+workflow$/, '')
+  if (subjectNeedle && lower.includes(subjectNeedle) && focus.split(/\s+/).length > 6) {
+    return subject
+  }
+
+  focus = titleCase(focus)
+  const words = focus.split(' ').filter(Boolean)
+  return words.length > 7 ? words.slice(0, 7).join(' ') : (focus || subject)
+}
+
+function stripInternalContext(value = '') {
+  return cleanText(value)
+    .replace(/You already have a starting point:\s*.*?(?:Today|Now)\s+/i, '')
+    .replace(/\bRecommended level:\s*[^.]+\.?/gi, '')
+    .replace(/\bDiagnostic score:\s*[^.]+\.?/gi, '')
+    .replace(/\bPreferred pace:\s*[^.]+\.?/gi, '')
+    .replace(/\bPace:\s*[^.]+\.?/gi, '')
+    .replace(/\bPath style:\s*[^.]+\.?/gi, '')
+    .replace(new RegExp('\\bLocal\\s+' + 'fall' + 'back\\s+mode\\.?', 'gi'), '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+}
+
+function sanitizeLessonCopy(value = '', context = {}, maxSentences = 0) {
+  const displayFocus = getLessonDisplayFocus(context)
+  const goalSubject = humanizeGoalSubject(context?.goal)
+  const rawFocus = cleanText(context?.taskTitle || context?.concept || '')
+  const rawConcept = cleanText(context?.concept || '')
+  const rawGoal = cleanText(context?.goal || '')
+  let text = stripMetaLessonLanguage(stripInternalContext(value))
+
+  ;[rawFocus, titleCase(rawFocus), rawConcept, titleCase(rawConcept)].filter(Boolean).forEach((needle) => {
+    if (needle.length < 8) return
+    text = text.replace(new RegExp(escapeRegExp(needle), 'gi'), displayFocus)
+  })
+  ;[rawGoal, titleCase(rawGoal)].filter(Boolean).forEach((needle) => {
+    if (needle.length < 8) return
+    text = text.replace(new RegExp(escapeRegExp(needle), 'gi'), goalSubject)
+  })
+
+  text = text
+    .replace(/\bIntroduction\s+To\s+/gi, '')
+    .replace(/\bkey ideas\b/gi, 'key moves')
+    .replace(/\s+inside\s+inside\s+/gi, ' inside ')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+
+  return maxSentences ? sentenceLimit(text, maxSentences) : text
+}
+
+function sanitizeLessonList(values = [], context = {}, limit = 4) {
+  return dedupeStrings(values.map((value) => sanitizeLessonCopy(value, context, 1))).slice(0, limit)
+}
+
 function dedupeStrings(values = []) {
   const seen = new Set()
   return (Array.isArray(values) ? values : [])
@@ -24,16 +150,16 @@ function dedupeStrings(values = []) {
     })
 }
 
-function toSentence(value, fallback = '') {
-  const cleaned = cleanText(value || fallback)
+function toSentence(value, base = '') {
+  const cleaned = cleanText(value || base)
   if (!cleaned) return ''
   return /[.!?]$/.test(cleaned) ? cleaned : `${cleaned}.`
 }
 
-function splitList(value, fallback = []) {
+function splitList(value, base = []) {
   if (Array.isArray(value)) return dedupeStrings(value)
   const cleaned = cleanText(value)
-  if (!cleaned) return dedupeStrings(fallback)
+  if (!cleaned) return dedupeStrings(base)
   return dedupeStrings(
     cleaned
       .split(/\n|•|,|;/)
@@ -42,33 +168,265 @@ function splitList(value, fallback = []) {
   )
 }
 
-function isProgrammingTopic(concept = '', goal = '') {
-  const text = `${concept} ${goal}`.toLowerCase()
-  return /python|javascript|typescript|java\b|c\+\+|c#|rust\b|golang|ruby|swift|kotlin|sql|html|css|react|angular|vue|node|django|flask|express|api|rest|graphql|function|variable|loop|array|object|class|method|algorithm|data structure|programming|coding|code|syntax|terminal|bash|shell|git|database|query|recursion|ios|android|xcode|swiftui/.test(text)
-}
-
-function isDesignTopic(concept = '', goal = '') {
-  const text = `${concept} ${goal}`.toLowerCase()
-  return /design|ui|ux|typography|color|layout|wireframe|prototype|figma|visual|brand|interaction/.test(text)
-}
-
-function isLanguageTopic(concept = '', goal = '') {
-  const text = `${concept} ${goal}`.toLowerCase()
-  return /spanish|french|german|japanese|korean|language|grammar|vocabulary|pronunciation|conversation/.test(text)
-}
-
 function buildVocabulary(dayFocus, relatedConcepts = []) {
   return dedupeStrings([dayFocus, ...relatedConcepts]).slice(0, 6)
+}
+
+function normalizeChoice(value = '', base = '') {
+  return cleanText(value || base).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+}
+
+export function parseLearnerProfileFromKnowledge(knowledge = '') {
+  if (!knowledge) return {}
+  const text = Array.isArray(knowledge) ? knowledge.join('. ') : String(knowledge)
+  const marker = text.match(/Learner profile JSON:\s*(\{.*?\})(?:\.|$)/i)
+  if (marker?.[1]) {
+    try {
+      return JSON.parse(marker[1])
+    } catch {
+      // Fall through to lightweight inference.
+    }
+  }
+
+  const level = /advanced/i.test(text)
+    ? 'advanced'
+    : /intermediate|some exposure|basic/i.test(text)
+      ? 'intermediate'
+      : 'beginner'
+  const pace = /intensive/i.test(text) ? 'intensive' : /relaxed|slow/i.test(text) ? 'relaxed' : 'balanced'
+  const visualPreference = /visual|diagram|picture/i.test(text) ? 'visual' : 'balanced'
+
+  return { level, pace, visualPreference }
+}
+
+export function normalizeLearnerProfile(profile = {}, context = {}) {
+  const parsed = parseLearnerProfileFromKnowledge(context?.knowledge)
+  const source = {
+    ...parsed,
+    ...(profile && typeof profile === 'object' ? profile : {}),
+  }
+  const level = normalizeChoice(
+    source.level || source.experienceLevel || source.recommendedLevel,
+    'beginner',
+  )
+  const pace = normalizeChoice(source.pace || source.preferredPace, 'balanced')
+  const learningStyle = normalizeChoice(source.learningStyle || source.visualPreference, 'visual')
+  const desiredOutcome = cleanText(source.desiredOutcome || source.outcome || 'Build usable skill')
+  const prereqComfort = normalizeChoice(source.prereqComfort || source.comfortWithPrereqs, 'compress')
+  const repetition = normalizeChoice(source.repetition || (pace === 'relaxed' ? 'more' : 'normal'), 'normal')
+  const pathStyle = normalizeChoice(source.pathStyle || context?.pathStyle, 'goal')
+
+  const normalizedLevel = ['advanced', 'expert', 'experienced'].includes(level)
+    ? 'advanced'
+    : ['intermediate', 'some', 'familiar'].includes(level)
+      ? 'intermediate'
+      : 'beginner'
+
+  return {
+    level: normalizedLevel,
+    pace: ['relaxed', 'balanced', 'intensive'].includes(pace) ? pace : 'balanced',
+    learningStyle: learningStyle || 'visual',
+    visualPreference: learningStyle === 'text' ? 'balanced' : 'visual',
+    desiredOutcome,
+    prereqComfort,
+    repetition,
+    pathStyle,
+  }
+}
+
+export function deriveDepthPolicy(profile = {}, depthOverride = null) {
+  const learner = normalizeLearnerProfile(profile)
+  const override = normalizeChoice(depthOverride)
+  if (override === 'simpler') {
+    return {
+      level: 'foundational',
+      explanationSentences: 8,
+      paragraphLimit: 3,
+      recapCount: 1,
+      exampleDifficulty: 'small concrete example',
+      transferPrompt: 'guided',
+      repetitionAllowance: 'brief recap allowed',
+    }
+  }
+  if (override === 'deeper') {
+    return {
+      level: 'advanced',
+      explanationSentences: 8,
+      paragraphLimit: 3,
+      recapCount: 0,
+      exampleDifficulty: 'realistic transfer example',
+      transferPrompt: 'harder what-if prompt',
+      repetitionAllowance: 'no recap unless essential',
+    }
+  }
+  if (learner.level === 'advanced' || learner.pace === 'intensive') {
+    return {
+      level: 'advanced',
+      explanationSentences: 7,
+      paragraphLimit: 3,
+      recapCount: 0,
+      exampleDifficulty: 'realistic transfer example',
+      transferPrompt: 'harder what-if prompt',
+      repetitionAllowance: 'avoid reminders',
+    }
+  }
+  if (learner.level === 'beginner' || learner.pace === 'relaxed') {
+    return {
+      level: 'foundational',
+      explanationSentences: learner.pace === 'relaxed' ? 9 : 8,
+      paragraphLimit: 3,
+      recapCount: learner.pace === 'relaxed' ? 2 : 1,
+      exampleDifficulty: 'tiny beginner-safe example',
+      transferPrompt: 'guided',
+      repetitionAllowance: learner.pace === 'relaxed' ? 'one short recap per section' : 'brief recap allowed',
+    }
+  }
+  return {
+    level: 'standard',
+    explanationSentences: 7,
+    paragraphLimit: 3,
+    recapCount: 0,
+    exampleDifficulty: 'practical example',
+    transferPrompt: 'applied',
+    repetitionAllowance: 'minimal repetition',
+  }
+}
+
+function normalizeVisualNodes(nodes = [], accent = '#0ef5c2') {
+  return (Array.isArray(nodes) ? nodes : [])
+    .slice(0, 8)
+    .map((node, index) => ({
+      id: cleanText(node?.id) || `node-${index + 1}`,
+      label: sanitizeLessonCopy(node?.label || node?.title || `Step ${index + 1}`, {}, 1).slice(0, 72),
+      color: /^#[0-9a-f]{6}$/i.test(node?.color || '') ? node.color : accent,
+      edgeLabel: cleanText(node?.edgeLabel || ''),
+    }))
+    .filter((node) => node.label)
+}
+
+function normalizeVisualConnections(connections = []) {
+  return (Array.isArray(connections) ? connections : [])
+    .slice(0, 10)
+    .map((connection, index) => ({
+      id: cleanText(connection?.id) || `edge-${index + 1}`,
+      from: connection?.from,
+      to: connection?.to,
+      label: cleanText(connection?.label || '').slice(0, 24),
+    }))
+    .filter((connection) => connection.from !== undefined && connection.to !== undefined)
+}
+
+function buildDefaultVisuals({ title, taughtPoints = [], keyTakeaways = [], commonMistake = null }, accent = '#0ef5c2') {
+  const main = shortVisualLabel(title || 'Today')
+  const first = shortVisualLabel(taughtPoints[0] || keyTakeaways[0] || 'Name the idea')
+  const second = shortVisualLabel(taughtPoints[1] || keyTakeaways[1] || 'Use an example')
+  const third = shortVisualLabel(taughtPoints[2] || keyTakeaways[2] || 'Avoid the trap')
+  return {
+    hook: {
+      type: 'hierarchy',
+      title: "Today's map",
+      nodes: [
+        { id: 'focus', label: main, color: accent },
+        { id: 'model', label: 'Mental model', color: '#00d4ff' },
+        { id: 'example', label: 'Example', color: '#a78bfa' },
+        { id: 'practice', label: 'Practice', color: '#fbbf24' },
+      ],
+    },
+    explanation: {
+      type: 'flowchart',
+      title: 'Core picture',
+      nodes: [
+        { id: 'notice', label: first, color: accent, edgeLabel: 'then' },
+        { id: 'decide', label: second, color: '#00d4ff', edgeLabel: 'so' },
+        { id: 'use', label: third, color: '#a78bfa' },
+      ],
+    },
+    whyItMatters: {
+      type: 'comparison',
+      title: 'Before / after',
+      nodes: [
+        { id: 'before', label: 'Guessing', color: '#fbbf24' },
+        { id: 'after', label: 'Clear move', color: accent },
+        { id: 'foggy', label: 'Vague progress', color: '#ff8c42' },
+        { id: 'usable', label: 'Usable skill', color: '#34d399' },
+      ],
+    },
+    workedExample: {
+      type: 'steps',
+      title: 'Example path',
+      nodes: [
+        { id: 'step-1', label: 'Notice', color: accent },
+        { id: 'step-2', label: 'Choose', color: '#00d4ff' },
+        { id: 'step-3', label: 'Check', color: '#a78bfa' },
+      ],
+    },
+    commonMistake: {
+      type: 'comparison',
+      title: 'Mistake / fix',
+      nodes: [
+        { id: 'trap', label: shortVisualLabel(commonMistake?.mistake || 'Common trap'), color: '#ff8c42' },
+        { id: 'fix', label: shortVisualLabel(commonMistake?.fix || 'Better move'), color: accent },
+      ],
+    },
+    takeaways: {
+      type: 'hierarchy',
+      title: 'Carry forward',
+      nodes: [
+        { id: 'core', label: main, color: accent },
+        ...keyTakeaways.slice(0, 3).map((item, index) => ({
+          id: `takeaway-${index + 1}`,
+          label: shortVisualLabel(item),
+          color: ['#0ef5c2', '#00d4ff', '#a78bfa'][index] || accent,
+        })),
+      ],
+    },
+  }
+}
+
+function shortVisualLabel(value = '', base = 'Key idea') {
+  const cleaned = cleanText(value || base)
+  const words = cleaned.split(/\s+/).filter(Boolean)
+  return words.length > 6 ? `${words.slice(0, 6).join(' ')}...` : cleaned
+}
+
+function normalizeVisuals(visuals = {}, baseVisuals = {}) {
+  const allowedTypes = new Set(['flowchart', 'hierarchy', 'comparison', 'steps', 'cycle'])
+  const sections = ['hook', 'explanation', 'whyItMatters', 'workedExample', 'commonMistake', 'takeaways']
+  return sections.reduce((acc, section) => {
+    const source = visuals?.[section] && typeof visuals[section] === 'object'
+      ? visuals[section]
+      : baseVisuals[section]
+    if (!source) return acc
+    const type = allowedTypes.has(source.type) ? source.type : baseVisuals[section]?.type || 'flowchart'
+    const sourceNodes = Array.isArray(source.nodes) && source.nodes.length >= 2
+      ? source.nodes
+      : baseVisuals[section]?.nodes || []
+    const sourceConnections = Array.isArray(source.connections) && source.connections.length > 0
+      ? source.connections
+      : baseVisuals[section]?.connections || []
+    const nodes = normalizeVisualNodes(sourceNodes, undefined, section)
+    acc[section] = {
+      type,
+      title: cleanText(source.title || baseVisuals[section]?.title || ''),
+      nodes,
+      connections: normalizeVisualConnections(sourceConnections),
+    }
+    return acc
+  }, {})
 }
 
 export function normalizeLearningContract(contract = {}, context = {}) {
   const dayFocus = cleanText(contract?.dayFocus || context?.dayFocus || context?.concept || context?.taskTitle || 'Today\'s concept')
   const relatedConcepts = dedupeStrings(contract?.allowedConcepts || context?.allConcepts || [dayFocus])
+  const learnerProfile = normalizeLearnerProfile(contract?.learnerProfile || context?.learnerProfile, context)
+  const depthPolicy = contract?.depthPolicy && typeof contract.depthPolicy === 'object'
+    ? { ...deriveDepthPolicy(learnerProfile), ...contract.depthPolicy }
+    : deriveDepthPolicy(learnerProfile, context?.depthOverride)
   const taughtPoints = splitList(contract?.taughtPoints, [
-    `${dayFocus} in plain language`,
-    `When ${dayFocus} matters inside ${cleanText(context?.goal || 'the larger goal')}`,
-    `One concrete example of ${dayFocus}`,
-    `One common mistake to avoid when using ${dayFocus}`,
+    `Define ${dayFocus} clearly`,
+    `Use ${dayFocus} in one realistic example`,
+    `Recognize when ${dayFocus} applies`,
+    `Avoid one common mistake with ${dayFocus}`,
   ]).slice(0, 6)
 
   const requiredVocabulary = splitList(contract?.requiredVocabulary, buildVocabulary(dayFocus, relatedConcepts)).slice(0, 6)
@@ -92,6 +450,10 @@ export function normalizeLearningContract(contract = {}, context = {}) {
     practiceTarget,
     successCriteria,
     doNotIntroduceYet,
+    learnerProfile,
+    depthPolicy,
+    prerequisiteMode: contract?.prerequisiteMode || context?.prerequisiteMode || 'compressed',
+    visualPreference: contract?.visualPreference || learnerProfile.visualPreference || 'visual',
   }
 }
 
@@ -104,17 +466,22 @@ export function buildLearningContract({
   taskOutcome,
   moduleTitle,
   allConcepts = [],
+  learnerProfile = null,
+  depthOverride = null,
+  visualPreference = null,
 } = {}) {
   const dayFocus = cleanText(taskTitle || concept || moduleTitle || 'Today\'s concept')
   const relatedConcepts = dedupeStrings([dayFocus, ...(Array.isArray(allConcepts) ? allConcepts : []), moduleTitle])
+  const profile = normalizeLearnerProfile(learnerProfile, { goal })
+  const depthPolicy = deriveDepthPolicy(profile, depthOverride)
   return normalizeLearningContract({
     dayFocus,
     allowedConcepts: relatedConcepts,
     taughtPoints: [
-      `${dayFocus} in plain language`,
-      taskDescription ? `${taskDescription}` : `How ${dayFocus} supports progress toward ${goal || 'the larger goal'}`,
-      taskAction ? `${taskAction}` : `A concrete example of ${dayFocus} in action`,
-      taskOutcome ? `${taskOutcome}` : `A clear sign that ${dayFocus} is starting to stick`,
+      `Define ${dayFocus} clearly`,
+      taskDescription ? `${taskDescription}` : `Explain what ${dayFocus} does and when to use it`,
+      taskAction ? `${taskAction}` : `Use ${dayFocus} in one concrete example`,
+      taskOutcome ? `${taskOutcome}` : `Spot one mistake people make with ${dayFocus}`,
     ],
     requiredVocabulary: buildVocabulary(dayFocus, relatedConcepts.slice(1)),
     practiceTarget: taskAction || `Apply ${dayFocus} once in a realistic situation.`,
@@ -128,244 +495,124 @@ export function buildLearningContract({
       'New abstractions that were not defined today',
       'Extra tools that are not needed for the next practice step',
     ],
-  }, { concept: dayFocus, goal })
+    learnerProfile: profile,
+    depthPolicy,
+    prerequisiteMode: 'compressed',
+    visualPreference: visualPreference || profile.visualPreference || 'visual',
+  }, { concept: dayFocus, goal, learnerProfile: profile, depthOverride })
 }
 
-function buildDomainLens(dayFocus, goal) {
-  if (isProgrammingTopic(dayFocus, goal)) {
-    return {
-      analogy: `${dayFocus} is like learning one dependable building block before you try to assemble a full app or system.`,
-      workedContext: `Imagine you are making progress on ${goal}. Instead of trying to learn every tool at once, you isolate ${dayFocus} and practice the one decision it controls.`,
-      mistake: 'Jumping straight to tooling, syntax, or framework tricks before the underlying mental model is stable.',
-      fix: `Name the job ${dayFocus} is doing first, then connect it to the concrete code or workflow you are about to touch.`,
-    }
-  }
-
-  if (isDesignTopic(dayFocus, goal)) {
-    return {
-      analogy: `${dayFocus} is like learning how to see the reason behind a strong interface, not just copying the surface style.`,
-      workedContext: `Imagine reviewing a real screen for ${goal}. ${dayFocus} helps you explain why a choice feels clear, confusing, useful, or distracting.`,
-      mistake: 'Treating the concept as visual taste instead of a decision that changes what the user can understand or do.',
-      fix: 'Tie every explanation back to user clarity, decision-making, and the job the screen needs to help the person complete.',
-    }
-  }
-
-  if (isLanguageTopic(dayFocus, goal)) {
-    return {
-      analogy: `${dayFocus} is like a phrase pattern or grammar handle that lets you say more with less guessing.`,
-      workedContext: `Imagine trying to express one useful idea related to ${goal}. ${dayFocus} gives you the structure that makes the sentence work.`,
-      mistake: 'Memorizing words without understanding when or why the pattern changes in real conversation.',
-      fix: 'Pair the idea with one situation, one sentence, and one contrast so the pattern becomes usable instead of fragile.',
-    }
-  }
-
-  return {
-    analogy: `${dayFocus} is the part of the skill that turns vague interest into a decision you can actually make.`,
-    workedContext: `Imagine trying to make real progress on ${goal}. ${dayFocus} matters because it tells you what to notice, what to ignore, and what good use looks like.`,
-    mistake: 'Collecting the phrase without turning it into a usable decision rule.',
-    fix: `Define ${dayFocus}, connect it to one example, and then say what would count as a bad use of it.`,
-  }
-}
-
-function buildFallbackExplanation({ dayFocus, goal, contract, taskDescription, resourceTitle }) {
-  const lens = buildDomainLens(dayFocus, goal)
-  const opening = `${titleCase(dayFocus)} is the day-level idea that anchors this part of ${goal}. In plain English, it is the concept you rely on to make better choices, not just remember a definition.`
-  const middle = `${lens.analogy} A strong understanding means you can explain what the idea is, when it matters, and how to recognize it in action without leaning on buzzwords.`
-  const closing = taskDescription
-    ? `${toSentence(taskDescription)} ${resourceTitle ? `Use ${resourceTitle} as supporting evidence, but the real goal is to internalize the pattern so you can use it without copying the source.` : 'The point of this lesson is to give you a stable mental model before you enter practice.'}`
-    : `${resourceTitle ? `Use ${resourceTitle} as a reference, but do not confuse the resource with the concept itself.` : 'The rest of today should build on this concept instead of introducing a new one.'} The boundaries for today are: ${contract.doNotIntroduceYet.join('; ')}.`
-  return [opening, middle, closing].join('\n\n')
-}
-
-function buildWorkedExample({ dayFocus, goal, contract }) {
-  const lens = buildDomainLens(dayFocus, goal)
-  return {
-    title: `Using ${titleCase(dayFocus)} in a real moment`,
-    setup: lens.workedContext,
-    walkthrough: [
-      `First, name the job of ${dayFocus}: what does it help you notice, decide, or produce?`,
-      `Next, compare one strong use of ${dayFocus} with one weak or misleading use so the difference becomes visible.`,
-      `Then map the concept back to today's practice target: ${contract.practiceTarget}`,
-    ],
-    result: `If the example worked, you should now be able to explain ${dayFocus} clearly and carry it into the next task without introducing extra material.`,
-  }
-}
-
-function buildCommonMistake({ dayFocus, goal }) {
-  const lens = buildDomainLens(dayFocus, goal)
-  return {
-    mistake: lens.mistake,
-    whyItHappens: `Learners often rush because they want visible progress on ${goal}. That makes it tempting to skip the reasoning layer and jump straight to output.`,
-    fix: lens.fix,
-  }
-}
-
-export function buildStructuredConceptLessonDoc({
-  concept,
-  taskTitle,
-  goal,
-  knowledge,
-  taskDescription,
-  taskAction,
-  taskOutcome,
-  resourceUrl,
-  resourceTitle,
-  learningContract,
-  fallbackReason = 'structured',
-} = {}) {
-  const dayFocus = cleanText(taskTitle || concept || 'Today\'s concept')
-  const contract = normalizeLearningContract(learningContract, {
-    concept: dayFocus,
-    goal,
-    taskTitle,
-  })
-  const priorKnowledge = cleanText(knowledge)
-  const hook = priorKnowledge
-    ? `You already have a starting point: ${priorKnowledge}. Today we tighten that into a usable mental model for ${dayFocus}, so the rest of the day can build on something solid instead of vague familiarity.`
-    : `${dayFocus} is one of the first ideas that makes progress on ${goal} feel concrete. Instead of trying to absorb everything, this lesson focuses on the exact mental model you need before practice begins.`
-
-  return {
-    title: titleCase(dayFocus),
-    hook,
-    plainEnglishExplanation: buildFallbackExplanation({
-      dayFocus,
-      goal,
-      contract,
-      taskDescription,
-      resourceTitle,
-    }),
-    whyItMatters: `This matters because the rest of the day assumes you can already reason with ${dayFocus}. Guided practice should deepen it, quizzes should verify it, and challenges should stretch it, but none of those later tasks should have to introduce the core idea from scratch.`,
-    workedExample: buildWorkedExample({ dayFocus, goal, contract }),
-    commonMistake: buildCommonMistake({ dayFocus, goal }),
-    keyTakeaways: dedupeStrings([
-      `${dayFocus} should feel like a decision rule, not a trivia fact`,
-      contract.taughtPoints[0],
-      contract.taughtPoints[1],
-      contract.practiceTarget,
-    ]).slice(0, 5),
-    practiceBridge: taskAction
-      ? `Next, use this idea actively: ${toSentence(taskAction)} Stay inside today's taught scope: ${contract.allowedConcepts.join(', ')}.`
-      : `Next, move into guided practice and apply ${dayFocus} once on purpose. The goal is not novelty yet; it is deliberate use.`,
-    allowedConcepts: contract.allowedConcepts,
-    taughtPoints: contract.taughtPoints,
-    completionCheck: {
-      prompt: taskOutcome
-        ? `Before you continue, explain how you would know you achieved this outcome: ${toSentence(taskOutcome)}`
-        : `Before you continue, explain ${dayFocus} in your own words and name one concrete situation where you would use it.`,
-      expectedSignals: contract.successCriteria,
-      nextStep: `If you can explain ${dayFocus}, name one common mistake, and describe how you will use it in the next task, you are ready to continue.`,
-    },
-    resource: resourceUrl
-      ? {
-          url: resourceUrl,
-          title: cleanText(resourceTitle) || 'Primary resource',
-        }
-      : null,
-    fallbackReason: cleanText(fallbackReason),
-  }
-}
-
-function normalizeWorkedExample(example, fallback) {
+function normalizeWorkedExample(example, base) {
   if (typeof example === 'string') {
     return {
-      ...fallback,
-      setup: cleanText(example) || fallback.setup,
+      ...base,
+      setup: cleanText(example) || base.setup,
     }
   }
   const source = example && typeof example === 'object' ? example : {}
   return {
-    title: cleanText(source.title) || fallback.title,
-    setup: cleanText(source.setup) || fallback.setup,
-    walkthrough: splitList(source.walkthrough, fallback.walkthrough).slice(0, 5),
-    result: toSentence(source.result, fallback.result),
+    title: cleanText(source.title) || base.title,
+    setup: cleanText(source.setup) || base.setup,
+    walkthrough: splitList(source.walkthrough, base.walkthrough).slice(0, 6),
+    result: toSentence(source.result, base.result),
   }
 }
 
-function normalizeCommonMistake(mistake, fallback) {
+function normalizeCommonMistake(mistake, base) {
   if (typeof mistake === 'string') {
     return {
-      ...fallback,
-      mistake: toSentence(mistake, fallback.mistake),
+      ...base,
+      mistake: toSentence(mistake, base.mistake),
     }
   }
   const source = mistake && typeof mistake === 'object' ? mistake : {}
   return {
-    mistake: toSentence(source.mistake, fallback.mistake),
-    whyItHappens: toSentence(source.whyItHappens, fallback.whyItHappens),
-    fix: toSentence(source.fix, fallback.fix),
+    mistake: toSentence(source.mistake, base.mistake),
+    whyItHappens: toSentence(source.whyItHappens, base.whyItHappens),
+    fix: toSentence(source.fix, base.fix),
   }
 }
 
-function normalizeCompletionCheck(check, fallback) {
+function normalizeCompletionCheck(check, base) {
   if (typeof check === 'string') {
     return {
-      ...fallback,
-      prompt: toSentence(check, fallback.prompt),
+      ...base,
+      prompt: toSentence(check, base.prompt),
     }
   }
   const source = check && typeof check === 'object' ? check : {}
   return {
-    prompt: toSentence(source.prompt, fallback.prompt),
-    expectedSignals: splitList(source.expectedSignals, fallback.expectedSignals).slice(0, 5),
-    nextStep: toSentence(source.nextStep, fallback.nextStep),
+    prompt: toSentence(source.prompt, base.prompt),
+    expectedSignals: splitList(source.expectedSignals, base.expectedSignals).slice(0, 5),
+    nextStep: toSentence(source.nextStep, base.nextStep),
+  }
+}
+
+function normalizeMentalModel(model, base, context) {
+  if (typeof model === 'string') {
+    return {
+      ...base,
+      model: toSentence(sanitizeLessonCopy(model, context, 2), base.model),
+    }
+  }
+  const source = model && typeof model === 'object' ? model : {}
+  return {
+    model: toSentence(sanitizeLessonCopy(source.model, context, 2), base.model),
+    howToUse: toSentence(sanitizeLessonCopy(source.howToUse, context, 2), base.howToUse),
+    watchOut: toSentence(sanitizeLessonCopy(source.watchOut, context, 1), base.watchOut),
+  }
+}
+
+function normalizeDeepDive(deepDive, base, context) {
+  if (typeof deepDive === 'string') {
+    return {
+      ...base,
+      answer: toSentence(sanitizeLessonCopy(deepDive, context, 4), base.answer),
+    }
+  }
+  const source = deepDive && typeof deepDive === 'object' ? deepDive : {}
+  return {
+    question: toSentence(sanitizeLessonCopy(source.question, context, 1), base.question),
+    answer: toSentence(sanitizeLessonCopy(source.answer, context, 4), base.answer),
+    because: toSentence(sanitizeLessonCopy(source.because, context, 2), base.because),
+  }
+}
+
+function normalizePracticeDrill(drill, base, context) {
+  if (typeof drill === 'string') {
+    return {
+      ...base,
+      prompt: toSentence(sanitizeLessonCopy(drill, context, 2), base.prompt),
+    }
+  }
+  const source = drill && typeof drill === 'object' ? drill : {}
+  return {
+    prompt: toSentence(sanitizeLessonCopy(source.prompt, context, 2), base.prompt),
+    steps: sanitizeLessonList(splitList(source.steps, base.steps), context, 5),
+    modelAnswer: toSentence(sanitizeLessonCopy(source.modelAnswer, context, 3), base.modelAnswer),
+    selfCheck: sanitizeLessonList(splitList(source.selfCheck, base.selfCheck), context, 5),
   }
 }
 
 function normalizeInteractions(interactions, context) {
-  const concept = cleanText(context?.concept || context?.taskTitle || 'this concept')
-  const goal = cleanText(context?.goal || '')
+  const concept = getLessonDisplayFocus(context)
 
   const defaults = [
-    {
-      afterSection: 'hook',
-      type: 'true_false',
-      statement: `${concept} is the focus for this lesson, not the entire goal all at once.`,
-      correct: true,
-      explanation: `Right — the lesson narrows the goal into one usable idea so practice has a clear target.`,
-    },
+    { afterSection: 'hook', type: 'ready_check' },
     {
       afterSection: 'explanation',
-      type: 'fill_blank',
-      sentence: `The main idea today is ___ .`,
-      answer: concept,
-      explanation: `${concept} is the day-level focus that later tasks should stay inside.`,
+      type: 'true_false',
+      statement: `${concept} should help you make one clearer decision in practice.`,
+      correct: true,
+      explanation: 'Correct - a useful concept should change what you notice or do next.',
     },
-    {
-      afterSection: 'workedExample',
-      type: 'predict',
-      question: `What should you do before using ${concept} in practice?`,
-      options: [
-        `Name the job ${concept} is doing`,
-        'Jump to advanced edge cases',
-        'Ignore the example and memorize terms',
-        'Change topics entirely',
-      ],
-      correctIndex: 0,
-      explanation: `The safest next move is to name the role of ${concept}, then apply it deliberately.`,
-    },
-    {
-      afterSection: 'commonMistake',
-      type: 'spot_error',
-      question: `Which habit is the mistake to avoid with ${concept}?`,
-      options: [
-        'Using the concept in one concrete example',
-        'Explaining the idea in plain language',
-        'Collecting jargon without a usable decision rule',
-        'Checking your answer against the lesson scope',
-      ],
-      correctIndex: 2,
-      explanation: `Jargon feels like progress, but it does not prove that ${concept} is usable.`,
-    },
-    {
-      afterSection: 'takeaways',
-      type: 'reflect',
-      question: `In your own words, how will you use ${concept} in the next task?`,
-    },
+    { afterSection: 'workedExample', type: 'ready_check' },
+    { afterSection: 'commonMistake', type: 'ready_check' },
   ]
 
   if (!Array.isArray(interactions) || interactions.length === 0) return defaults
 
-  const normalized = interactions.slice(0, 5).map((item, i) => {
+  const normalized = interactions.slice(0, 4).map((item, i) => {
     if (!item || typeof item !== 'object') return defaults[i] || defaults[0]
     const type = item.type || 'ready_check'
     const base = { afterSection: item.afterSection || defaults[i]?.afterSection || 'hook', type }
@@ -373,83 +620,208 @@ function normalizeInteractions(interactions, context) {
     if (type === 'true_false') {
       return {
         ...base,
-        statement: cleanText(item.statement || item.question || ''),
+        statement: sanitizeLessonCopy(item.statement || item.question || '', context, 1),
         correct: item.correct === true || item.correct === 'true',
-        explanation: cleanText(item.explanation || ''),
+        explanation: sanitizeLessonCopy(item.explanation || '', context, 1),
       }
     }
     if (type === 'fill_blank') {
       return {
         ...base,
-        sentence: cleanText(item.sentence || item.question || ''),
+        sentence: sanitizeLessonCopy(item.sentence || item.question || '', context, 1),
         answer: cleanText(item.answer || ''),
-        explanation: cleanText(item.explanation || ''),
+        explanation: sanitizeLessonCopy(item.explanation || '', context, 1),
       }
     }
     if (type === 'predict' || type === 'spot_error') {
+      const rawOptions = Array.isArray(item.options) ? item.options.map((o) => sanitizeLessonCopy(o, context, 1)).filter(Boolean) : []
+      const fallbackOptions = type === 'spot_error'
+        ? [
+          `It treats ${concept} like a label instead of a decision tool.`,
+          'It checks the example against the taught idea.',
+          'It explains the reason before moving on.',
+          'It stays inside today\'s scope.',
+        ]
+        : [
+          `The result should show ${concept} being used in a specific choice.`,
+          'The learner should ignore the example and memorize the title.',
+          'The next step is unrelated to the worked example.',
+          'The concept disappears once practice begins.',
+        ]
+      const options = rawOptions.length >= 2 ? rawOptions : fallbackOptions
+      const rawCorrectIndex = typeof item.correctIndex === 'number' ? item.correctIndex : 0
       return {
         ...base,
-        question: cleanText(item.question || ''),
+        question: sanitizeLessonCopy(item.question || '', context, 1),
         code: String(item.code || '').trim(),
-        options: Array.isArray(item.options) ? item.options.map((o) => cleanText(o)).filter(Boolean) : [],
-        correctIndex: typeof item.correctIndex === 'number' ? item.correctIndex : 0,
-        explanation: cleanText(item.explanation || ''),
+        options,
+        correctIndex: Math.max(0, Math.min(options.length - 1, rawCorrectIndex)),
+        explanation: sanitizeLessonCopy(item.explanation || '', context, 1),
       }
     }
     return base
   })
 
-  while (normalized.length < 5) normalized.push(defaults[normalized.length] || defaults[0])
+  while (normalized.length < 4) normalized.push(defaults[normalized.length] || defaults[0])
   return normalized
 }
 
 export function normalizeConceptLessonDoc(doc = {}, context = {}) {
-  const fallback = buildStructuredConceptLessonDoc(context)
+  const displayFocus = getLessonDisplayFocus(context)
+  const learnerProfile = normalizeLearnerProfile(
+    context?.learnerProfile || context?.learningContract?.learnerProfile,
+    context,
+  )
+  const depthPolicy = deriveDepthPolicy(learnerProfile, context?.depthOverride)
   const contract = normalizeLearningContract({
-    allowedConcepts: doc?.allowedConcepts || fallback.allowedConcepts,
-    taughtPoints: doc?.taughtPoints || fallback.taughtPoints,
+    allowedConcepts: doc?.allowedConcepts || context?.learningContract?.allowedConcepts || [displayFocus],
+    taughtPoints: doc?.taughtPoints || context?.learningContract?.taughtPoints || [`Explain ${displayFocus}`, `Use ${displayFocus} once`, `Avoid one common mistake`],
+    learnerProfile,
+    depthPolicy,
+    visualPreference: context?.visualPreference || learnerProfile.visualPreference,
   }, {
-    concept: context?.taskTitle || context?.concept,
+    concept: displayFocus,
     goal: context?.goal,
+    learnerProfile,
+    depthOverride: context?.depthOverride,
   })
+  const explanationSentences = Math.max(5, Number(depthPolicy.explanationSentences) || 7)
+  const baseDoc = {
+    title: titleCase(displayFocus),
+    learningObjectives: [
+      `Define ${displayFocus}`,
+      `Use ${displayFocus} in one realistic example`,
+      `Avoid one common mistake with ${displayFocus}`,
+    ],
+    hook: `Let's look at ${displayFocus} in a situation where it actually matters.`,
+    mentalModel: {
+      model: `${displayFocus} is the specific rule, structure, or move you use when this kind of problem appears.`,
+      howToUse: `Use it when the task clearly calls for ${displayFocus}, not when a simpler idea would do.`,
+      watchOut: `Do not treat ${displayFocus} like a label. It should change a concrete choice or result.`,
+    },
+    plainEnglishExplanation: `[Lesson generation incomplete — regenerate to load the concrete explanation for ${displayFocus}.]`,
+    deepDive: {
+      question: `What is the non-obvious part of ${displayFocus}?`,
+      answer: `[Lesson generation incomplete — regenerate to load the deeper explanation for ${displayFocus}.]`,
+      because: `${displayFocus} matters when you understand why it works, not just what it is called.`,
+    },
+    whyItMatters: `${displayFocus} matters because real tasks break when this part is misunderstood.`,
+    workedExample: {
+      title: 'Worked example',
+      setup: `Here is a scenario where ${displayFocus} shows up in practice.`,
+      walkthrough: [
+        `Identify where ${displayFocus} appears`,
+        `Apply ${displayFocus} step by step`,
+        'Check the result against the expected behavior',
+        'Notice the mistake that would break the result',
+      ],
+      result: `You should end with a visible example of ${displayFocus} in action.`,
+    },
+    practiceDrill: {
+      prompt: `Use ${displayFocus} in one short concrete task.`,
+      steps: [
+        `State what ${displayFocus} does`,
+        'Apply it in a small example',
+        'Check the result',
+      ],
+      modelAnswer: `A strong answer shows exactly how ${displayFocus} changes the result.`,
+      selfCheck: [
+        `Did you use ${displayFocus} directly?`,
+        'Did you show the result clearly?',
+        'Did you avoid the common mistake?',
+      ],
+    },
+    commonMistake: {
+      mistake: `Using ${displayFocus} in the wrong situation or with the wrong rule.`,
+      whyItHappens: 'Beginners often recognize the name before they recognize the conditions for using it.',
+      fix: `Check the exact rule for when ${displayFocus} applies, then test it on one small example.`,
+    },
+    keyTakeaways: [
+      `${displayFocus} has a specific job in real tasks`,
+      `A worked example should show exactly where ${displayFocus} applies`,
+      `Common mistakes usually come from using ${displayFocus} under the wrong conditions`,
+      `The next task should use ${displayFocus} directly`,
+    ],
+    retrievalPrompts: [
+      `Define ${displayFocus} from memory`,
+      `Give one example where ${displayFocus} matters`,
+      `Spot one mistake involving ${displayFocus}`,
+    ],
+    practiceBridge: `In the next task, use ${displayFocus} directly in one concrete situation.`,
+    completionCheck: {
+      prompt: `What would prove you can use ${displayFocus} correctly?`,
+      expectedSignals: [
+        `You can define ${displayFocus}`,
+        `You can use ${displayFocus} in a concrete example`,
+        `You can name one mistake to avoid with ${displayFocus}`,
+      ],
+      nextStep: `Move into practice and use ${displayFocus} directly.`,
+    },
+    resource: null,
+  }
+  const learningObjectives = sanitizeLessonList(splitList(doc?.learningObjectives, baseDoc.learningObjectives), context, 5)
+  const keyTakeaways = sanitizeLessonList(splitList(doc?.keyTakeaways, baseDoc.keyTakeaways), context, 5)
+  const retrievalPrompts = sanitizeLessonList(splitList(doc?.retrievalPrompts, baseDoc.retrievalPrompts), context, 4)
+  const commonMistake = normalizeCommonMistake({
+    ...(typeof doc?.commonMistake === 'object' && doc?.commonMistake ? doc.commonMistake : {}),
+    mistake: sanitizeLessonCopy(doc?.commonMistake?.mistake, context, 1),
+    whyItHappens: sanitizeLessonCopy(doc?.commonMistake?.whyItHappens, context, 2),
+    fix: sanitizeLessonCopy(doc?.commonMistake?.fix, context, 2),
+  }, baseDoc.commonMistake)
+  const taughtPoints = sanitizeLessonList(contract.taughtPoints, context, 5)
+  const baseVisuals = buildDefaultVisuals({
+    title: displayFocus,
+    taughtPoints,
+    keyTakeaways,
+    commonMistake,
+  })
+  const mentalModel = normalizeMentalModel(doc?.mentalModel, baseDoc.mentalModel, context)
+  const deepDive = normalizeDeepDive(doc?.deepDive, baseDoc.deepDive, context)
+  const practiceDrill = normalizePracticeDrill(doc?.practiceDrill, baseDoc.practiceDrill, context)
 
   return {
-    title: cleanText(doc?.title) || fallback.title,
-    hook: toSentence(doc?.hook, fallback.hook),
-    plainEnglishExplanation: cleanText(doc?.plainEnglishExplanation) || fallback.plainEnglishExplanation,
-    whyItMatters: toSentence(doc?.whyItMatters, fallback.whyItMatters),
-    workedExample: normalizeWorkedExample(doc?.workedExample, fallback.workedExample),
-    commonMistake: normalizeCommonMistake(doc?.commonMistake, fallback.commonMistake),
-    keyTakeaways: splitList(doc?.keyTakeaways, fallback.keyTakeaways).slice(0, 6),
-    practiceBridge: toSentence(doc?.practiceBridge, fallback.practiceBridge),
-    allowedConcepts: contract.allowedConcepts,
-    taughtPoints: contract.taughtPoints,
-    completionCheck: normalizeCompletionCheck(doc?.completionCheck, fallback.completionCheck),
-    resource: doc?.resource || fallback.resource || null,
-    fallbackReason: cleanText(doc?.fallbackReason || fallback.fallbackReason),
+    title: titleCase(getLessonDisplayFocus({ ...context, taskTitle: doc?.title || context?.taskTitle })),
+    learningObjectives,
+    hook: toSentence(sanitizeLessonCopy(doc?.hook, context, 3), baseDoc.hook),
+    mentalModel,
+    plainEnglishExplanation: sanitizeLessonCopy(doc?.plainEnglishExplanation, context, explanationSentences) || baseDoc.plainEnglishExplanation,
+    deepDive,
+    whyItMatters: toSentence(sanitizeLessonCopy(doc?.whyItMatters, context, 3), baseDoc.whyItMatters),
+    workedExample: normalizeWorkedExample({
+      ...(typeof doc?.workedExample === 'object' && doc?.workedExample ? doc.workedExample : {}),
+      setup: sanitizeLessonCopy(doc?.workedExample?.setup, context, 2),
+      result: sanitizeLessonCopy(doc?.workedExample?.result, context, 1),
+      walkthrough: sanitizeLessonList(doc?.workedExample?.walkthrough, context, 6),
+    }, baseDoc.workedExample),
+    practiceDrill,
+    commonMistake,
+    keyTakeaways,
+    retrievalPrompts,
+    practiceBridge: toSentence(sanitizeLessonCopy(doc?.practiceBridge, context, 2), baseDoc.practiceBridge),
+    allowedConcepts: sanitizeLessonList(contract.allowedConcepts, context, 5),
+    taughtPoints,
+    completionCheck: normalizeCompletionCheck({
+      ...(typeof doc?.completionCheck === 'object' && doc?.completionCheck ? doc.completionCheck : {}),
+      prompt: sanitizeLessonCopy(doc?.completionCheck?.prompt, context, 1),
+      expectedSignals: sanitizeLessonList(doc?.completionCheck?.expectedSignals, context, 4),
+      nextStep: sanitizeLessonCopy(doc?.completionCheck?.nextStep, context, 1),
+    }, baseDoc.completionCheck),
+    resource: doc?.resource || baseDoc.resource || null,
+    visuals: normalizeVisuals(doc?.visuals, baseVisuals),
+    learningContract: contract,
+    depthPolicy,
     interactions: normalizeInteractions(doc?.interactions, context),
   }
-}
-
-export function extractJsonObject(raw = '') {
-  const text = String(raw || '').replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim()
-  const firstBrace = text.indexOf('{')
-  const lastBrace = text.lastIndexOf('}')
-  if (firstBrace === -1 || lastBrace === -1 || lastBrace < firstBrace) return ''
-  return text.slice(firstBrace, lastBrace + 1)
-}
-
-export function repairJsonString(raw = '') {
-  return extractJsonObject(raw)
-    .replace(/[“”]/g, '"')
-    .replace(/[‘’]/g, '\'')
-    .replace(/,\s*([}\]])/g, '$1')
 }
 
 export function formatLearningContractForPrompt(contract = {}) {
   const normalized = normalizeLearningContract(contract)
   return [
     `DAY FOCUS: ${normalized.dayFocus}`,
+    `LEARNER LEVEL: ${normalized.learnerProfile.level}`,
+    `DEPTH POLICY: ${normalized.depthPolicy.level}; ${normalized.depthPolicy.exampleDifficulty}; ${normalized.depthPolicy.repetitionAllowance}`,
+    `PREREQUISITE MODE: ${normalized.prerequisiteMode}`,
+    `VISUAL PREFERENCE: ${normalized.visualPreference}`,
     `ALLOWED CONCEPTS: ${normalized.allowedConcepts.join(', ')}`,
     `TAUGHT POINTS: ${normalized.taughtPoints.join(' | ')}`,
     `REQUIRED VOCABULARY: ${normalized.requiredVocabulary.join(', ')}`,

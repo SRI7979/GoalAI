@@ -1,9 +1,32 @@
 import { generateLessonFromOpenAI } from '@/lib/lessonGenerator'
-import { buildStructuredConceptLessonDoc, normalizeConceptLessonDoc } from '@/lib/conceptLesson'
+import { normalizeConceptLessonDoc } from '@/lib/conceptLesson'
+
+const LESSON_META_BANNED_PHRASES = [
+  'concepts are tools',
+  'examples prove the idea works',
+  'mistakes show the boundary',
+  'practice turns memory into skill',
+  'supports progress toward',
+  'in plain language',
+  'this is your foundation',
+  'building blocks',
+  'learning journey',
+]
+
+function lessonNeedsRetry(lessonDoc = {}) {
+  const haystack = JSON.stringify(lessonDoc || {}).toLowerCase()
+  return LESSON_META_BANNED_PHRASES.some((phrase) => haystack.includes(phrase))
+    || haystack.includes('[lesson generation incomplete')
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
 
 export async function POST(request) {
   let concept = 'your topic'
   let body = null
+  let lastError = null
   try {
     body = await request.json()
     concept = body?.concept || concept
@@ -17,6 +40,13 @@ export async function POST(request) {
       resourceUrl,
       resourceTitle,
       learningContract,
+      learnerProfile,
+      domain,
+      domainConfig,
+      userLevel,
+      xp,
+      depthOverride,
+      visualPreference,
     } = body
 
     if (!concept || !goal) {
@@ -25,68 +55,10 @@ export async function POST(request) {
 
     const resource = resourceUrl ? { url: resourceUrl, title: resourceTitle || 'Primary resource' } : null
 
-    const tryGenerate = () => generateLessonFromOpenAI({
-      concept,
-      taskTitle,
-      goal,
-      knowledge,
-      taskDescription,
-      taskAction,
-      taskOutcome,
-      resourceUrl,
-      resourceTitle,
-      learningContract,
-      openaiApiKey: process.env.OPENAI_API_KEY,
-    })
-
-    try {
-      const lesson = await tryGenerate()
-      console.info('[PathAI] lesson_generation', {
-        mode: 'ai',
-        concept,
-        taskTitle,
-        cacheable: true,
-      })
-      return Response.json({
-        lessonDoc: normalizeConceptLessonDoc(lesson.lessonDoc, body),
-        generationMode: 'ai',
-        cacheable: true,
-        resource: lesson.resource || resource || null,
-      })
-    } catch (primaryError) {
-      const primaryReason = primaryError?.code || 'unknown_generation_error'
-      console.warn('[PathAI] lesson_generation_failed', {
-        stage: 'primary',
-        reason: primaryReason,
-        concept,
-        taskTitle,
-      })
-
+    let lesson = null
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
       try {
-        const retriedLesson = await tryGenerate()
-        console.info('[PathAI] lesson_generation', {
-          mode: 'ai',
-          concept,
-          taskTitle,
-          cacheable: true,
-          recoveredFrom: primaryReason,
-        })
-        return Response.json({
-          lessonDoc: normalizeConceptLessonDoc(retriedLesson.lessonDoc, body),
-          generationMode: 'ai',
-          cacheable: true,
-          resource: retriedLesson.resource || resource || null,
-        })
-      } catch (retryError) {
-        const retryReason = retryError?.code || primaryReason
-        console.warn('[PathAI] lesson_generation_failed', {
-          stage: 'retry',
-          reason: retryReason,
-          concept,
-          taskTitle,
-        })
-
-        const fallbackLesson = buildStructuredConceptLessonDoc({
+        lesson = await generateLessonFromOpenAI({
           concept,
           taskTitle,
           goal,
@@ -97,40 +69,63 @@ export async function POST(request) {
           resourceUrl,
           resourceTitle,
           learningContract,
-          fallbackReason: retryReason,
+          learnerProfile,
+          domain,
+          domainConfig,
+          userLevel,
+          xp,
+          depthOverride,
+          visualPreference,
+          openaiApiKey: process.env.OPENAI_API_KEY,
         })
-
-        return Response.json({
-          lessonDoc: normalizeConceptLessonDoc(fallbackLesson, body),
-          generationMode: 'structured',
-          cacheable: true,
-          resource: fallbackLesson.resource || resource || null,
+        if (lessonNeedsRetry(lesson?.lessonDoc)) {
+          throw new Error('lesson_too_meta')
+        }
+        break
+      } catch (error) {
+        lastError = error
+        console.warn('[PathAI] lesson_generation_attempt_failed', {
+          attempt,
+          reason: error?.code || error?.message || 'route_error',
+          concept,
         })
+        if (attempt < 2) await wait(700)
       }
     }
+
+    if (!lesson?.lessonDoc) throw lastError || new Error('No concept lesson returned')
+
+    console.info('[PathAI] lesson_generation', {
+      mode: 'ai',
+      concept,
+      taskTitle,
+      cacheable: false,
+      attempts: lastError ? 2 : 1,
+    })
+    return Response.json({
+      lessonDoc: normalizeConceptLessonDoc(lesson.lessonDoc, {
+        ...body,
+        learnerProfile,
+        domain,
+        domainConfig,
+        depthOverride,
+        visualPreference,
+      }),
+      generationMode: 'ai',
+      cacheable: false,
+      resource: lesson.resource || resource || null,
+    })
   } catch (error) {
-    console.error('Lesson API error:', error)
-    if (body?.goal) {
-      const fallbackLesson = buildStructuredConceptLessonDoc({
-        concept,
-        taskTitle: body?.taskTitle,
-        goal: body?.goal,
-        knowledge: body?.knowledge,
-        taskDescription: body?.taskDescription,
-        taskAction: body?.taskAction,
-        taskOutcome: body?.taskOutcome,
-        resourceUrl: body?.resourceUrl,
-        resourceTitle: body?.resourceTitle,
-        learningContract: body?.learningContract,
-        fallbackReason: error?.code || error?.message || 'route_error',
-      })
-      return Response.json({
-        lessonDoc: normalizeConceptLessonDoc(fallbackLesson, body),
-        generationMode: 'structured',
-        cacheable: true,
-        resource: fallbackLesson.resource || null,
-      })
-    }
-    return Response.json({ error: 'Unable to build lesson right now.' }, { status: 500 })
+    const finalError = lastError || error
+    console.error('[PathAI] lesson_generation_failed', {
+      stage: 'retry_exhausted',
+      reason: finalError?.code || finalError?.message || 'route_error',
+      concept,
+    })
+    return Response.json({
+      error: 'Lesson generation failed after retry.',
+      reason: finalError?.code || finalError?.message || 'route_error',
+      cacheable: false,
+    }, { status: body?.goal ? 502 : 500 })
   }
 }
