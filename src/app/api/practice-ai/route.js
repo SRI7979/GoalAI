@@ -2,6 +2,8 @@ import { getOpenAIModel } from '@/lib/openaiModels'
 import { getSupabaseServerClient } from '@/lib/supabaseServer'
 import { AI_INTERACTION_TYPES, getBossConfig } from '@/lib/learningEngine'
 import { formatLearningContractForPrompt } from '@/lib/conceptLesson'
+import { buildStarterForLanguage, detectCodeLanguageFromText, getLanguageMeta } from '@/lib/codeLanguages'
+import { formatDomainForPrompt, normalizeDomain, parseDomainFromConstraints } from '@/lib/domainAdapter'
 
 function extractAccessToken(request) {
   const authHeader = request.headers.get('authorization') || request.headers.get('Authorization')
@@ -30,17 +32,93 @@ async function callOpenAI(prompt, options = {}) {
   return raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
 }
 
+function detectTargetStack({ goal, concept, taskTitle }) {
+  const goalLanguage = detectCodeLanguageFromText(goal, '')
+  if (goalLanguage) return goalLanguage
+  return detectCodeLanguageFromText([concept, taskTitle].filter(Boolean).join(' '), 'javascript')
+}
+
+function buildDomainPrompt({ domain, knowledge, learningContract } = {}) {
+  const resolvedDomain = normalizeDomain(
+    domain || learningContract?.domain || parseDomainFromConstraints([knowledge]),
+    null,
+  )
+  return resolvedDomain ? `\nDOMAIN ADAPTER:\n${formatDomainForPrompt(resolvedDomain)}\n` : ''
+}
+
+function formatTaughtPointsForPrompt(learningContract = {}, concept = '') {
+  const taughtPoints = Array.isArray(learningContract?.taughtPoints)
+    ? learningContract.taughtPoints.map((point) => String(point || '').trim()).filter(Boolean)
+    : []
+  const lines = taughtPoints.length > 0
+    ? taughtPoints
+    : [`Use ${concept || 'the concept'} in one concrete scenario`]
+  return lines.map((line) => `- ${line}`).join('\n')
+}
+
+function starterLooksWrong(starter, language) {
+  const text = String(starter || '').toLowerCase()
+  if (!text.trim()) return true
+  if (language === 'python') return /\bselect\b|\bfrom\b|create table|insert into|<html/.test(text) && !/def\s+\w+\s*\(/.test(text)
+  if (language === 'sql') return !(/\bselect\b|create table|insert into/.test(text))
+  if (language === 'html') return !(/<html|<main|<section|<div/.test(text))
+  if (language === 'javascript') return !(/function|const|let|=>|console\.log/.test(text))
+  return false
+}
+
+function repairGuidedPractice(data, { language, goal, concept, taskTitle }) {
+  const title = data?.title || `Practice ${concept || taskTitle || getLanguageMeta(language).label}`
+  return {
+    title,
+    scenario: data?.scenario || `You are using ${getLanguageMeta(language).label} to solve a small realistic problem for ${goal}.`,
+    task: data?.task || `Complete the starter in ${getLanguageMeta(language).label} and run it in the sandbox.`,
+    starter: starterLooksWrong(data?.starter, language)
+      ? buildStarterForLanguage(language, title, data?.task || goal)
+      : data.starter,
+    starter_language: language,
+    hints: Array.isArray(data?.hints) && data.hints.length
+      ? data.hints
+      : [
+        { level: 1, hint: 'Start by identifying the input, transformation, and output.' },
+        { level: 2, hint: 'Implement one small piece first, then run it before adding more.' },
+        { level: 3, hint: 'Replace the TODO with a direct solution and print the result.' },
+      ],
+    solution: data?.solution || 'A complete solution should run in the sandbox and produce visible output.',
+    explanation: data?.explanation || 'The solution works when each step maps directly to the target concept and the output proves the behavior.',
+    interactiveQuestions: Array.isArray(data?.interactiveQuestions) ? data.interactiveQuestions : [],
+    checkpoints: Array.isArray(data?.checkpoints) && data.checkpoints.length
+      ? data.checkpoints
+      : [{ id: 'cp1', question: 'What did your code output, and why?', answer: 'A brief explanation of the result.' }],
+  }
+}
+
 // ── GUIDED PRACTICE ─────────────────────────────────────────────────────────
-async function generateGuidedPractice({ concept, goal, difficulty, knowledge, learningContract, taskAction, taskOutcome, taskDescription }) {
-  const prompt = `You are a learning coach creating a guided practice exercise.
+async function generateGuidedPractice({ concept, goal, difficulty, knowledge, learningContract, taskAction, taskOutcome, taskDescription, taskTitle, variationSeed = Date.now(), domain }) {
+  const targetStack = detectTargetStack({ goal, concept, taskTitle })
+  const targetLabel = getLanguageMeta(targetStack).label
+  const domainPrompt = buildDomainPrompt({ domain, knowledge, learningContract })
+  const taughtPointsPrompt = formatTaughtPointsForPrompt(learningContract, concept)
+  const forbidden = targetStack === 'python'
+    ? 'Do NOT create SQL, database-query, HTML, JavaScript, React, or web-page work.'
+    : targetStack === 'sql'
+      ? 'Do NOT create Python, JavaScript, React, or HTML app work.'
+      : targetStack === 'html'
+        ? 'Do NOT create Python or SQL query work.'
+        : `Do NOT switch away from ${targetLabel}.`
+  const prompt = `You are designing a guided practice exercise that tests specific skills, not vague understanding.
 
 CONCEPT: ${concept}
 GOAL: ${goal}
+${domainPrompt}
+TARGET STACK: ${targetLabel}
 DIFFICULTY: ${difficulty}/5
+VARIATION SEED: ${variationSeed}
 PRIOR KNOWLEDGE: ${knowledge || 'Beginner'}
 ${taskDescription ? `DAY CONTEXT: ${taskDescription}` : ''}
 ${taskAction ? `INTENDED PRACTICE ACTION: ${taskAction}` : ''}
 ${taskOutcome ? `TARGET OUTCOME: ${taskOutcome}` : ''}
+SPECIFIC SKILLS JUST TAUGHT:
+${taughtPointsPrompt}
 
 LEARNING CONTRACT:
 ${formatLearningContractForPrompt(learningContract)}
@@ -53,6 +131,7 @@ Return ONLY valid JSON:
   "scenario": "A concrete, realistic scenario/problem to solve (2-3 sentences)",
   "task": "Clear instruction of what they need to do",
   "starter": "Starting point — partial code/template/framework to build on (if applicable, otherwise empty string)",
+  "starter_language": "${targetStack}",
   "hints": [
     {"level": 1, "hint": "Gentle nudge in the right direction (no answer)"},
     {"level": 2, "hint": "More specific guidance with key insight"},
@@ -94,7 +173,17 @@ Return ONLY valid JSON:
 }
 
 RULES:
+- Generate practice problems that test SPECIFIC skills, not general understanding.
+- Each practice problem must require the learner to DO something concrete — write code, identify an error, predict an output, arrange steps in order, or choose the correct move.
+- NEVER generate a problem like "Explain what X means" or "Describe how X works" — those are reflection tasks, not practice.
+- NEVER generate a problem that could be answered without knowing the specific concept. If someone who never took the lesson could still answer it, it is too generic.
+- Every checkpoint and interactive question must have one objectively verifiable correct answer.
+- Include the concept name in the scenario or task so it is clear which skill is being tested.
 - The scenario must be REALISTIC and SPECIFIC — not abstract
+- starter_language MUST be exactly "${targetStack}".
+- The starter must be runnable in the ${targetLabel} sandbox with TODO comments where the learner works.
+- ${forbidden}
+- If the task title mentions another language, ignore that mismatch and follow TARGET STACK.
 - Hints must be progressive: vague → specific → nearly complete
 - Checkpoints verify understanding, not just completion
 - Mix question types in interactiveQuestions: multiple_choice, fill_blank, true_false, order_steps, spot_error when appropriate
@@ -104,20 +193,25 @@ RULES:
 - Make it feel like a mentor is guiding them, not an exam`
 
   const raw = await callOpenAI(prompt, { temperature: 0.45 })
-  return JSON.parse(raw)
+  return repairGuidedPractice(JSON.parse(raw), { language: targetStack, goal, concept, taskTitle })
 }
 
 // ── CHALLENGE MODE ──────────────────────────────────────────────────────────
-async function generateChallenge({ concept, goal, difficulty, knowledge, learningContract, taskDescription, taskAction, taskOutcome }) {
-  const prompt = `You are creating a challenge problem that tests DEEP understanding, not surface recall.
+async function generateChallenge({ concept, goal, difficulty, knowledge, learningContract, taskDescription, taskAction, taskOutcome, domain }) {
+  const domainPrompt = buildDomainPrompt({ domain, knowledge, learningContract })
+  const taughtPointsPrompt = formatTaughtPointsForPrompt(learningContract, concept)
+  const prompt = `You are creating a challenge problem that tests DEEP understanding of a specific concept, not surface recall.
 
 CONCEPT: ${concept}
 GOAL: ${goal}
+${domainPrompt}
 DIFFICULTY: ${difficulty}/5
 PRIOR KNOWLEDGE: ${knowledge || 'Beginner'}
 ${taskDescription ? `DAY CONTEXT: ${taskDescription}` : ''}
 ${taskAction ? `CHALLENGE ACTION: ${taskAction}` : ''}
 ${taskOutcome ? `SUCCESS TARGET: ${taskOutcome}` : ''}
+SPECIFIC SKILLS JUST TAUGHT:
+${taughtPointsPrompt}
 
 LEARNING CONTRACT:
 ${formatLearningContractForPrompt(learningContract)}
@@ -140,6 +234,8 @@ Return ONLY valid JSON:
 }
 
 RULES:
+- This is a challenge — harder than practice. The learner must apply ${concept} in a novel situation they have not seen before.
+- The problem should be solvable using ONLY the skills listed in taughtPoints, but it should require combining them or applying them in a new context.
 - This is a CHALLENGE — it should make them think hard
 - Include edge cases or tricky aspects
 - The problem should have multiple valid approaches
@@ -152,19 +248,20 @@ RULES:
 }
 
 // ── AI INTERACTION ──────────────────────────────────────────────────────────
-async function generateAIInteraction({ concept, goal, interactionType, knowledge, learningContract, taskDescription, taskAction, taskOutcome }) {
+async function generateAIInteraction({ concept, goal, interactionType, knowledge, learningContract, taskDescription, taskAction, taskOutcome, domain }) {
   const typeConfig = AI_INTERACTION_TYPES[interactionType] || AI_INTERACTION_TYPES.explain
+  const domainPrompt = buildDomainPrompt({ domain, knowledge, learningContract })
 
   const prompts = {
-    explain: `Create a scenario where the student must EXPLAIN "${concept}" in their own words.
+    explain: `Create a teach-back and reflection scenario where the student must EXPLAIN "${concept}" in their own words.
 
 Return ONLY valid JSON:
 {
   "scenario": "Imagine you're explaining ${concept} to a teammate who has never seen it before. They ask:",
-  "prompt_to_student": "A specific question the student must answer by explaining the concept",
+  "prompt_to_student": "A specific question that forces the student to explain the concept clearly and mention when they would use it",
   "evaluation_keywords": ["keyword1", "keyword2", "keyword3"],
   "model_explanation": "An excellent explanation that covers all key points",
-  "follow_up": "A deeper follow-up question to push their understanding further"
+  "follow_up": "A reflection-style follow-up question like 'What part of ${concept} still feels tricky?' or 'When would you choose this over another approach?'"
 }`,
 
     debug: `Create a DEBUGGING scenario about "${concept}" for a ${knowledge || 'beginner'} learner.
@@ -210,6 +307,7 @@ Return ONLY valid JSON:
   const prompt = `You are a learning coach for "${goal}". ${typeConfig.description}.
 
 CONCEPT: ${concept}
+${domainPrompt}
 PRIOR KNOWLEDGE: ${knowledge || 'Beginner'}
 ${taskDescription ? `DAY CONTEXT: ${taskDescription}` : ''}
 ${taskAction ? `TASK ACTION: ${taskAction}` : ''}
@@ -224,16 +322,19 @@ RULES:
 - Make it specific to ${concept}, not generic
 - The scenario should feel like a real conversation with a mentor
 - Stay within the allowed concepts and taught points from the learning contract
-- Tailor complexity to the learner's level`
+- Tailor complexity to the learner's level
+- Meta-learning language is acceptable ONLY here if it asks the learner to reflect on their own understanding of ${concept}`
 
   const raw = await callOpenAI(prompt, { temperature: 0.5 })
   return { ...JSON.parse(raw), interactionType, typeConfig }
 }
 
 // ── EVALUATE AI INTERACTION RESPONSE ────────────────────────────────────────
-async function evaluateInteraction({ concept, interactionType, studentResponse, originalPrompt }) {
+async function evaluateInteraction({ concept, interactionType, studentResponse, originalPrompt, domain, knowledge, learningContract }) {
+  const domainPrompt = buildDomainPrompt({ domain, knowledge, learningContract })
   const prompt = `A student responded to a ${interactionType} exercise about "${concept}".
 
+${domainPrompt}
 ORIGINAL PROMPT: ${originalPrompt}
 STUDENT'S RESPONSE: "${studentResponse}"
 
@@ -259,13 +360,15 @@ RULES:
 }
 
 // ── EVALUATE REFLECTION ─────────────────────────────────────────────────────
-async function evaluateReflection({ concept, goal, reflections }) {
+async function evaluateReflection({ concept, goal, reflections, domain, knowledge, learningContract }) {
+  const domainPrompt = buildDomainPrompt({ domain, knowledge, learningContract })
   const reflectionText = reflections
     .map(r => `Q: ${r.prompt}\nA: ${r.response}`)
     .join('\n\n')
 
   const prompt = `A student completed a reflection exercise after learning about "${concept}" for their goal of "${goal}".
 
+${domainPrompt}
 REFLECTIONS:
 ${reflectionText}
 
@@ -291,13 +394,15 @@ RULES:
 }
 
 // ── BOSS CHALLENGE ──────────────────────────────────────────────────────────
-async function generateBossChallenge({ moduleName, concepts, goal, difficulty, knowledge }) {
+async function generateBossChallenge({ moduleName, concepts, goal, difficulty, knowledge, domain, learningContract }) {
   const bossConfig = getBossConfig(0, moduleName)
+  const domainPrompt = buildDomainPrompt({ domain, knowledge, learningContract })
 
   const prompt = `You are creating a BOSS CHALLENGE — a multi-phase comprehensive test for a learning module.
 
 MODULE: ${moduleName}
 GOAL: ${goal}
+${domainPrompt}
 CONCEPTS COVERED: ${concepts.join(', ')}
 DIFFICULTY: ${difficulty}/5
 BOSS NAME: ${bossConfig.name}
@@ -369,14 +474,16 @@ RULES:
 }
 
 // ── EVALUATE BOSS PHASE ─────────────────────────────────────────────────────
-async function evaluateBossPhase({ phase, studentResponse, concept }) {
+async function evaluateBossPhase({ phase, studentResponse, concept, domain, knowledge, learningContract }) {
   if (phase.type === 'quiz') {
     // Quiz phases are auto-graded
     return null // handled client-side
   }
 
+  const domainPrompt = buildDomainPrompt({ domain, knowledge, learningContract })
   const prompt = `A student is fighting a Boss Challenge and just completed a phase.
 
+${domainPrompt}
 PHASE: ${phase.title}
 TASK: ${phase.scenario || phase.prompt}
 STUDENT'S RESPONSE: "${studentResponse}"

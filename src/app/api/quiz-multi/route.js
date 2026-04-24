@@ -1,5 +1,24 @@
 import { getOpenAIModel } from '@/lib/openaiModels'
 import { formatLearningContractForPrompt } from '@/lib/conceptLesson'
+import { formatDomainForPrompt, normalizeDomain, parseDomainFromConstraints } from '@/lib/domainAdapter'
+
+function buildDomainPrompt({ domain, knowledge, learningContract } = {}) {
+  const resolvedDomain = normalizeDomain(
+    domain || learningContract?.domain || parseDomainFromConstraints([knowledge]),
+    null,
+  )
+  return resolvedDomain ? `\nDOMAIN ADAPTER:\n${formatDomainForPrompt(resolvedDomain)}\n` : ''
+}
+
+function formatTaughtPointsForPrompt(learningContract = {}, concept = '') {
+  const taughtPoints = Array.isArray(learningContract?.taughtPoints)
+    ? learningContract.taughtPoints.map((point) => String(point || '').trim()).filter(Boolean)
+    : []
+  const lines = taughtPoints.length > 0
+    ? taughtPoints
+    : [`Use ${concept || 'the concept'} correctly in one concrete scenario`]
+  return lines.map((line) => `- ${line}`).join('\n')
+}
 
 export async function POST(request) {
   try {
@@ -16,6 +35,7 @@ export async function POST(request) {
       taskAction,
       taskOutcome,
       learningContract,
+      domain,
     } = await request.json()
     if (!concept || !goal) return Response.json({ error: 'Missing concept or goal' }, { status: 400 })
 
@@ -25,11 +45,13 @@ export async function POST(request) {
       : (isCourseFinal ? 12 : 5)
     const conceptList = Array.isArray(coveredConcepts) ? coveredConcepts.filter(Boolean) : []
     const moduleList = Array.isArray(moduleTitles) ? moduleTitles.filter(Boolean) : []
+    const taughtPointsPrompt = formatTaughtPointsForPrompt(learningContract, concept)
 
     const prompt = isCourseFinal
       ? `You are designing the FINAL comprehensive exam for a premium learning app.
 
 Create exactly ${totalQuestions} multiple-choice questions for the course "${goal}".
+${buildDomainPrompt({ domain, knowledge, learningContract })}
 EXAM TITLE: ${examTitle || `Final Course Exam: ${goal}`}
 COURSE CONCEPTS TO COVER: ${conceptList.join(', ') || concept}
 COURSE MODULES: ${moduleList.join(', ') || 'Use the full course progression'}
@@ -40,7 +62,6 @@ Return ONLY valid JSON — no markdown, no backticks:
 {
   "questions": [
     {
-      "type": "multiple_choice",
       "question": "Question text?",
       "options": ["Option A", "Option B", "Option C", "Option D"],
       "correctIndex": 0,
@@ -52,7 +73,6 @@ Return ONLY valid JSON — no markdown, no backticks:
 FINAL EXAM REQUIREMENTS:
 - Cover the full breadth of the course, not just one concept
 - Include a mix of foundation, application, debugging, comparison, synthesis, and transfer questions
-- Prefer mixed interaction types when useful: multiple_choice, true_false, fill_blank, spot_error, order_steps
 - At least 40% of the exam should require combining 2 or more concepts
 - At least 3 questions should feel like real-world scenarios or mini case studies
 - Questions should become slightly more demanding as the exam progresses
@@ -62,10 +82,13 @@ FINAL EXAM REQUIREMENTS:
 - NEVER use "All of the above" or "None of the above"
 - Avoid trivia and memorization; test durable understanding and decision-making`
       : `You are designing a quiz for a premium learning app. Create exactly ${totalQuestions} multiple-choice questions about "${concept}" for someone learning "${goal}".
+${buildDomainPrompt({ domain, knowledge, learningContract })}
 ${knowledge ? `The student already knows: ${knowledge}. Don't test basics they already know.` : ''}
 ${taskDescription ? `DAY CONTEXT: ${taskDescription}` : ''}
 ${taskAction ? `TASK ACTION: ${taskAction}` : ''}
 ${taskOutcome ? `TARGET OUTCOME: ${taskOutcome}` : ''}
+SPECIFIC SKILLS JUST TAUGHT:
+${taughtPointsPrompt}
 
 LEARNING CONTRACT:
 ${formatLearningContractForPrompt(learningContract)}
@@ -74,7 +97,6 @@ Return ONLY valid JSON — no markdown, no backticks:
 {
   "questions": [
     {
-      "type": "multiple_choice",
       "question": "Question text?",
       "options": ["Option A", "Option B", "Option C", "Option D"],
       "correctIndex": 0,
@@ -84,16 +106,17 @@ Return ONLY valid JSON — no markdown, no backticks:
 }
 
 QUIZ QUALITY REQUIREMENTS:
+- Generate quiz questions that test SPECIFIC skills, not general understanding.
+- NEVER generate a question like "Explain what ${concept} means" or "Describe how ${concept} works" — those are reflection questions, not quiz questions.
+- NEVER generate a question that could be answered without knowing the specific concept. If someone who missed the lesson could still answer it, it is too generic.
+- Every question must have ONE objectively correct answer.
+- Include the concept name or a clear concept-specific context in the question stem.
 - Question 1: Foundation — test basic understanding of core concept
 - Question 2: Application — "given this scenario, what would happen?"
 - Question 3: Comparison — "what's the difference between X and Y?"
 - Question 4: Debugging — "what's wrong with this approach?" or "which would NOT work?"
 - Question 5: Synthesis — requires combining multiple concepts to answer
-- Mix interaction types across the set: at least 3 multiple_choice questions and up to 2 of true_false, fill_blank, spot_error, or order_steps
-- For multiple_choice and spot_error, include exactly 4 options
-- For fill_blank, include sentence with ___ and answer
-- For true_false, include statement and correct boolean
-- For order_steps, include steps in correct order
+- Each question must have exactly 4 options
 - Wrong answers must be PLAUSIBLE — no obviously silly options. Use common misconceptions as distractors
 - Explanations must be 2-3 sentences: (1) why the right answer is correct, (2) why the most tempting wrong answer is wrong, (3) a memorable takeaway
 - Use real-world scenarios and code examples where relevant

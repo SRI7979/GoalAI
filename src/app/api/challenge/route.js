@@ -1,6 +1,25 @@
 import { getOpenAIModel } from '@/lib/openaiModels'
 import { buildDeterministicChallenge } from '@/lib/deterministicLesson'
 import { formatLearningContractForPrompt } from '@/lib/conceptLesson'
+import { formatDomainForPrompt, normalizeDomain, parseDomainFromConstraints } from '@/lib/domainAdapter'
+
+function buildDomainPrompt({ domain, knowledge, learningContract } = {}) {
+  const resolvedDomain = normalizeDomain(
+    domain || learningContract?.domain || parseDomainFromConstraints([knowledge]),
+    null,
+  )
+  return resolvedDomain ? `\nDOMAIN ADAPTER:\n${formatDomainForPrompt(resolvedDomain)}\n` : ''
+}
+
+function formatTaughtPointsForPrompt(learningContract = {}, concept = '') {
+  const taughtPoints = Array.isArray(learningContract?.taughtPoints)
+    ? learningContract.taughtPoints.map((point) => String(point || '').trim()).filter(Boolean)
+    : []
+  const lines = taughtPoints.length > 0
+    ? taughtPoints
+    : [`Use ${concept || 'the concept'} in one concrete scenario`]
+  return lines.map((line) => `- ${line}`).join('\n')
+}
 
 export async function POST(request) {
   let body = null
@@ -19,17 +38,22 @@ export async function POST(request) {
       resourceTitle,
       difficulty,
       learningContract,
+      domain,
     } = body || {}
 
     if (!concept || !goal) {
       return Response.json({ error: 'Missing concept or goal' }, { status: 400 })
     }
 
+    const taughtPointsPrompt = formatTaughtPointsForPrompt(learningContract, concept)
     const prompt = `You are designing a timed challenge for a premium learning app. Create an engaging, practical challenge about "${taskTitle || concept}" for someone learning "${goal}".
+${buildDomainPrompt({ domain, knowledge, learningContract })}
 ${knowledge ? `The student already knows: ${knowledge}. Challenge them at their level, not below it.` : ''}
 ${taskDescription ? `DAY CONTEXT: ${taskDescription}` : ''}
 ${taskAction ? `TASK ACTION: ${taskAction}` : ''}
 ${taskOutcome ? `TARGET OUTCOME: ${taskOutcome}` : ''}
+SPECIFIC SKILLS JUST TAUGHT:
+${taughtPointsPrompt}
 
 LEARNING CONTRACT:
 ${formatLearningContractForPrompt(learningContract)}
@@ -41,17 +65,12 @@ Return ONLY valid JSON — no markdown, no backticks:
   "timeLimit": 600,
   "difficulty": "beginner",
   "hints": ["Hint 1", "Hint 2", "Hint 3"],
-  "checkpointQuestion": {
-    "type": "multiple_choice",
-    "question": "Which strategy should you try first?",
-    "options": ["A", "B", "C", "D"],
-    "correctIndex": 0,
-    "explanation": "Why this strategy fits the challenge"
-  },
   "solution": "The complete solution with explanation"
 }
 
 CHALLENGE QUALITY REQUIREMENTS:
+- This is a challenge — harder than practice. The learner must apply ${concept} in a novel situation they have not seen before.
+- The problem should be solvable using ONLY the skills listed above, but should require combining them or applying them in a new context.
 - The PROMPT must be crystal clear about what the student needs to produce. Include:
   * A specific scenario or context ("You're building a...")
   * Exact requirements (numbered list of what they need to accomplish)
@@ -69,7 +88,6 @@ CHALLENGE QUALITY REQUIREMENTS:
   * Mention common mistakes students make when solving this
   * Include a "bonus thought" — how to extend or optimize the solution
 - Stay within the allowed concepts and taught points from the learning contract
-- checkpointQuestion should be a quick strategy check before the learner completes the challenge; use multiple_choice or spot_error
 - The challenge should feel like a puzzle to solve, not homework to complete
 - Ground it in a real-world scenario when possible ("Build a function that a real app would use")`
 
