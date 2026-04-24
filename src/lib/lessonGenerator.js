@@ -374,6 +374,18 @@ CONTENT RULES:
 6. taughtPoints must be concrete skills the learner can now do, not descriptions of the lesson structure.
 7. Generate 4-5 taughtPoints. Each must be a SPECIFIC, TESTABLE skill or fact — something you could write a quiz question about.
 
+BAD taughtPoints:
+- "${displayFocus} in plain language"
+- "How ${displayFocus} supports progress toward the goal"
+- "A concrete example of ${displayFocus}"
+- "A clear sign that ${displayFocus} is starting to stick"
+
+GOOD taughtPoints:
+- "Use ${displayFocus} correctly in a concrete scenario"
+- "Recognize when ${displayFocus} applies and when it does not"
+- "Spot a common mistake involving ${displayFocus}"
+- "Explain the exact rule or mechanic behind ${displayFocus}"
+
 NEVER USE THESE PHRASES ANYWHERE:
 - "concepts are tools"
 - "examples prove the idea works"

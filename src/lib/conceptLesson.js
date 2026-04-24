@@ -27,6 +27,17 @@ const META_LESSON_REWRITES = [
   { pattern: /\bhelps you on your journey\b/gi, replacement: 'helps in practice' },
 ]
 
+const BANNED_TAUGHT_POINT_PATTERNS = [
+  'in plain language',
+  'supports progress',
+  'concrete example of',
+  'clear sign that',
+  'starting to stick',
+  'helps you',
+  'building block',
+  'foundation for',
+]
+
 function stripMetaLessonLanguage(value = '') {
   return META_LESSON_REWRITES.reduce(
     (text, rule) => text.replace(rule.pattern, rule.replacement),
@@ -135,6 +146,31 @@ function sanitizeLessonCopy(value = '', context = {}, maxSentences = 0) {
 
 function sanitizeLessonList(values = [], context = {}, limit = 4) {
   return dedupeStrings(values.map((value) => sanitizeLessonCopy(value, context, 1))).slice(0, limit)
+}
+
+function buildTaughtPointFallbacks(conceptName = 'this concept') {
+  const concept = cleanText(conceptName || 'this concept')
+  return [
+    `Define ${concept} and state when to use it`,
+    `Use ${concept} in one concrete example`,
+    `Identify the result ${concept} should produce when used correctly`,
+    `Spot one common mistake with ${concept}`,
+    `Compare a correct and incorrect use of ${concept}`,
+  ]
+}
+
+export function validateTaughtPoints(points = [], conceptName = '') {
+  const fallbacks = buildTaughtPointFallbacks(conceptName)
+  const cleaned = (Array.isArray(points) ? points : [points])
+    .map((point) => cleanText(point))
+    .filter(Boolean)
+    .map((point, index) => {
+      const lower = point.toLowerCase()
+      const isBanned = BANNED_TAUGHT_POINT_PATTERNS.some((pattern) => lower.includes(pattern))
+      return isBanned ? (fallbacks[index] || `Apply ${conceptName || 'this concept'} in a practical scenario`) : point
+    })
+
+  return dedupeStrings([...cleaned, ...fallbacks]).slice(0, 5)
 }
 
 function dedupeStrings(values = []) {
@@ -422,12 +458,12 @@ export function normalizeLearningContract(contract = {}, context = {}) {
   const depthPolicy = contract?.depthPolicy && typeof contract.depthPolicy === 'object'
     ? { ...deriveDepthPolicy(learnerProfile), ...contract.depthPolicy }
     : deriveDepthPolicy(learnerProfile, context?.depthOverride)
-  const taughtPoints = splitList(contract?.taughtPoints, [
+  const taughtPoints = validateTaughtPoints(splitList(contract?.taughtPoints, [
     `Define ${dayFocus} clearly`,
     `Use ${dayFocus} in one realistic example`,
     `Recognize when ${dayFocus} applies`,
     `Avoid one common mistake with ${dayFocus}`,
-  ]).slice(0, 6)
+  ]), dayFocus).slice(0, 6)
 
   const requiredVocabulary = splitList(contract?.requiredVocabulary, buildVocabulary(dayFocus, relatedConcepts)).slice(0, 6)
   const practiceTarget = toSentence(contract?.practiceTarget, context?.taskAction || `Apply ${dayFocus} in one focused task.`)
@@ -675,7 +711,10 @@ export function normalizeConceptLessonDoc(doc = {}, context = {}) {
   const depthPolicy = deriveDepthPolicy(learnerProfile, context?.depthOverride)
   const contract = normalizeLearningContract({
     allowedConcepts: doc?.allowedConcepts || context?.learningContract?.allowedConcepts || [displayFocus],
-    taughtPoints: doc?.taughtPoints || context?.learningContract?.taughtPoints || [`Explain ${displayFocus}`, `Use ${displayFocus} once`, `Avoid one common mistake`],
+    taughtPoints: validateTaughtPoints(
+      doc?.taughtPoints || context?.learningContract?.taughtPoints || [`Define ${displayFocus}`, `Use ${displayFocus} in one example`, `Avoid one common mistake with ${displayFocus}`],
+      displayFocus,
+    ),
     learnerProfile,
     depthPolicy,
     visualPreference: context?.visualPreference || learnerProfile.visualPreference,
@@ -768,7 +807,7 @@ export function normalizeConceptLessonDoc(doc = {}, context = {}) {
     whyItHappens: sanitizeLessonCopy(doc?.commonMistake?.whyItHappens, context, 2),
     fix: sanitizeLessonCopy(doc?.commonMistake?.fix, context, 2),
   }, baseDoc.commonMistake)
-  const taughtPoints = sanitizeLessonList(contract.taughtPoints, context, 5)
+  const taughtPoints = validateTaughtPoints(sanitizeLessonList(contract.taughtPoints, context, 5), displayFocus)
   const baseVisuals = buildDefaultVisuals({
     title: displayFocus,
     taughtPoints,
