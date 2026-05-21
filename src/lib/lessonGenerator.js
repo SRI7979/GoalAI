@@ -4,8 +4,8 @@ import {
   formatLearningContractForPrompt,
   getLessonDisplayFocus,
   normalizeLearnerProfile,
-  normalizeConceptLessonDoc,
 } from '@/lib/conceptLesson'
+import { narrowConceptTopic, normalizeConceptSlideshowLesson } from '@/lib/conceptSlideshow'
 import {
   buildDomainConfig,
   parseDomainFromConstraints,
@@ -23,111 +23,250 @@ const STRING_ARRAY_SCHEMA = {
   items: { type: 'string' },
 }
 
-const VISUAL_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['type', 'title', 'nodes', 'connections'],
-  properties: {
-    type: { type: 'string', enum: ['flowchart', 'hierarchy', 'comparison', 'steps', 'cycle'] },
-    title: { type: 'string' },
-    nodes: {
-      type: 'array',
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['id', 'label', 'color'],
-        properties: {
-          id: { type: 'string' },
-          label: { type: 'string' },
-          color: { type: 'string' },
-        },
-      },
-    },
-    connections: {
-      type: 'array',
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['from', 'to', 'label'],
-        properties: {
-          from: { type: 'string' },
-          to: { type: 'string' },
-          label: { type: 'string' },
-        },
-      },
-    },
-  },
+const NULLABLE_STRING_ARRAY_SCHEMA = {
+  type: ['array', 'null'],
+  items: { type: 'string' },
 }
 
-const INTERACTION_SCHEMA = {
+const CHECK_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   required: [
-    'afterSection',
-    'type',
-    'statement',
-    'correct',
-    'sentence',
-    'answer',
     'question',
-    'code',
     'options',
     'correctIndex',
     'explanation',
   ],
   properties: {
-    afterSection: { type: 'string', enum: ['hook', 'explanation', 'workedExample', 'commonMistake'] },
-    type: { type: 'string', enum: ['ready_check', 'true_false', 'fill_blank', 'predict', 'spot_error', 'reflect'] },
-    statement: { type: 'string' },
-    correct: { type: 'boolean' },
-    sentence: { type: 'string' },
-    answer: { type: 'string' },
     question: { type: 'string' },
-    code: { type: 'string' },
     options: STRING_ARRAY_SCHEMA,
     correctIndex: { type: 'integer' },
     explanation: { type: 'string' },
   },
 }
 
-const MENTAL_MODEL_SCHEMA = {
+const VISUAL_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['model', 'howToUse', 'watchOut'],
+  required: ['type', 'title', 'caption', 'imagePrompt', 'nodes'],
   properties: {
-    model: { type: 'string' },
-    howToUse: { type: 'string' },
-    watchOut: { type: 'string' },
+	    type: {
+	      type: 'string',
+	      enum: ['none', 'diagram', 'flow', 'comparison', 'code_flow', 'variable_box', 'check_card', 'nested', 'system_flow'],
+	    },
+    title: { type: 'string' },
+    caption: { type: 'string' },
+    imagePrompt: { type: 'string' },
+    nodes: {
+      type: 'array',
+      minItems: 0,
+      maxItems: 5,
+      items: { type: 'string' },
+    },
   },
 }
 
-const DEEP_DIVE_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['question', 'answer', 'because'],
-  properties: {
-    question: { type: 'string' },
-    answer: { type: 'string' },
-    because: { type: 'string' },
-  },
-}
+const DOMAIN_VISUAL_TYPES = [
+  'code_output_visual',
+  'free_body_diagram',
+  'graph_visual',
+  'equation_builder',
+  'dialogue_builder',
+  'email_threat_scan',
+  'terminal_log_visual',
+  'circuit_diagram',
+  'anatomy_diagram',
+  'chemistry_particle_visual',
+  'portfolio_chart_visual',
+  'design_canvas_visual',
+  'timeline_builder',
+  'map_interaction',
+  'molecule_builder',
+  'probability_visualizer',
+  'ecosystem_simulator',
+  'architecture_stack_visual',
+  'audio_wave_visual',
+  'music_pattern_builder',
+  'grammar_tree_visual',
+  'body_motion_visual',
+  'business_strategy_visual',
+  'logic_flow_visual',
+  'storytelling_scene_visual',
+  'ui_layout_visual',
+  'ai_model_flow_visual',
+]
 
-const PRACTICE_DRILL_SCHEMA = {
+const INTERACTION_PRIMITIVES = [
+  'identify',
+  'build',
+  'predict',
+  'trace',
+  'fix',
+  'manipulate',
+  'compare',
+]
+
+const INTERACTIVE_DATA_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['prompt', 'steps', 'modelAnswer', 'selfCheck'],
+  required: [
+    'code',
+    'output',
+    'highlightedLine',
+    'objectLabel',
+    'arrows',
+    'xLabel',
+    'yLabel',
+    'points',
+    'highlight',
+    'target',
+    'pieces',
+    'scenario',
+    'nativePrompt',
+    'targetLanguage',
+    'correctSentence',
+    'wordTiles',
+    'sender',
+    'subject',
+    'body',
+    'redFlags',
+    'logs',
+    'suspiciousIndex',
+    'components',
+    'question',
+    'answer',
+    'choices',
+    'system',
+    'labels',
+    'concept',
+    'particles',
+    'allocations',
+    'insight',
+    'issue',
+    'before',
+    'after',
+    'explanation',
+    'events',
+    'regions',
+    'route',
+    'atoms',
+    'bonds',
+    'variableLabel',
+    'min',
+    'max',
+    'value',
+    'layers',
+    'notes',
+    'sentence',
+    'muscleGroups',
+    'strategies',
+    'branches',
+    'scenes',
+    'modelNodes',
+  ],
   properties: {
-    prompt: { type: 'string' },
-    steps: STRING_ARRAY_SCHEMA,
-    modelAnswer: { type: 'string' },
-    selfCheck: STRING_ARRAY_SCHEMA,
+    code: { type: ['string', 'null'] },
+    output: { type: ['string', 'null'] },
+    highlightedLine: { type: ['integer', 'null'] },
+    objectLabel: { type: ['string', 'null'] },
+    arrows: {
+      type: ['array', 'null'],
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['direction', 'label', 'correct'],
+        properties: {
+          direction: { type: 'string', enum: ['up', 'down', 'left', 'right'] },
+          label: { type: 'string' },
+          correct: { type: 'boolean' },
+        },
+      },
+    },
+    xLabel: { type: ['string', 'null'] },
+    yLabel: { type: ['string', 'null'] },
+    points: {
+      type: ['array', 'null'],
+      items: {
+        type: 'array',
+        minItems: 2,
+        maxItems: 2,
+        items: { type: 'number' },
+      },
+    },
+    highlight: { type: ['string', 'null'] },
+    target: { type: ['string', 'null'] },
+    pieces: NULLABLE_STRING_ARRAY_SCHEMA,
+    scenario: { type: ['string', 'null'] },
+    nativePrompt: { type: ['string', 'null'] },
+    targetLanguage: { type: ['string', 'null'] },
+    correctSentence: { type: ['string', 'null'] },
+    wordTiles: NULLABLE_STRING_ARRAY_SCHEMA,
+    sender: { type: ['string', 'null'] },
+    subject: { type: ['string', 'null'] },
+    body: { type: ['string', 'null'] },
+    redFlags: NULLABLE_STRING_ARRAY_SCHEMA,
+    logs: NULLABLE_STRING_ARRAY_SCHEMA,
+    suspiciousIndex: { type: ['integer', 'null'] },
+    components: NULLABLE_STRING_ARRAY_SCHEMA,
+    question: { type: ['string', 'null'] },
+    answer: { type: ['string', 'null'] },
+    choices: NULLABLE_STRING_ARRAY_SCHEMA,
+    system: { type: ['string', 'null'] },
+    labels: NULLABLE_STRING_ARRAY_SCHEMA,
+    concept: { type: ['string', 'null'] },
+    particles: {
+      type: ['array', 'null'],
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['label', 'count'],
+        properties: {
+          label: { type: 'string' },
+          count: { type: 'integer' },
+        },
+      },
+    },
+    allocations: {
+      type: ['array', 'null'],
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['label', 'value'],
+        properties: {
+          label: { type: 'string' },
+          value: { type: 'number' },
+        },
+      },
+    },
+    insight: { type: ['string', 'null'] },
+    issue: { type: ['string', 'null'] },
+    before: { type: ['string', 'null'] },
+    after: { type: ['string', 'null'] },
+    explanation: { type: ['string', 'null'] },
+    events: NULLABLE_STRING_ARRAY_SCHEMA,
+    regions: NULLABLE_STRING_ARRAY_SCHEMA,
+    route: NULLABLE_STRING_ARRAY_SCHEMA,
+    atoms: NULLABLE_STRING_ARRAY_SCHEMA,
+    bonds: NULLABLE_STRING_ARRAY_SCHEMA,
+    variableLabel: { type: ['string', 'null'] },
+    min: { type: ['number', 'null'] },
+    max: { type: ['number', 'null'] },
+    value: { type: ['number', 'null'] },
+    layers: NULLABLE_STRING_ARRAY_SCHEMA,
+    notes: NULLABLE_STRING_ARRAY_SCHEMA,
+    sentence: { type: ['string', 'null'] },
+    muscleGroups: NULLABLE_STRING_ARRAY_SCHEMA,
+    strategies: NULLABLE_STRING_ARRAY_SCHEMA,
+    branches: NULLABLE_STRING_ARRAY_SCHEMA,
+    scenes: NULLABLE_STRING_ARRAY_SCHEMA,
+    modelNodes: NULLABLE_STRING_ARRAY_SCHEMA,
   },
 }
 
 const LESSON_RESPONSE_FORMAT = {
   type: 'json_schema',
   json_schema: {
-    name: 'pathai_concept_lesson',
+    name: 'pathai_concept_slideshow',
     strict: true,
     schema: {
       type: 'object',
@@ -138,74 +277,146 @@ const LESSON_RESPONSE_FORMAT = {
           type: 'object',
           additionalProperties: false,
           required: [
+            'id',
+            'lessonType',
+            'domain',
+            'topic',
             'title',
-            'learningObjectives',
-            'hook',
-            'mentalModel',
-            'plainEnglishExplanation',
-            'deepDive',
-            'whyItMatters',
-            'workedExample',
-            'practiceDrill',
-            'commonMistake',
-            'keyTakeaways',
-            'retrievalPrompts',
-            'practiceBridge',
-            'allowedConcepts',
-            'taughtPoints',
-            'completionCheck',
-            'interactions',
+            'estimatedMinutes',
+            'xp',
+            'worldId',
+            'unitId',
+            'conceptClusterId',
+            'atomicConceptId',
+            'zoneTheme',
+            'mapColor',
+            'specificityCheck',
+            'slides',
           ],
           properties: {
+            id: { type: 'string' },
+            lessonType: { type: 'string', enum: ['concept_slideshow'] },
+            domain: { type: 'string' },
+            topic: { type: 'string' },
             title: { type: 'string' },
-            learningObjectives: STRING_ARRAY_SCHEMA,
-            hook: { type: 'string' },
-            mentalModel: MENTAL_MODEL_SCHEMA,
-            plainEnglishExplanation: { type: 'string' },
-            deepDive: DEEP_DIVE_SCHEMA,
-            whyItMatters: { type: 'string' },
-            workedExample: {
+            estimatedMinutes: { type: 'integer' },
+            xp: { type: 'integer' },
+            worldId: { type: ['string', 'null'] },
+            unitId: { type: ['string', 'null'] },
+            conceptClusterId: { type: ['string', 'null'] },
+            atomicConceptId: { type: ['string', 'null'] },
+            zoneTheme: { type: ['string', 'null'] },
+            mapColor: { type: ['string', 'null'] },
+            specificityCheck: {
               type: 'object',
               additionalProperties: false,
-              required: ['title', 'setup', 'walkthrough', 'result'],
+              required: ['isSpecific', 'rejectedBroadTopic'],
               properties: {
-                title: { type: 'string' },
-                setup: { type: 'string' },
-                walkthrough: STRING_ARRAY_SCHEMA,
-                result: { type: 'string' },
+                isSpecific: { type: 'boolean' },
+                rejectedBroadTopic: { type: ['string', 'null'] },
               },
             },
-            practiceDrill: PRACTICE_DRILL_SCHEMA,
-            commonMistake: {
-              type: 'object',
-              additionalProperties: false,
-              required: ['mistake', 'whyItHappens', 'fix'],
-              properties: {
-                mistake: { type: 'string' },
-                whyItHappens: { type: 'string' },
-                fix: { type: 'string' },
-              },
-            },
-            keyTakeaways: STRING_ARRAY_SCHEMA,
-            retrievalPrompts: STRING_ARRAY_SCHEMA,
-            practiceBridge: { type: 'string' },
-            allowedConcepts: STRING_ARRAY_SCHEMA,
-            taughtPoints: STRING_ARRAY_SCHEMA,
-            completionCheck: {
-              type: 'object',
-              additionalProperties: false,
-              required: ['prompt', 'expectedSignals', 'nextStep'],
-              properties: {
-                prompt: { type: 'string' },
-                expectedSignals: STRING_ARRAY_SCHEMA,
-                nextStep: { type: 'string' },
-              },
-            },
-            interactions: {
+            slides: {
               type: 'array',
               minItems: 4,
-              maxItems: 4,
-              items: INTERACTION_SCHEMA,
+              maxItems: 8,
+              items: {
+                anyOf: [
+                  {
+                    type: 'object',
+                    additionalProperties: false,
+                    required: ['type', 'title', 'body', 'visual'],
+                    properties: {
+                      type: { type: 'string', enum: ['concept_intro'] },
+                      title: { type: 'string' },
+                      body: { type: 'string' },
+                      visual: VISUAL_SCHEMA,
+                    },
+                  },
+                  {
+                    type: 'object',
+                    additionalProperties: false,
+                    required: ['type', 'title', 'code', 'explanation', 'visual'],
+                    properties: {
+                      type: { type: 'string', enum: ['example'] },
+                      title: { type: 'string' },
+                      code: { type: 'string' },
+                      explanation: { type: 'string' },
+                      visual: VISUAL_SCHEMA,
+                    },
+                  },
+                  {
+                    type: 'object',
+                    additionalProperties: false,
+                    required: ['type', 'title', 'domainVisualType', 'interactionPrimitive', 'data', 'prompt', 'correctAnswer', 'explanation'],
+                    properties: {
+                      type: { type: 'string', enum: ['visual_interactive'] },
+                      title: { type: 'string' },
+                      domainVisualType: { type: 'string', enum: DOMAIN_VISUAL_TYPES },
+                      interactionPrimitive: { type: 'string', enum: INTERACTION_PRIMITIVES },
+                      data: INTERACTIVE_DATA_SCHEMA,
+                      prompt: { type: 'string' },
+                      correctAnswer: { type: 'string' },
+                      explanation: { type: 'string' },
+                    },
+                  },
+                  {
+                    type: 'object',
+                    additionalProperties: false,
+                    required: ['type', 'title', 'code', 'language', 'steps', 'visual'],
+                    properties: {
+                      type: { type: 'string', enum: ['code_breakdown'] },
+                      title: { type: 'string' },
+                      code: { type: 'string' },
+                      language: { type: 'string' },
+                      steps: {
+                        type: 'array',
+                        minItems: 1,
+                        maxItems: 5,
+                        items: {
+                          type: 'object',
+                          additionalProperties: false,
+                          required: ['line', 'explanation'],
+                          properties: {
+                            line: { type: 'integer' },
+                            explanation: { type: 'string' },
+                          },
+                        },
+                      },
+                      visual: VISUAL_SCHEMA,
+                    },
+                  },
+                  {
+                    type: 'object',
+                    additionalProperties: false,
+                    required: ['type', 'title', 'question', 'options', 'correctIndex', 'explanation', 'visual'],
+                    properties: {
+                      type: { type: 'string', enum: ['mini_check'] },
+                      title: { type: 'string' },
+                      question: { type: 'string' },
+                      options: STRING_ARRAY_SCHEMA,
+                      correctIndex: { type: 'integer' },
+                      explanation: { type: 'string' },
+                      visual: VISUAL_SCHEMA,
+                    },
+                  },
+                  {
+                    type: 'object',
+                    additionalProperties: false,
+                    required: ['type', 'title', 'question', 'options', 'correctIndex', 'explanation', 'redemptionQuestion', 'visual'],
+                    properties: {
+                      type: { type: 'string', enum: ['final_check'] },
+                      title: { type: 'string' },
+                      question: { type: 'string' },
+                      options: STRING_ARRAY_SCHEMA,
+                      correctIndex: { type: 'integer' },
+                      explanation: { type: 'string' },
+                      redemptionQuestion: CHECK_SCHEMA,
+                      visual: VISUAL_SCHEMA,
+                    },
+                  },
+                ],
+              },
             },
           },
         },
@@ -256,7 +467,7 @@ async function callOpenAI(prompt, openaiApiKey) {
 function parseLessonJson(raw, context) {
   try {
     const parsed = JSON.parse(raw)
-    return normalizeConceptLessonDoc(parsed?.lessonDoc || parsed, context)
+    return normalizeConceptSlideshowLesson(parsed?.lessonDoc || parsed, context)
   } catch (error) {
     throw buildLessonError('invalid_json', error?.message || 'Could not parse schema-locked lesson JSON')
   }
@@ -328,11 +539,17 @@ export async function generateLessonFromOpenAI({
     },
   }
   const displayFocus = getLessonDisplayFocus(context)
+  const topicSpec = narrowConceptTopic(displayFocus, {
+    ...context,
+    domain: resolvedDomain,
+    domainConfig: resolvedDomainConfig,
+  })
+  const exactTopic = topicSpec.topic
   const depthInstruction = depthPolicy.level === 'foundational'
-    ? 'Teach from first principles. Use simple language, clear cause/effect, one beginner-safe example, and short recaps after important moves.'
+    ? 'Use absolute beginner language. Define the topic directly before using it.'
     : depthPolicy.level === 'advanced'
-      ? 'Compress basics quickly, then teach the non-obvious part. Use a richer example, ask for transfer, and explain why the move works.'
-      : 'Teach the core mental model, connect it to one applied example, and include only the reminders that make the next task easier.'
+      ? 'Keep definitions short, then test the non-obvious behavior.'
+      : 'Teach the exact mechanic clearly with one tiny example.'
 
   const prompt = `You are a subject-matter expert teaching a specific concept for a premium learning app.
 
@@ -345,7 +562,8 @@ Adapt complexity accordingly.
 GOAL: ${goal}
 RAW TASK TITLE: ${taskTitle || concept}
 RAW CONCEPT: ${concept}
-LEARNER-FRIENDLY FOCUS TO USE IN THE LESSON: ${displayFocus}
+EXACT LESSON TOPIC TO TEACH: ${exactTopic}
+${topicSpec.specificityCheck.rejectedBroadTopic ? `REJECTED BROAD TOPIC: ${topicSpec.specificityCheck.rejectedBroadTopic}` : 'REJECTED BROAD TOPIC: none'}
 ${knowledge ? `PRIVATE LEARNER CONTEXT, DO NOT QUOTE: ${knowledge}` : 'PRIVATE LEARNER CONTEXT: beginner / assume very little'}
 LEARNER PROFILE JSON, DO NOT QUOTE: ${JSON.stringify(profile)}
 DEPTH INSTRUCTIONS: ${depthInstruction}
@@ -356,194 +574,126 @@ ${taskOutcome ? `TARGET OUTCOME: ${taskOutcome}` : ''}
 ${resourceTitle ? `PRIMARY RESOURCE: ${resourceTitle}${resourceUrl ? ` (${resourceUrl})` : ''}` : ''}
 
 LEARNING CONTRACT:
-${formatLearningContractForPrompt({ ...context.learningContract, dayFocus: displayFocus })}
+${formatLearningContractForPrompt({ ...context.learningContract, dayFocus: exactTopic, conceptLabel: exactTopic })}
 
-Generate a lesson document that teaches this concept directly.
+TODAY'S WIN CONDITION:
+- Teach exactly one specific topic: ${exactTopic}
+- The learner should finish able to say: "Today I learned exactly ${exactTopic}."
+${resolvedDomainConfig?.workspaceType ? `- The follow-up practice workspace is ${resolvedDomainConfig.workspaceType}. Prepare the learner for that kind of action without turning the lesson into a generic quiz.` : ''}
 
-CRITICAL IDENTITY RULE:
-- You are NOT a learning coach.
-- Do NOT talk about "learning", "progress", "journey", "foundations", or "building blocks".
-- Just teach the actual subject matter.
+Generate a full-screen concept slideshow lesson.
 
 CONTENT RULES:
-1. The hook must be a real-world scenario where this concept matters, NOT a statement about learning.
-2. The explanation must teach the actual mechanics of the concept with precision.
-3. The worked example MUST be a complete, concrete walkthrough. If the topic is code-related, include runnable code or a precise code walkthrough.
-4. The common mistake must describe a specific, real beginner error with this concept.
-5. Takeaways must be specific facts, rules, or decisions about the concept — not motivational or meta-learning statements.
-6. taughtPoints must be concrete skills the learner can now do, not descriptions of the lesson structure.
-7. Generate 4-5 taughtPoints. Each must be a SPECIFIC, TESTABLE skill or fact — something you could write a quiz question about.
+- Teach directly. Do not describe what the lesson will do.
+- Assume the learner does not know any prerequisite unless it appears in KNOWN BEFORE TODAY or TAUGHT IN COMPLETED LESSONS.
+- If a prerequisite is not in that boundary, define it briefly before using it, and do not turn it into a quiz target.
+- mini_check and final_check questions may only ask about NEW CONCEPTS TODAY after the slideshow teaches them, plus concepts inside the ASSESSMENT BOUNDARY.
+- Never ask about a future or adjacent concept just because it is related to ${exactTopic}.
+- No broad titles. No "Introduction to", "Basics", "Fundamentals", "Control Flow", "Functions and Scope", "Variables and Data Types".
+- Do not combine topics with "and".
+- Do not title a lesson with learner-intent verbs. Never output titles like "What is understand Python basics" or "What is learn HTML".
+- If the raw task says "understand/study/learn X", convert it into the exact teachable topic, such as "How an HTML document is structured" or "How to use print()".
+- Do not create a mental_model slide or any analogy-only slide.
+- Usually produce 6-7 slides. Allowed range is 4-8.
+- Use only these slide types: concept_intro, example, visual_interactive, code_breakdown, mini_check, final_check.
+- Slide 1 must be concept_intro and must define ${exactTopic} immediately.
+- Include at least one visual_interactive slide when the domain has a useful visual pattern.
+- Put the first visual_interactive slide after the example or soon after it.
+- Include 2-3 mini_check slides.
+- Last slide must be final_check and must include a redemptionQuestion.
+- Every visual_interactive slide must include interactionPrimitive. Use one of: identify, build, predict, trace, fix, manipulate, compare.
+- Pick the primitive by cognitive mechanic, not decoration: identify = click/select a target; build = assemble order; predict = predict outcome; trace = follow a flow; fix = repair a mistake; manipulate = change one variable; compare = choose between states.
+- Keep every slide short. One idea per slide.
+- For programming lessons, use runnable snippets and explain what each line does.
+- For code questions, put the question first, then a blank line, then the code. Example: "What does this print?\n\nx = 4\nprint(x)".
+- Every explanation must explain the topic itself, not why learning is useful.
+- Every non-visual_interactive slide must include a visual object, but most should use type "none".
+- Use diagrams only when they add a relationship, hierarchy, lifecycle, system boundary, cause/effect, role mapping, or data movement that is not already obvious from the text or code.
+- Good diagrams: AI contains Machine Learning contains Deep Learning; client request goes to API/server, server uses database/service, response returns to client; HTML page hierarchy; CSS box-model layers; for "What is a variable?", variable_box labels the variable name, assignment operator, and stored value.
+- Bad diagrams: restating a code line, "read / track / choose", generic concept maps, mental model labels, repeating answer choices, or showing the same thing the code block already shows.
+- Use only none, diagram, flow, nested, system_flow, comparison, or variable_box. Prefer none for example, code_breakdown, mini_check, and final_check slides.
+- visual.imagePrompt must be an empty string for now. PathAI is using diagrams only until image generation is added later.
+- visual.nodes should contain the visible labels or steps in the diagram. Do not use vague labels like "foundation" or "journey".
+- For variable_box, visual.nodes must be exactly ["variableName", "=", "value"], for example ["age", "=", "15"]. Never output ["age", "15", "value"].
+- visual_interactive must directly teach ${exactTopic}; it is not a decorative image.
+- visual_interactive.prompt must ask the learner to click, build, scan, or identify one specific thing.
+- visual_interactive.correctAnswer must be the exact target interaction answer.
+- visual_interactive.data is schema-strict: include every data key. For keys not used by the selected domainVisualType, use null. Do not invent unrelated filler data just to fill fields.
+- Choose domainVisualType by domain:
+  - programming: code_output_visual
+  - physics: free_body_diagram or graph_visual
+  - math: graph_visual or equation_builder
+  - language: dialogue_builder
+  - cybersecurity: email_threat_scan or terminal_log_visual
+  - Arduino/electronics/engineering circuits: circuit_diagram
+  - biology/health: anatomy_diagram
+  - chemistry: chemistry_particle_visual or equation_builder
+  - finance/business/economics: portfolio_chart_visual
+  - design/art/UI/UX: design_canvas_visual
+  - data science/statistics/ML: graph_visual
+- Choose interactionPrimitive by topic:
+  - programming: predict for output, trace for execution flow, fix for debugging, identify for code parts, build for ordering code
+  - physics: identify force arrows, predict motion, manipulate sliders, trace force/motion flow
+  - math: build equations, manipulate graphs, identify slope/intercepts, compare solutions
+  - language: build sentences, identify grammar/meaning, fix sentence errors, compare phrasing
+  - cybersecurity: identify red flags, trace attack flow, fix mitigations, compare safe vs unsafe
+  - Arduino/electronics: identify components, trace current, predict circuit behavior, fix wiring
+  - finance: compare portfolios, manipulate allocations, identify concentration risk
+  - design: compare before/after, identify issues, fix layout
+- Additional reusable visual types when relevant: timeline_builder, map_interaction, molecule_builder, probability_visualizer, ecosystem_simulator, architecture_stack_visual, audio_wave_visual, music_pattern_builder, grammar_tree_visual, body_motion_visual, business_strategy_visual, logic_flow_visual, storytelling_scene_visual, ui_layout_visual, ai_model_flow_visual.
+- Good visual_interactive examples: slope -> graph_visual with rise/run points; gravity -> free_body_diagram with the downward arrow correct; phishing urgency -> email_threat_scan with urgency as a red flag; Spanish "I want" -> dialogue_builder with "quiero agua"; LED resistor -> circuit_diagram with resistor protection answer.
+- Bad visual_interactive examples: generic icon, flag, planet image, vague "key idea" card, random chart unrelated to ${exactTopic}.
+- visual_interactive data shape examples:
+  - code_output_visual: data has code, output, highlightedLine
+  - free_body_diagram: data has objectLabel and arrows [{ direction, label, correct }]
+  - graph_visual: data has xLabel, yLabel, points, highlight
+  - equation_builder: data has target, pieces, explanation
+  - dialogue_builder: data has scenario, nativePrompt, targetLanguage, correctSentence, wordTiles
+  - email_threat_scan: data has sender, subject, body, redFlags
+  - terminal_log_visual: data has logs, suspiciousIndex
+  - circuit_diagram: data has components, question, answer
+  - anatomy_diagram: data has system, labels
+  - chemistry_particle_visual: data has concept, particles [{ label, count }]
+  - portfolio_chart_visual: data has allocations [{ label, value }], insight
+  - design_canvas_visual: data has issue, before, after
+  - timeline_builder: data has events, target, explanation
+  - map_interaction: data has regions, route, target, explanation
+  - molecule_builder: data has atoms, bonds, target, explanation
+  - probability_visualizer/ecosystem_simulator/audio_wave_visual: data has variableLabel, min, max, value, target, explanation
+  - architecture_stack_visual: data has layers, route, target, explanation
+  - music_pattern_builder: data has notes, target, explanation
+  - grammar_tree_visual: data has sentence, labels, target, explanation
+  - body_motion_visual: data has muscleGroups, target, explanation
+  - business_strategy_visual: data has strategies, target, explanation
+  - logic_flow_visual: data has branches, target, explanation
+  - storytelling_scene_visual: data has scenes, target, explanation
+  - ui_layout_visual: data has issue, before, after, target, explanation
+  - ai_model_flow_visual: data has modelNodes, route, target, explanation
+- Do not use phrases like "At the end of this lesson", "you will understand", "learning journey", "strong foundation", "key concepts", or "building blocks".
+- The JSON schema is strict. Fill every required field.
 
-BAD taughtPoints:
-- "${displayFocus} in plain language"
-- "How ${displayFocus} supports progress toward the goal"
-- "A concrete example of ${displayFocus}"
-- "A clear sign that ${displayFocus} is starting to stick"
+GOOD STYLE:
+- "A variable is a name that stores a value. In Python, age = 15 creates a variable named age and stores 15."
+- "for i in range(3): runs the indented code 3 times."
 
-GOOD taughtPoints:
-- "Use ${displayFocus} correctly in a concrete scenario"
-- "Recognize when ${displayFocus} applies and when it does not"
-- "Spot a common mistake involving ${displayFocus}"
-- "Explain the exact rule or mechanic behind ${displayFocus}"
+BAD STYLE:
+- "This lesson teaches the foundations of variables."
+- "Loops are important for your programming journey."
 
-NEVER USE THESE PHRASES ANYWHERE:
-- "concepts are tools"
-- "examples prove the idea works"
-- "mistakes show the boundary"
-- "practice turns memory into skill"
-- "supports progress toward your goal"
-- "in plain language"
-- "this is your foundation"
-- "building blocks"
-
-Use visual teaching, but do not hide the explanation behind a diagram. The words must carry the teaching. Diagrams should clarify structure.
-The API enforces the response schema. Fill every required field on the first pass.
-
-Return JSON matching this exact shape:
-{
-  "lessonDoc": {
-    "title": "short title, max 6 words, use the learner-friendly focus",
-    "learningObjectives": [
-      "what the learner can do after this lesson",
-      "another specific ability, not a vague topic",
-      "one mistake or judgment they can recognize"
-    ],
-    "hook": "2-3 short sentences, max 70 words total. Create curiosity by naming a real scenario and practical problem this concept solves.",
-    "mentalModel": {
-      "model": "a memorable mental picture or analogy for the concept, 1-2 sentences",
-      "howToUse": "when the learner should reach for this idea in practice, 1-2 sentences",
-      "watchOut": "the boundary or trap that keeps the model honest, 1 sentence"
-    },
-    "plainEnglishExplanation": "4-7 short sentences. Teach the actual concept from the ground up with concrete mechanics. Use paragraph breaks if helpful.",
-    "deepDive": {
-      "question": "the question a confused but motivated learner would ask",
-      "answer": "2-4 sentences that explain the non-obvious part without handwaving",
-      "because": "the causal reason this works or matters, 1-2 sentences"
-    },
-    "whyItMatters": "2-3 sentences. Connect the idea to decisions the learner will make soon.",
-    "workedExample": {
-      "title": "example title, max 6 words",
-      "setup": "the scenario in 2-3 sentences. Make it realistic for the learner's goal and concrete enough to walk through step by step.",
-      "walkthrough": [
-        "step 1 with the reason it matters",
-        "step 2 with the decision being made",
-        "step 3 with what changes because of the concept",
-        "step 4 with the final check"
-      ],
-      "result": "what the learner should notice, 1-2 sentences"
-    },
-    "practiceDrill": {
-      "prompt": "a small active exercise the learner can do in 3-5 minutes",
-      "steps": ["practice step 1", "practice step 2", "practice step 3"],
-      "modelAnswer": "a compact example of what a strong answer could look like",
-      "selfCheck": ["specific check 1", "specific check 2", "specific check 3"]
-    },
-    "commonMistake": {
-      "mistake": "the mistake, 1 sentence",
-      "whyItHappens": "why learners make it, 1-2 sentences",
-      "fix": "how to avoid it, 1-2 sentences"
-    },
-    "keyTakeaways": ["specific fact or rule", "specific fact or rule", "specific fact or rule", "specific fact or rule"],
-    "retrievalPrompts": [
-      "a no-notes recall prompt",
-      "an explain-it-to-a-beginner prompt",
-      "a spot-the-mistake prompt"
-    ],
-    "practiceBridge": "clear handoff into the next practice task, 1-2 sentences",
-    "allowedConcepts": ["short concept label", "short concept label"],
-    "taughtPoints": ["specific, testable skill", "specific, testable skill", "specific, testable skill", "specific, testable skill"],
-    "completionCheck": {
-      "prompt": "reflection or self-check prompt that proves understanding",
-      "expectedSignals": ["signal 1", "signal 2", "signal 3"],
-      "nextStep": "what to do next, 1 sentence"
-    },
-    "interactions": [
-      {
-        "afterSection": "hook",
-        "type": "true_false",
-        "statement": "A statement about the concept the learner just read in the hook - true or false",
-        "correct": true,
-        "sentence": "",
-        "answer": "",
-        "question": "",
-        "code": "",
-        "options": [],
-        "correctIndex": 0,
-        "explanation": "Why this is true/false - 1 sentence"
-      },
-      {
-        "afterSection": "explanation",
-        "type": "fill_blank",
-        "statement": "",
-        "correct": false,
-        "sentence": "A sentence with ___ where the key term goes",
-        "answer": "the answer",
-        "question": "",
-        "code": "",
-        "options": [],
-        "correctIndex": 0,
-        "explanation": "Why this answer is correct - 1 sentence"
-      },
-      {
-        "afterSection": "workedExample",
-        "type": "predict",
-        "statement": "",
-        "correct": false,
-        "sentence": "",
-        "answer": "",
-        "question": "What will happen if...? (based on the worked example)",
-        "code": "optional short code snippet if programming topic, else empty string",
-        "options": ["Option A", "Option B", "Option C", "Option D"],
-        "correctIndex": 0,
-        "explanation": "Why this option is correct - 1 sentence"
-      },
-      {
-        "afterSection": "commonMistake",
-        "type": "spot_error",
-        "statement": "",
-        "correct": false,
-        "sentence": "",
-        "answer": "",
-        "question": "What is wrong with this? (based on the common mistake)",
-        "code": "optional short code or scenario showing the mistake",
-        "options": ["Option A", "Option B", "Option C", "Option D"],
-        "correctIndex": 0,
-        "explanation": "Why this is the error - 1 sentence"
-      }
-    ]
-  }
-}
-
-STRICT RULES:
-- Teach, do not present. No slides, no images.
-- First response must be complete and valid. Do not rely on any follow-up.
-- Give enough depth to learn from. Avoid filler, motivational fluff, and repeating the goal.
-- Explain the "why" behind each important step. A learner should not merely memorize labels.
-- Focus on the concept itself, not the process of learning the concept.
-- If the concept is technical, teach the syntax, mechanics, and edge cases clearly.
-- If the concept is non-technical, teach the underlying rules, relationships, or causal structure clearly.
-- The lesson must include active recall and practice, not only reading.
-- For beginner/slow learners: scaffold with simpler examples, explicit cause/effect, and short recaps.
-- For advanced/intensive learners: compress definitions and spend the depth on transfer, tradeoffs, or edge cases.
-- Do not introduce concepts outside ALLOWED CONCEPTS or beyond TAUGHT POINTS.
-- Do not repeat the full goal, raw task title, or raw concept title. Use "${displayFocus}" or shorter labels.
-- Never expose private learner context such as diagnostic score, recommended level, pace, path style, or local offline mode.
-- Avoid phrases like "Introduction To...", "key ideas", "inside [course name]", "as part of your larger goal", and "supporting resource".
-- Do not write vague taughtPoints like "X in plain language", "How X supports progress", "A concrete example of X", or "A clear sign that X is starting to stick".
-- The explanation must feel like a real teacher helping a motivated learner, not template filler.
-- Use one concrete worked example and one active practice drill.
-- The practiceBridge must prepare the learner for the next task, not repeat the whole lesson.
-- For interactions: test the actual content of this lesson, not generic trivia. Keep code snippets short (≤5 lines). Use empty string, empty array, false, or 0 for fields that do not apply to a given type.
-- Never mention being an AI, JSON, schema, or the prompt.
-- Do not add markdown fences.`
+Return a JSON object with one top-level "lessonDoc".
+The lessonDoc must include id, lessonType, domain, topic, title, estimatedMinutes, xp, specificityCheck, and slides.
+Also include worldId, unitId, conceptClusterId, atomicConceptId, zoneTheme, and mapColor; use null when unknown.
+The slides array must contain 6-7 real slide objects that match the strict schema and include at least one visual_interactive slide when possible.
+Use topic and title exactly as: ${exactTopic}.
+Never mention being an AI, JSON, schema, or this prompt.`
 
   const raw = await callOpenAI(prompt, openaiApiKey)
   const lessonDoc = parseLessonJson(raw, context)
 
   return {
-    lessonDoc: normalizeConceptLessonDoc(lessonDoc, context),
+    lessonDoc: normalizeConceptSlideshowLesson(lessonDoc, context),
     generationMode: 'ai',
     cacheable: false,
-    resource: lessonDoc.resource || (resourceUrl ? { url: resourceUrl, title: resourceTitle || 'Primary resource' } : null),
+    resource: resourceUrl ? { url: resourceUrl, title: resourceTitle || 'Primary resource' } : null,
   }
 }

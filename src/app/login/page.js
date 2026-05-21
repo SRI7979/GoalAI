@@ -148,13 +148,19 @@ export default function LoginPage() {
     try {
       if (mode === 'signup') {
         supabaseAuth = createSupabaseAuthClient()
-        const { error: signUpError } = await supabaseAuth.auth.signUp({
+        const { data: signUpData, error: signUpError } = await supabaseAuth.auth.signUp({
           email,
           password,
           options: { emailRedirectTo: `${window.location.origin}/onboarding` },
         })
 
         if (signUpError) throw signUpError
+
+        if (signUpData?.session) {
+          persistSupabaseSession(signUpData.session)
+          router.push('/onboarding')
+          return
+        }
 
         setPassword('')
         setNotice('Check your inbox for the verification link. Once confirmed, we will send you into onboarding.')

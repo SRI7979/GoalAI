@@ -10,6 +10,7 @@ import {
   mergeStepVerification,
   normalizeProjectStep,
 } from '@/lib/projectVerification'
+import { formatDomainForPrompt, normalizeDomain, parseDomainFromConstraints } from '@/lib/domainAdapter'
 
 function extractAccessToken(request) {
   const authHeader = request.headers.get('authorization') || request.headers.get('Authorization')
@@ -18,12 +19,18 @@ function extractAccessToken(request) {
   return authHeader.slice(7).trim() || null
 }
 
-function buildDefensePrompt(project, step, defenseResponse, verification) {
+function buildDomainPrompt({ domain, knowledge } = {}) {
+  const resolvedDomain = normalizeDomain(domain || parseDomainFromConstraints([knowledge]), null)
+  return resolvedDomain ? `DOMAIN ADAPTER:\n${formatDomainForPrompt(resolvedDomain)}\n` : ''
+}
+
+function buildDefensePrompt(project, step, defenseResponse, verification, { domain, knowledge } = {}) {
   const executionOutput = verification?.execution_result?.stdout || ''
   const validationFeedback = verification?.validation_result?.feedback || ''
   return `Evaluate whether this learner actually understands their verified project step.
 
 PROJECT: ${project.title}
+${buildDomainPrompt({ domain, knowledge })}
 STEP: ${step.title}
 STEP DESCRIPTION: ${step.description}
 DEFENSE QUESTION: ${step.defense_prompt}
@@ -53,7 +60,7 @@ RULES:
 export async function POST(request) {
   try {
     const body = await request.json()
-    const { projectId, stepId, defenseResponse } = body || {}
+    const { projectId, stepId, defenseResponse, domain, knowledge } = body || {}
     if (!projectId || !stepId) return Response.json({ error: 'Missing projectId or stepId' }, { status: 400 })
     if (!defenseResponse?.trim()) return Response.json({ error: 'Missing defense response' }, { status: 400 })
 
@@ -85,7 +92,7 @@ export async function POST(request) {
       return Response.json({ error: 'Code review must pass before defense evaluation' }, { status: 400 })
     }
 
-    const prompt = buildDefensePrompt(project, step, defenseResponse.trim().slice(0, 4000), verification)
+    const prompt = buildDefensePrompt(project, step, defenseResponse.trim().slice(0, 4000), verification, { domain, knowledge })
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {

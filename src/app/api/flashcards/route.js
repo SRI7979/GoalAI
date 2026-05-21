@@ -1,12 +1,29 @@
 import { getOpenAIModel } from '@/lib/openaiModels'
+import { formatLearningContractForPrompt } from '@/lib/conceptLesson'
+import { formatDomainForPrompt, normalizeDomain, parseDomainFromConstraints } from '@/lib/domainAdapter'
+
+function buildDomainPrompt({ domain, knowledge, learningContract } = {}) {
+  const resolvedDomain = normalizeDomain(
+    domain || learningContract?.domain || parseDomainFromConstraints([knowledge]),
+    null,
+  )
+  return resolvedDomain ? `\nDOMAIN ADAPTER:\n${formatDomainForPrompt(resolvedDomain)}\n` : ''
+}
 
 export async function POST(request) {
   try {
-    const { concept, taskTitle, goal, knowledge } = await request.json()
+    const { concept, taskTitle, goal, knowledge, taskDescription, taskAction, taskOutcome, learningContract, domain } = await request.json()
     if (!concept || !goal) return Response.json({ error: 'Missing concept or goal' }, { status: 400 })
 
     const prompt = `You are designing flashcards for a premium learning app — think Anki meets Duolingo. Create cards about "${taskTitle || concept}" for someone learning "${goal}".
+${buildDomainPrompt({ domain, knowledge, learningContract })}
 ${knowledge ? `The student already knows: ${knowledge}. Focus on new material, not basics.` : ''}
+${taskDescription ? `DAY CONTEXT: ${taskDescription}` : ''}
+${taskAction ? `TASK ACTION: ${taskAction}` : ''}
+${taskOutcome ? `TARGET OUTCOME: ${taskOutcome}` : ''}
+
+LEARNING CONTRACT:
+${formatLearningContractForPrompt(learningContract)}
 
 Return ONLY valid JSON — no markdown, no backticks:
 {
@@ -30,7 +47,8 @@ FLASHCARD QUALITY REQUIREMENTS:
 - Order: Start with foundational terms, progress to applications, end with synthesis
 - Each card should teach ONE thing. Never cram multiple concepts into one card
 - Make the front side genuinely challenging — if someone can guess without studying, it's too easy
-- Use code examples on the back when the concept involves programming`
+- Use code examples on the back when the concept involves programming
+- Stay within the taught scope from the learning contract`
 
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',

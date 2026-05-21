@@ -52,7 +52,7 @@ function formatTaughtPointsForPrompt(learningContract = {}, concept = '') {
     : []
   const lines = taughtPoints.length > 0
     ? taughtPoints
-    : [`Use ${concept || 'the concept'} in one concrete scenario`]
+    : [String(learningContract?.canDoStatement || `Use ${learningContract?.conceptLabel || concept || 'the concept'} in one concrete scenario`).trim()]
   return lines.map((line) => `- ${line}`).join('\n')
 }
 
@@ -119,6 +119,10 @@ ${taskAction ? `INTENDED PRACTICE ACTION: ${taskAction}` : ''}
 ${taskOutcome ? `TARGET OUTCOME: ${taskOutcome}` : ''}
 SPECIFIC SKILLS JUST TAUGHT:
 ${taughtPointsPrompt}
+CONCEPT LABEL: ${learningContract?.conceptLabel || concept}
+BY THE END OF TODAY, THE LEARNER CAN: ${learningContract?.canDoStatement || `use ${concept} correctly in one concrete situation`}
+PROOF TYPE: ${learningContract?.proofType || 'short_answer'}
+PROOF PROMPT: ${learningContract?.proofPrompt || `Show today's proof by using ${concept} in one short concrete answer.`}
 
 LEARNING CONTRACT:
 ${formatLearningContractForPrompt(learningContract)}
@@ -212,6 +216,10 @@ ${taskAction ? `CHALLENGE ACTION: ${taskAction}` : ''}
 ${taskOutcome ? `SUCCESS TARGET: ${taskOutcome}` : ''}
 SPECIFIC SKILLS JUST TAUGHT:
 ${taughtPointsPrompt}
+CONCEPT LABEL: ${learningContract?.conceptLabel || concept}
+BY THE END OF TODAY, THE LEARNER CAN: ${learningContract?.canDoStatement || `use ${concept} correctly in one concrete situation`}
+PROOF TYPE: ${learningContract?.proofType || 'short_answer'}
+PROOF PROMPT: ${learningContract?.proofPrompt || `Show today's proof by using ${concept} in one short concrete answer.`}
 
 LEARNING CONTRACT:
 ${formatLearningContractForPrompt(learningContract)}
@@ -312,6 +320,10 @@ PRIOR KNOWLEDGE: ${knowledge || 'Beginner'}
 ${taskDescription ? `DAY CONTEXT: ${taskDescription}` : ''}
 ${taskAction ? `TASK ACTION: ${taskAction}` : ''}
 ${taskOutcome ? `TARGET OUTCOME: ${taskOutcome}` : ''}
+CONCEPT LABEL: ${learningContract?.conceptLabel || concept}
+BY THE END OF TODAY, THE LEARNER CAN: ${learningContract?.canDoStatement || `use ${concept} correctly in one concrete situation`}
+PROOF TYPE: ${learningContract?.proofType || 'short_answer'}
+PROOF PROMPT: ${learningContract?.proofPrompt || `Show today's proof by using ${concept} in one short concrete answer.`}
 
 LEARNING CONTRACT:
 ${formatLearningContractForPrompt(learningContract)}

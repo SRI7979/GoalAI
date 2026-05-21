@@ -103,7 +103,7 @@ export default function VideoView({ task, goal, onClose, onComplete }) {
                   </div>
                   <div style={{ textAlign:'center' }}>
                     <div style={{ fontSize:15, fontWeight:700, color:'#FBBF24', marginBottom:4 }}>Watch on YouTube</div>
-                    <div style={{ fontSize:13, color:'#636366' }}>"{task.title}"</div>
+                    <div style={{ fontSize:13, color:'#636366' }}>&quot;{task.title}&quot;</div>
                   </div>
                 </div>
               </a>

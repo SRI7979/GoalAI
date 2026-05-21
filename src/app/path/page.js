@@ -82,13 +82,21 @@ function clamp(value, min, max, fallback = min) {
   return Math.max(min, Math.min(max, parsed))
 }
 
+function pathText(value, fallback = '') {
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (Array.isArray(value)) return value.map((entry) => pathText(entry)).filter(Boolean).join(', ')
+  if (!value || typeof value !== 'object') return fallback
+  return pathText(value.label || value.title || value.name || value.text || value.description || value.value, fallback)
+}
+
 function rowXP(tasks = []) {
-  return tasks.reduce((sum, task) => sum + xpForTask(task), 0)
+  return (Array.isArray(tasks) ? tasks : []).reduce((sum, task) => sum + xpForTask(task), 0)
 }
 
 function patchNodeTask(nodes, rowId, taskId) {
   let completedNode = false
-  const nextNodes = nodes.map((node) => {
+  const nextNodes = (Array.isArray(nodes) ? nodes : []).map((node) => {
     if (node.id !== rowId) return node
     const tasks = (node.tasks || []).map((task) => task.id === taskId ? { ...task, completed: true } : task)
     const completedTasks = tasks.filter((task) => task.completed).length
@@ -106,7 +114,7 @@ function patchNodeTask(nodes, rowId, taskId) {
 
 function recomputeNodeStatuses(nodes) {
   let foundActive = false
-  return nodes.map((node) => {
+  return (Array.isArray(nodes) ? nodes : []).map((node) => {
     if (node.isPlaceholder) return { ...node, status: 'locked' }
     if (node.status === 'done') return node
     if (!foundActive) {
@@ -170,7 +178,10 @@ function MomentumBadge({ momentum }) {
 function DetailSheet({ node, world, onClose, onComplete, completing }) {
   if (!node) return null
 
-  const totalMin = node.tasks?.reduce((sum, task) => sum + (Number(task.durationMin) || 0), 0) || 0
+  const nodeTasks = Array.isArray(node.tasks) ? node.tasks : []
+  const unlockConcepts = Array.isArray(node.unlockConcepts) ? node.unlockConcepts : []
+  const mistakes = Array.isArray(node.mistakes) ? node.mistakes : []
+  const totalMin = nodeTasks.reduce((sum, task) => sum + (Number(task.durationMin) || 0), 0) || 0
   const accent = world?.accent || 'var(--theme-primary)'
   const isLocked = node.status === 'locked'
 
@@ -340,9 +351,9 @@ function DetailSheet({ node, world, onClose, onComplete, completing }) {
                 This concept stays closed until its prerequisite concepts are stable.
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                {(node.unlockConcepts || []).length > 0 ? node.unlockConcepts.map((concept) => (
+                {unlockConcepts.length > 0 ? unlockConcepts.map((concept) => (
                   <span
-                    key={concept}
+                    key={pathText(concept, 'prerequisite')}
                     style={{
                       display: 'inline-flex',
                       alignItems: 'center',
@@ -357,7 +368,7 @@ function DetailSheet({ node, world, onClose, onComplete, completing }) {
                     }}
                   >
                     <IconGlyph name="lock" size={12} strokeWidth={2.3} color="#94A3B8" />
-                    {concept}
+                    {pathText(concept, 'Prerequisite')}
                   </span>
                 )) : (
                   <span style={{ fontSize: 13, color: T.textMuted }}>The path will unlock this automatically when you progress further.</span>
@@ -381,16 +392,16 @@ function DetailSheet({ node, world, onClose, onComplete, completing }) {
                 <div style={{ fontSize: 15, fontWeight: 800, color: '#FDBA74' }}>Needs Review</div>
               </div>
               <div style={{ display: 'grid', gap: 8 }}>
-                {(node.mistakes || []).map((entry) => (
-                  <div key={entry} style={{ fontSize: 13, lineHeight: 1.55, color: '#FED7AA' }}>
-                    {entry}
+                {mistakes.map((entry) => (
+                  <div key={pathText(entry, 'mistake')} style={{ fontSize: 13, lineHeight: 1.55, color: '#FED7AA' }}>
+                    {pathText(entry, 'Review this concept again.')}
                   </div>
                 ))}
               </div>
             </div>
           )}
 
-          {(node.tasks || []).length > 0 && !isLocked && (
+          {nodeTasks.length > 0 && !isLocked && (
             <div
               style={{
                 borderRadius: 20,
@@ -403,14 +414,14 @@ function DetailSheet({ node, world, onClose, onComplete, completing }) {
                 <div>
                   <div style={{ fontSize: 16, fontWeight: 900, color: T.text, marginBottom: 4 }}>Recommended work</div>
                   <div style={{ fontSize: 12, color: T.textMuted }}>
-                    {node.completedTasks || 0}/{node.totalTasks || node.tasks.length} tasks completed
+                    {node.completedTasks || 0}/{node.totalTasks || nodeTasks.length} tasks completed
                   </div>
                 </div>
-                <div style={{ fontSize: 12, fontWeight: 800, color: '#FCD34D' }}>+{rowXP(node.tasks)} XP</div>
+                <div style={{ fontSize: 12, fontWeight: 800, color: '#FCD34D' }}>+{rowXP(nodeTasks)} XP</div>
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {node.tasks.map((task, index) => {
+                {nodeTasks.map((task, index) => {
                   const normalizedTask = normalizeLearningTask(task, index)
                   const display = getTaskDisplayConfig(normalizedTask)
                   const style = TASK_STYLE[normalizedTask.type] || TASK_STYLE.concept
@@ -456,7 +467,8 @@ function DetailSheet({ node, world, onClose, onComplete, completing }) {
                           fontWeight: 800,
                           color: task.completed ? T.textMuted : T.text,
                           lineHeight: 1.35,
-                          textDecoration: task.completed ? 'line-through rgba(100,116,139,0.8)' : 'none',
+                          textDecorationLine: task.completed ? 'line-through' : 'none',
+                          textDecorationColor: 'rgba(100,116,139,0.8)',
                           marginBottom: normalizedTask.description ? 6 : 0,
                         }}
                       >
@@ -775,7 +787,7 @@ export default function PathPage() {
   const [xpPop, setXpPop] = useState(null)
   const [projects, setProjects] = useState(false)
   const [showProjModal, setShowProjModal] = useState(false)
-  const [activeTheme, setActiveTheme] = useState(() => getStoredActiveTheme(getStoredOwnedThemes()))
+  const [activeTheme, setActiveTheme] = useState('default')
   const [zoom, setZoom] = useState(1)
 
   const graphViewportRef = useRef(null)
@@ -1043,6 +1055,7 @@ export default function PathPage() {
     const handleStorage = () => {
       setActiveTheme(getStoredActiveTheme(getStoredOwnedThemes()))
     }
+    handleStorage()
     window.addEventListener('storage', handleStorage)
     window.addEventListener('pathai-theme-changed', handleStorage)
     return () => {
@@ -1135,10 +1148,12 @@ export default function PathPage() {
   }, [centerNodeInViewport, graph.currentFocus?.id, prefersReducedMotion])
 
   const handleComplete = useCallback(async (rowId, taskId, task, event) => {
+    if (!rowId || !taskId || completing || task?.completed) return
     setCompleting(taskId)
 
-    if (event) {
-      const rect = event.currentTarget.getBoundingClientRect()
+    const eventTarget = event?.currentTarget
+    const rect = eventTarget?.getBoundingClientRect?.()
+    if (rect) {
       setXpPop({
         x: rect.left + (rect.width / 2),
         y: rect.top - 10,
@@ -1188,7 +1203,7 @@ export default function PathPage() {
     }
 
     setCompleting(null)
-  }, [centerNodeInViewport, graph.graphNodes, prefersReducedMotion])
+  }, [centerNodeInViewport, completing, graph.graphNodes, prefersReducedMotion])
 
   const handleNav = useCallback((tab) => {
     if (tab === 'home') router.push('/dashboard')

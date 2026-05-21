@@ -1,6 +1,5 @@
 import {
   AlertTriangle,
-  ArrowLeft,
   AudioLines,
   BadgeCheck,
   BarChart3,
@@ -69,7 +68,6 @@ import {
 const ICONS = {
   activity: Gauge,
   alert: AlertTriangle,
-  arrowLeft: ArrowLeft,
   artifact: FolderKanban,
   audio: AudioLines,
   badge: BadgeCheck,

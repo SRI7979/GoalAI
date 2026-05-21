@@ -16,7 +16,7 @@ function formatTaughtPointsForPrompt(learningContract = {}, concept = '') {
     : []
   const lines = taughtPoints.length > 0
     ? taughtPoints
-    : [`Use ${concept || 'the concept'} correctly in one concrete scenario`]
+    : [String(learningContract?.canDoStatement || `Use ${learningContract?.conceptLabel || concept || 'the concept'} correctly in one concrete scenario`).trim()]
   return lines.map((line) => `- ${line}`).join('\n')
 }
 
@@ -89,6 +89,10 @@ ${taskAction ? `TASK ACTION: ${taskAction}` : ''}
 ${taskOutcome ? `TARGET OUTCOME: ${taskOutcome}` : ''}
 SPECIFIC SKILLS JUST TAUGHT:
 ${taughtPointsPrompt}
+CONCEPT LABEL: ${learningContract?.conceptLabel || concept}
+BY THE END OF TODAY, THE LEARNER CAN: ${learningContract?.canDoStatement || `use ${concept} correctly in one concrete situation`}
+PROOF TYPE: ${learningContract?.proofType || 'short_answer'}
+PROOF PROMPT: ${learningContract?.proofPrompt || `Show today's proof by using ${concept} in one short concrete answer.`}
 
 LEARNING CONTRACT:
 ${formatLearningContractForPrompt(learningContract)}

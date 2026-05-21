@@ -1,541 +1,549 @@
 'use client'
-import { useState, useRef, useCallback, useMemo, memo } from 'react'
-import { motion, useMotionValue, useSpring, useTransform } from 'framer-motion'
-import { Lock } from 'lucide-react'
+import { memo, useMemo, useState } from 'react'
 import IconGlyph from '@/components/IconGlyph'
 import { BADGES, RARITY_COLORS } from '@/lib/badges'
 
 const font = "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif"
 
-const RARITY_LABELS = { common: 'Common', rare: 'Rare', epic: 'Epic', legendary: 'Legendary' }
-const RARITY_ORDER = { legendary: 0, epic: 1, rare: 2, common: 3 }
-const CATEGORY_ICONS = { streak: 'flame', learning: 'book', progress: 'map', special: 'sparkles' }
-const CATEGORY_LABELS = { streak: 'Streak', learning: 'Learning', progress: 'Progress', special: 'Special' }
+const RARITY_LABELS = {
+  common: 'Core',
+  rare: 'Advanced',
+  epic: 'Mastered',
+  legendary: 'Capstone',
+}
 
-// ─── Metallic material definitions per rarity ────────────────────────────────
-const METALLIC_MATERIALS = {
+const CARD_TONES = {
   common: {
-    base: 'linear-gradient(145deg, #052e24 0%, #0a5c48 20%, #0ef5c2 45%, #0a5c48 55%, #0ef5c2 75%, #052e24 100%)',
-    inner: 'linear-gradient(160deg, #041f19 0%, #073d30 40%, #0a5c48 100%)',
-    specular: 'rgba(14, 245, 194, 0.55)',
-    rim: '#0ef5c2',
-    darkTone: '#041f19',
-    glow: 'rgba(14, 245, 194, 0.25)',
+    accent: '#0ef5c2',
+    accent2: '#60A5FA',
+    plate: 'linear-gradient(145deg, #0B312B 0%, #0F6C5E 40%, #18232F 100%)',
+    glow: 'rgba(14,245,194,0.22)',
   },
   rare: {
-    base: 'linear-gradient(145deg, #0f2847 0%, #1a4a80 20%, #60A5FA 45%, #1a4a80 55%, #60A5FA 75%, #0f2847 100%)',
-    inner: 'linear-gradient(160deg, #0a1c36 0%, #143a66 40%, #1a4a80 100%)',
-    specular: 'rgba(96, 165, 250, 0.55)',
-    rim: '#60A5FA',
-    darkTone: '#0a1c36',
-    glow: 'rgba(96, 165, 250, 0.25)',
+    accent: '#60A5FA',
+    accent2: '#FBBF24',
+    plate: 'linear-gradient(145deg, #102B4D 0%, #1F5C9B 42%, #172131 100%)',
+    glow: 'rgba(96,165,250,0.24)',
   },
   epic: {
-    base: 'linear-gradient(145deg, #1f0a45 0%, #3b1a7a 20%, #A855F7 45%, #3b1a7a 55%, #A855F7 75%, #1f0a45 100%)',
-    inner: 'linear-gradient(160deg, #150730 0%, #2d1260 40%, #3b1a7a 100%)',
-    specular: 'rgba(168, 85, 247, 0.55)',
-    rim: '#A855F7',
-    darkTone: '#150730',
-    glow: 'rgba(168, 85, 247, 0.25)',
+    accent: '#F472B6',
+    accent2: '#A3E635',
+    plate: 'linear-gradient(145deg, #3B1631 0%, #8A2B66 42%, #1C2430 100%)',
+    glow: 'rgba(244,114,182,0.24)',
   },
   legendary: {
-    base: 'linear-gradient(145deg, #3d2800 0%, #7a5200 20%, #FFD700 45%, #b8860b 55%, #FFD700 75%, #3d2800 100%)',
-    inner: 'linear-gradient(160deg, #2a1c00 0%, #5c4000 40%, #7a5200 100%)',
-    specular: 'rgba(255, 215, 0, 0.65)',
-    rim: '#FFD700',
-    darkTone: '#2a1c00',
-    glow: 'rgba(255, 215, 0, 0.30)',
+    accent: '#FBBF24',
+    accent2: '#22D3EE',
+    plate: 'linear-gradient(145deg, #3A2B0A 0%, #996D12 42%, #17212C 100%)',
+    glow: 'rgba(251,191,36,0.26)',
   },
 }
 
-const LOCKED_MATERIAL = {
-  base: 'linear-gradient(145deg, #0d0d15 0%, #1a1a2e 30%, #2a2a3e 50%, #1a1a2e 70%, #0d0d15 100%)',
-  inner: 'linear-gradient(160deg, #08080f 0%, #12121f 40%, #1a1a2e 100%)',
-  rim: '#2a2a3e',
-  darkTone: '#08080f',
+const CATEGORY_META = {
+  all: { label: 'All Cards', icon: 'grid' },
+  learned: { label: 'Learned', icon: 'brain' },
+  streak: { label: 'Streak', icon: 'flame' },
+  learning: { label: 'Learning', icon: 'book' },
+  progress: { label: 'Progress', icon: 'map' },
+  special: { label: 'Special', icon: 'sparkles' },
 }
 
-// ─── Back face rarity patterns (SVG data URIs) ──────────────────────────────
-function getBackPattern(rarity, color) {
-  const c = encodeURIComponent(color)
-  const patterns = {
-    common: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Ccircle cx='20' cy='20' r='8' fill='none' stroke='${c}' stroke-width='1' opacity='0.3'/%3E%3C/svg%3E")`,
-    rare: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Cpolygon points='20,4 24,16 36,16 26,24 30,36 20,28 10,36 14,24 4,16 16,16' fill='none' stroke='${c}' stroke-width='0.8' opacity='0.25'/%3E%3C/svg%3E")`,
-    epic: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Crect x='12' y='12' width='16' height='16' transform='rotate(45 20 20)' fill='none' stroke='${c}' stroke-width='0.8' opacity='0.25'/%3E%3C/svg%3E")`,
-    legendary: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='50' height='50'%3E%3Cpath d='M25,8 L28,18 L38,18 L30,24 L33,34 L25,28 L17,34 L20,24 L12,18 L22,18Z' fill='none' stroke='${c}' stroke-width='0.8' opacity='0.3'/%3E%3Ccircle cx='25' cy='25' r='18' fill='none' stroke='${c}' stroke-width='0.5' opacity='0.15'/%3E%3C/svg%3E")`,
+const RARITY_ORDER = { legendary: 0, epic: 1, rare: 2, common: 3 }
+
+function normalizeEarnedIds(earnedIds) {
+  if (earnedIds instanceof Set) return earnedIds
+  if (Array.isArray(earnedIds)) return new Set(earnedIds)
+  return new Set()
+}
+
+function titleCase(value) {
+  return String(value || '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .map((part) => {
+      if (part.length <= 2 && part === part.toUpperCase()) return part
+      return part.charAt(0).toUpperCase() + part.slice(1)
+    })
+    .join(' ')
+}
+
+function cardIdFromTitle(title) {
+  return String(title || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
+function chooseTopicIcon(title) {
+  const text = String(title || '').toLowerCase()
+  if (/neural|ai|model|machine learning|deep learning|transformer/.test(text)) return 'brain'
+  if (/code|react|javascript|python|sql|api|program/.test(text)) return 'code'
+  if (/data|chart|stats|analysis|probability/.test(text)) return 'bar_chart'
+  if (/design|ui|ux|visual/.test(text)) return 'design'
+  if (/music|audio|sound/.test(text)) return 'music'
+  if (/business|market|startup|sales/.test(text)) return 'briefcase'
+  if (/science|biology|chemistry|physics|lab/.test(text)) return 'flask'
+  if (/writing|essay|story|language/.test(text)) return 'pen'
+  return 'book'
+}
+
+function rarityForTopic({ completedTasks = 0, dayNumber = 1 }) {
+  if (completedTasks >= 8 || dayNumber >= 18) return 'legendary'
+  if (completedTasks >= 5 || dayNumber >= 10) return 'epic'
+  if (completedTasks >= 3 || dayNumber >= 4) return 'rare'
+  return 'common'
+}
+
+function collectLearnedCards(rows = [], goalText = '') {
+  const cardsById = new Map()
+
+  function addTopic(rawTitle, source = {}) {
+    const title = titleCase(rawTitle)
+    if (!title || title.length < 2) return
+    const id = `learned-${cardIdFromTitle(title)}`
+    const current = cardsById.get(id)
+    const completedTasks = Number(source.completedTasks || 0)
+    const dayNumber = Number(source.dayNumber || 1)
+    const next = {
+      id,
+      title,
+      category: 'learned',
+      rarity: rarityForTopic({ completedTasks, dayNumber }),
+      icon: chooseTopicIcon(title),
+      earned: true,
+      source: 'Learned Card',
+      subtitle: goalText ? `Collected in ${goalText}` : 'Collected from your path',
+      description: `You completed learning work connected to ${title}. This card marks that concept as part of your toolkit.`,
+      statLabel: completedTasks > 0 ? `${completedTasks} tasks` : `Day ${dayNumber}`,
+      mintedLabel: dayNumber > 0 ? `Day ${dayNumber}` : 'Collected',
+    }
+    if (!current) {
+      cardsById.set(id, next)
+      return
+    }
+    const currentRank = RARITY_ORDER[current.rarity] ?? 3
+    const nextRank = RARITY_ORDER[next.rarity] ?? 3
+    cardsById.set(id, {
+      ...current,
+      rarity: nextRank < currentRank ? next.rarity : current.rarity,
+      statLabel: completedTasks > Number(current.statLabel?.split(' ')?.[0] || 0) ? next.statLabel : current.statLabel,
+    })
   }
-  return patterns[rarity] || patterns.common
+
+  rows.forEach((row) => {
+    const rowCompleted = row?.completion_status === 'completed'
+    const tasks = Array.isArray(row?.tasks) ? row.tasks : []
+    const completedTasks = tasks.filter((task) => task?.completed).length
+    const source = { completedTasks, dayNumber: row?.day_number || 1 }
+
+    if (rowCompleted || completedTasks > 0) {
+      ;(Array.isArray(row?.covered_topics) ? row.covered_topics : []).forEach((topic) => addTopic(topic, source))
+    }
+
+    tasks.forEach((task) => {
+      if (!task?.completed) return
+      addTopic(task._concept || task.concept || task.title, {
+        completedTasks: 1,
+        dayNumber: row?.day_number || 1,
+      })
+    })
+  })
+
+  return Array.from(cardsById.values()).slice(0, 48)
 }
 
-// ─── 3D Metallic Badge Component ─────────────────────────────────────────────
-const MetallicBadge = memo(function MetallicBadge({ badge, earned, delay = 0, selected = false, onSelect }) {
-  const isDragging = useRef(false)
-  const lastPointer = useRef({ x: 0, y: 0 })
-  const dragStarted = useRef(false)
+function achievementCards(earnedSet) {
+  return BADGES.map((badge) => ({
+    id: `achievement-${badge.id}`,
+    title: badge.name,
+    category: badge.category,
+    rarity: badge.rarity,
+    icon: badge.icon,
+    earned: earnedSet.has(badge.id),
+    source: 'Achievement Card',
+    subtitle: CATEGORY_META[badge.category]?.label || 'Achievement',
+    description: badge.description,
+    statLabel: RARITY_LABELS[badge.rarity] || 'Card',
+    mintedLabel: earnedSet.has(badge.id) ? 'Collected' : 'Locked',
+  }))
+}
 
-  const material = earned ? METALLIC_MATERIALS[badge.rarity] : null
-  const rc = RARITY_COLORS[badge.rarity] || '#0ef5c2'
-  const coinSize = 92
+const SkillCard = memo(function SkillCard({ card, selected, onSelect, delay = 0 }) {
+  const [flipped, setFlipped] = useState(false)
+  const [tilt, setTilt] = useState({ x: 0, y: 0 })
+  const tone = CARD_TONES[card.rarity] || CARD_TONES.common
+  const isLocked = !card.earned
 
-  // Motion values for rotation
-  const rawY = useMotionValue(0)
-  const rawX = useMotionValue(0)
-  const springY = useSpring(rawY, { stiffness: 80, damping: 18, mass: 0.8 })
-  const springX = useSpring(rawX, { stiffness: 80, damping: 18, mass: 0.8 })
+  function handlePointerMove(event) {
+    const bounds = event.currentTarget.getBoundingClientRect()
+    const px = (event.clientX - bounds.left) / bounds.width
+    const py = (event.clientY - bounds.top) / bounds.height
+    setTilt({
+      x: (0.5 - py) * 12,
+      y: (px - 0.5) * 16,
+    })
+  }
 
-  // Specular highlight position derived from rotation
-  const sheenX = useTransform(springY, [-180, 0, 180], [120, 50, -20])
-  const sheenY = useTransform(springX, [-25, 0, 25], [80, 50, 20])
-  const sheenBg = useTransform(
-    [sheenX, sheenY],
-    ([sx, sy]) => earned
-      ? `radial-gradient(ellipse 70% 70% at ${sx}% ${sy}%, ${material.specular} 0%, transparent 70%)`
-      : 'none'
-  )
-
-  // Rim conic gradient rotation
-  const rimAngle = useTransform(springY, v => v)
-
-  // Pointer handlers for drag-to-spin
-  const onPointerDown = useCallback((e) => {
-    isDragging.current = true
-    dragStarted.current = false
-    lastPointer.current = { x: e.clientX, y: e.clientY }
-    e.currentTarget.setPointerCapture(e.pointerId)
-  }, [])
-
-  const onPointerMove = useCallback((e) => {
-    if (!isDragging.current) return
-    const dx = e.clientX - lastPointer.current.x
-    const dy = e.clientY - lastPointer.current.y
-    if (Math.abs(dx) > 2 || Math.abs(dy) > 2) dragStarted.current = true
-    rawY.set(rawY.get() + dx * 0.8)
-    rawX.set(Math.max(-25, Math.min(25, rawX.get() - dy * 0.4)))
-    lastPointer.current = { x: e.clientX, y: e.clientY }
-  }, [rawY, rawX])
-
-  const onPointerUp = useCallback(() => {
-    isDragging.current = false
-    // Snap back to nearest 0 or 360 for a satisfying settle
-    const currentY = rawY.get()
-    const nearestFlat = Math.round(currentY / 360) * 360
-    rawY.set(nearestFlat)
-    rawX.set(0)
-  }, [rawY, rawX])
-
-  const handleClick = useCallback(() => {
-    if (!dragStarted.current) onSelect?.(badge.id)
-  }, [onSelect, badge.id])
+  function resetTilt() {
+    setTilt({ x: 0, y: 0 })
+  }
 
   return (
-    <div style={{
-      width: '100%',
-      animation: `coinFadeIn 0.5s ${delay}s cubic-bezier(0.16,1,0.3,1) both`,
-      position: 'relative',
-    }}>
-      <div style={{
-        position: 'relative',
-        borderRadius: 24,
-        padding: '14px 12px 16px',
-        minHeight: 214,
-        background: selected
-          ? 'linear-gradient(180deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.03) 100%)'
-          : 'linear-gradient(180deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%)',
-        border: `1px solid ${selected ? `${rc}3a` : earned ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.05)'}`,
-        boxShadow: selected
-          ? `0 24px 44px rgba(0,0,0,0.44), 0 0 28px ${rc}18`
-          : earned
-          ? '0 18px 36px rgba(0,0,0,0.32)'
-          : '0 14px 26px rgba(0,0,0,0.22)',
-        backdropFilter: 'blur(24px)',
-        WebkitBackdropFilter: 'blur(24px)',
-        overflow: 'hidden',
-        transform: selected ? 'translateY(-3px)' : 'translateY(0)',
-        transition: 'transform 0.22s cubic-bezier(0.16,1,0.3,1), box-shadow 0.22s cubic-bezier(0.16,1,0.3,1), border-color 0.22s ease',
-      }}>
-        <div style={{
-          position: 'absolute',
-          inset: '0 auto auto 0',
-          width: '100%',
-          height: 1,
-          background: selected
-            ? `linear-gradient(90deg, transparent 0%, ${rc} 18%, rgba(255,255,255,0.55) 50%, ${rc} 82%, transparent 100%)`
-            : 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.18) 50%, transparent 100%)',
-          opacity: 0.9,
-        }}/>
-        <div style={{
-          position: 'absolute',
-          top: -38,
-          right: -10,
-          width: 120,
-          height: 120,
-          borderRadius: '50%',
-          background: earned
-            ? `radial-gradient(circle, ${rc}18 0%, transparent 70%)`
-            : 'radial-gradient(circle, rgba(255,255,255,0.08) 0%, transparent 70%)',
-          pointerEvents: 'none',
-        }}/>
-
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 8,
-          marginBottom: 16,
-          position: 'relative',
-          zIndex: 1,
-        }}>
-          <span style={{
-            padding: '5px 9px',
-            borderRadius: 9999,
-            border: `1px solid ${earned ? `${rc}28` : 'rgba(255,255,255,0.08)'}`,
-            background: earned ? `${rc}10` : 'rgba(255,255,255,0.04)',
-            color: earned ? rc : 'rgba(255,255,255,0.45)',
-            fontSize: 9,
-            fontWeight: 800,
-            textTransform: 'uppercase',
-            letterSpacing: '1px',
-            fontFamily: font,
-          }}>
-            {RARITY_LABELS[badge.rarity]}
-          </span>
-          <span style={{
-            padding: '5px 9px',
-            borderRadius: 9999,
-            border: `1px solid ${earned ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.06)'}`,
-            background: earned ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.03)',
-            color: earned ? '#D7DCE4' : 'rgba(255,255,255,0.38)',
-            fontSize: 9,
-            fontWeight: 800,
-            textTransform: 'uppercase',
-            letterSpacing: '1px',
-            fontFamily: font,
-          }}>
-            {earned ? 'Unlocked' : 'Locked'}
-          </span>
-        </div>
-
-        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
-          <div style={{ perspective: 800, cursor: 'grab' }}>
-            <motion.div
-              onPointerDown={onPointerDown}
-              onPointerMove={onPointerMove}
-              onPointerUp={onPointerUp}
-              onClick={handleClick}
-              style={{
-                width: coinSize, height: coinSize,
-                borderRadius: '50%',
-                transformStyle: 'preserve-3d',
-                rotateY: springY,
-                rotateX: springX,
-                willChange: 'transform',
-                touchAction: 'none',
-                contain: 'layout style paint',
-                position: 'relative',
-              }}
-            >
-              <div style={{
-                position: 'absolute', inset: 0,
-                borderRadius: '50%',
-                backfaceVisibility: 'hidden',
-                WebkitBackfaceVisibility: 'hidden',
-                overflow: 'hidden',
-              }}>
-                <motion.div style={{
-                  position: 'absolute', inset: 0, borderRadius: '50%',
-                  background: earned ? material.base : LOCKED_MATERIAL.base,
-                  rotate: rimAngle,
-                }}/>
-
-                {earned && (
-                  <motion.div style={{
-                    position: 'absolute', inset: 0, borderRadius: '50%',
-                    background: `conic-gradient(from 0deg, transparent 0%, ${material.rim}40 15%, transparent 30%, ${material.rim}25 50%, transparent 65%, ${material.rim}40 80%, transparent 100%)`,
-                    rotate: rimAngle,
-                    opacity: 0.6,
-                  }}/>
-                )}
-
-                <div style={{
-                  position: 'absolute',
-                  top: 6, left: 6, right: 6, bottom: 6,
-                  borderRadius: '50%',
-                  background: earned ? material.inner : LOCKED_MATERIAL.inner,
-                  boxShadow: earned
-                    ? `inset 0 2px 6px rgba(0,0,0,0.6), inset 0 -1px 3px ${material.rim}15, 0 0 0 1px ${material.rim}10`
-                    : 'inset 0 2px 6px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.03)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  overflow: 'hidden',
-                }}>
-                  {earned ? (
-                    <div style={{
-                      textShadow: `0 -1px 2px rgba(0,0,0,0.6), 0 1px 2px ${material.specular}, 0 0 12px ${material.glow}`,
-                      filter: 'contrast(1.15) brightness(0.95)',
-                      position: 'relative', zIndex: 2,
-                      userSelect: 'none',
-                      color: '#f8fbff',
-                    }}>
-                      <IconGlyph name={badge.icon} size={34} strokeWidth={2.3}/>
-                    </div>
-                  ) : (
-                    <Lock
-                      size={26}
-                      strokeWidth={1.5}
-                      color="rgba(255,255,255,0.12)"
-                      style={{ position: 'relative', zIndex: 2 }}
-                    />
-                  )}
-                </div>
-
-                {earned && (
-                  <motion.div style={{
-                    position: 'absolute', inset: 0, borderRadius: '50%',
-                    background: sheenBg,
-                    pointerEvents: 'none',
-                    zIndex: 3,
-                  }}/>
-                )}
-
-                <div style={{
-                  position: 'absolute', inset: 0, borderRadius: '50%',
-                  boxShadow: earned
-                    ? `inset 0 1px 1px ${material.rim}30, inset 0 -1px 1px rgba(0,0,0,0.4), 0 4px 16px ${material.glow}`
-                    : 'inset 0 1px 1px rgba(255,255,255,0.05), inset 0 -1px 1px rgba(0,0,0,0.4)',
-                  pointerEvents: 'none',
-                  zIndex: 4,
-                }}/>
-              </div>
-
-              <div style={{
-                position: 'absolute', inset: 0,
-                borderRadius: '50%',
-                backfaceVisibility: 'hidden',
-                WebkitBackfaceVisibility: 'hidden',
-                transform: 'rotateY(180deg)',
-                overflow: 'hidden',
-              }}>
-                <div style={{
-                  position: 'absolute', inset: 0, borderRadius: '50%',
-                  background: earned ? material.base : LOCKED_MATERIAL.base,
-                }}/>
-
-                <div style={{
-                  position: 'absolute',
-                  top: 6, left: 6, right: 6, bottom: 6,
-                  borderRadius: '50%',
-                  background: earned ? material.inner : LOCKED_MATERIAL.inner,
-                  boxShadow: earned
-                    ? `inset 0 2px 6px rgba(0,0,0,0.6), 0 0 0 1px ${material.rim}10`
-                    : 'inset 0 2px 6px rgba(0,0,0,0.6)',
-                  display: 'flex', flexDirection: 'column',
-                  alignItems: 'center', justifyContent: 'center',
-                  overflow: 'hidden',
-                }}>
-                  {earned && (
-                    <div style={{
-                      position: 'absolute', inset: 0,
-                      backgroundImage: getBackPattern(badge.rarity, material.rim),
-                      backgroundRepeat: 'repeat',
-                      opacity: 0.4,
-                    }}/>
-                  )}
-
-                  <div style={{
-                    fontSize: 8, fontWeight: 900, textTransform: 'uppercase',
-                    letterSpacing: '1.5px', fontFamily: font,
-                    color: earned ? `${rc}90` : 'rgba(255,255,255,0.08)',
-                    position: 'relative', zIndex: 1,
-                    textShadow: earned ? `0 0 8px ${material.glow}` : 'none',
-                  }}>
-                    {RARITY_LABELS[badge.rarity]}
-                  </div>
-                  <div style={{
-                    width: 24, height: 1, margin: '4px 0',
-                    background: earned ? `${rc}40` : 'rgba(255,255,255,0.05)',
-                    position: 'relative', zIndex: 1,
-                  }}/>
-                  <div style={{
-                    lineHeight: 1,
-                    filter: earned ? 'none' : 'grayscale(1) brightness(0.15)',
-                    position: 'relative', zIndex: 1,
-                    color: earned ? rc : 'rgba(255,255,255,0.18)',
-                  }}>
-                    <IconGlyph name={CATEGORY_ICONS[badge.category]} size={16} strokeWidth={2.2}/>
-                  </div>
-                </div>
-
-                <div style={{
-                  position: 'absolute', inset: 0, borderRadius: '50%',
-                  boxShadow: earned
-                    ? `inset 0 1px 1px ${material.rim}30, inset 0 -1px 1px rgba(0,0,0,0.4), 0 4px 16px ${material.glow}`
-                    : 'inset 0 1px 1px rgba(255,255,255,0.05), inset 0 -1px 1px rgba(0,0,0,0.4)',
-                  pointerEvents: 'none',
-                }}/>
-              </div>
-            </motion.div>
+    <div
+      className="skill-card-slot"
+      style={{ animationDelay: `${delay}s` }}
+      onClick={() => onSelect?.(card.id)}
+    >
+      <div
+        className="skill-card-perspective"
+        onPointerMove={handlePointerMove}
+        onPointerLeave={resetTilt}
+      >
+        <div
+          className="skill-card-turntable"
+          style={{
+            transform: `rotateX(${tilt.x}deg) rotateY(${flipped ? 180 + tilt.y : tilt.y}deg)`,
+          }}
+        >
+          <div
+            className={`skill-card-face skill-card-front ${selected ? 'selected' : ''} ${isLocked ? 'locked' : ''}`}
+            style={{
+              '--card-accent': tone.accent,
+              '--card-accent-2': tone.accent2,
+              '--card-glow': tone.glow,
+              background: isLocked
+                ? 'linear-gradient(145deg, #11131A 0%, #1C202B 52%, #0B0D12 100%)'
+                : tone.plate,
+            }}
+          >
+            <div className="skill-card-sheen" />
+            <div className="skill-card-topline">
+              <span>{card.source}</span>
+              <span>{card.mintedLabel}</span>
+            </div>
+            <div className="skill-card-orbit">
+              {isLocked ? (
+                <IconGlyph name="lock" size={36} strokeWidth={2.2} color="rgba(255,255,255,0.38)" />
+              ) : (
+                <IconGlyph name={card.icon} size={40} strokeWidth={2.2} color="#061014" />
+              )}
+            </div>
+            <div className="skill-card-title">{isLocked ? 'Hidden Card' : card.title}</div>
+            <div className="skill-card-subtitle">{isLocked ? card.description : card.subtitle}</div>
+            <div className="skill-card-footer">
+              <span>{RARITY_LABELS[card.rarity] || 'Card'}</span>
+              <span>{card.statLabel}</span>
+            </div>
           </div>
-        </div>
 
-        <div style={{ textAlign: 'center', position: 'relative', zIndex: 1 }}>
-          <div style={{
-            fontSize: 13,
-            fontWeight: 800,
-            fontFamily: font,
-            color: earned ? '#F3F6FA' : 'rgba(255,255,255,0.45)',
-            letterSpacing: '-0.2px',
-            lineHeight: 1.25,
-            marginBottom: 5,
-          }}>
-            {earned ? badge.name : 'Hidden badge'}
-          </div>
-          <div style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 6,
-            justifyContent: 'center',
-            fontSize: 10,
-            fontWeight: 700,
-            color: earned ? '#9EA5B2' : 'rgba(255,255,255,0.30)',
-            marginBottom: 10,
-          }}>
-            <IconGlyph name={CATEGORY_ICONS[badge.category]} size={12} strokeWidth={2.4}/>
-            <span>{CATEGORY_LABELS[badge.category]}</span>
-          </div>
-          <div style={{
-            fontSize: 11,
-            lineHeight: 1.55,
-            color: earned ? '#98A1B2' : 'rgba(255,255,255,0.34)',
-            display: '-webkit-box',
-            WebkitLineClamp: 2,
-            WebkitBoxOrient: 'vertical',
-            overflow: 'hidden',
-          }}>
-            {earned ? badge.description : 'Unlock this badge to reveal its full details.'}
+          <div
+            className={`skill-card-face skill-card-back ${isLocked ? 'locked' : ''}`}
+            style={{
+              '--card-accent': tone.accent,
+              '--card-accent-2': tone.accent2,
+              '--card-glow': tone.glow,
+            }}
+          >
+            <div className="skill-card-back-mark">
+              <IconGlyph name={isLocked ? 'lock' : card.icon} size={28} strokeWidth={2.2} color={tone.accent} />
+            </div>
+            <div className="skill-card-back-label">{isLocked ? 'Unlock condition' : 'What this proves'}</div>
+            <p>{card.description}</p>
+            <div className="skill-card-back-strip">
+              <span>{CATEGORY_META[card.category]?.label || 'Card'}</span>
+              <span>{RARITY_LABELS[card.rarity] || 'Card'}</span>
+            </div>
           </div>
         </div>
       </div>
+
+      <button
+        type="button"
+        className="skill-card-turn-button"
+        title={flipped ? 'Show front' : 'Turn card'}
+        aria-label={flipped ? 'Show front' : 'Turn card'}
+        onClick={(event) => {
+          event.stopPropagation()
+          setFlipped((value) => !value)
+          onSelect?.(card.id)
+        }}
+      >
+        <IconGlyph name="repeat" size={14} strokeWidth={2.5} color="currentColor" />
+      </button>
     </div>
   )
 })
 
-// ─── Main Showcase ───────────────────────────────────────────────────────────
-export default function BadgeShowcase({ earnedIds, maxWidth = 680, outerPadding = '0 20px 28px' }) {
+export default function BadgeShowcase({
+  earnedIds,
+  rows = [],
+  goalText = '',
+  maxWidth = 1040,
+  outerPadding = '0 20px 28px',
+}) {
   const [selectedCategory, setSelectedCategory] = useState('all')
   const [selectedView, setSelectedView] = useState('all')
-  const [selectedBadgeId, setSelectedBadgeId] = useState(null)
+  const [selectedCardId, setSelectedCardId] = useState(null)
 
-  const categories = ['all', 'streak', 'learning', 'progress', 'special']
+  const earnedSet = useMemo(() => normalizeEarnedIds(earnedIds), [earnedIds])
+  const learnedCards = useMemo(() => collectLearnedCards(rows, goalText), [rows, goalText])
+  const cards = useMemo(() => [...learnedCards, ...achievementCards(earnedSet)], [earnedSet, learnedCards])
+
+  const earnedCount = cards.filter((card) => card.earned).length
+  const learnedCount = learnedCards.length
+  const lockedCount = cards.length - earnedCount
+  const completionPct = cards.length ? Math.round((earnedCount / cards.length) * 100) : 0
+
+  const categories = ['all', 'learned', 'learning', 'progress', 'streak', 'special']
   const views = [
     { id: 'all', label: 'All' },
-    { id: 'earned', label: 'Unlocked' },
+    { id: 'earned', label: 'Collected' },
     { id: 'locked', label: 'Locked' },
   ]
 
-  const earnedCount = BADGES.filter((badge) => earnedIds.has(badge.id)).length
-  const lockedCount = BADGES.length - earnedCount
-  const completionPct = Math.round((earnedCount / BADGES.length) * 100)
-  const legendaryCount = BADGES.filter((badge) => badge.rarity === 'legendary' && earnedIds.has(badge.id)).length
-  const masteredCategories = categories.slice(1).filter((category) => (
-    BADGES.filter((badge) => badge.category === category).every((badge) => earnedIds.has(badge.id))
-  )).length
-
-  const filteredBadges = useMemo(() => BADGES.filter((badge) => {
-    const matchesCategory = selectedCategory === 'all' || badge.category === selectedCategory
-    const isEarned = earnedIds.has(badge.id)
+  const filteredCards = useMemo(() => cards.filter((card) => {
+    const matchesCategory = selectedCategory === 'all' || card.category === selectedCategory
     const matchesView = selectedView === 'all'
-      || (selectedView === 'earned' && isEarned)
-      || (selectedView === 'locked' && !isEarned)
+      || (selectedView === 'earned' && card.earned)
+      || (selectedView === 'locked' && !card.earned)
     return matchesCategory && matchesView
-  }), [earnedIds, selectedCategory, selectedView])
+  }), [cards, selectedCategory, selectedView])
 
-  const sorted = useMemo(() => [...filteredBadges].sort((a, b) => {
-    const aEarned = earnedIds.has(a.id) ? 0 : 1
-    const bEarned = earnedIds.has(b.id) ? 0 : 1
-    if (aEarned !== bEarned) return aEarned - bEarned
+  const sortedCards = useMemo(() => [...filteredCards].sort((a, b) => {
+    if (a.earned !== b.earned) return a.earned ? -1 : 1
+    if (a.category === 'learned' && b.category !== 'learned') return -1
+    if (a.category !== 'learned' && b.category === 'learned') return 1
     return (RARITY_ORDER[a.rarity] || 3) - (RARITY_ORDER[b.rarity] || 3)
-  }), [earnedIds, filteredBadges])
+  }), [filteredCards])
 
-  const selectedBadge = sorted.find((badge) => badge.id === selectedBadgeId) || sorted[0] || BADGES[0]
-  const selectedEarned = selectedBadge ? earnedIds.has(selectedBadge.id) : false
-  const selectedAccent = selectedBadge ? (RARITY_COLORS[selectedBadge.rarity] || '#0ef5c2') : '#0ef5c2'
-  const categoryEarnedCount = selectedCategory === 'all'
-    ? earnedCount
-    : BADGES.filter((badge) => badge.category === selectedCategory && earnedIds.has(badge.id)).length
-  const categoryTotalCount = selectedCategory === 'all'
-    ? BADGES.length
-    : BADGES.filter((badge) => badge.category === selectedCategory).length
+  const selectedCard = sortedCards.find((card) => card.id === selectedCardId) || sortedCards[0] || cards[0]
+  const selectedTone = selectedCard ? (CARD_TONES[selectedCard.rarity] || CARD_TONES.common) : CARD_TONES.common
 
   return (
     <>
       <style>{`
-        @keyframes coinFadeIn {
-          0%   { opacity: 0; transform: translateY(20px) scale(0.85); }
-          100% { opacity: 1; transform: translateY(0) scale(1); }
+        @keyframes skillCardIn {
+          from { opacity: 0; transform: translateY(18px) scale(0.96); }
+          to { opacity: 1; transform: translateY(0) scale(1); }
         }
-        @keyframes coinTooltipIn {
-          from { opacity: 0; transform: translateX(-50%) translateY(4px) scale(0.95); }
-          to   { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+        @keyframes skillGlow {
+          0%, 100% { box-shadow: 0 0 0 rgba(14,245,194,0); }
+          50% { box-shadow: 0 0 42px rgba(14,245,194,0.11); }
         }
-        @keyframes progressShimmer {
-          0%   { background-position: -200% 0; }
-          100% { background-position: 200% 0; }
+        .card-collection-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+          gap: 18px;
         }
-        @keyframes coinIdleSpin {
-          0%   { transform: rotateY(0deg); }
-          100% { transform: rotateY(360deg); }
+        .skill-card-slot {
+          position: relative;
+          min-width: 0;
+          animation: skillCardIn 0.42s cubic-bezier(0.16, 1, 0.3, 1) both;
         }
-        @keyframes vaultGlow {
-          0%, 100% { box-shadow: 0 0 0 0 rgba(14,245,194,0.00); }
-          50% { box-shadow: 0 0 0 1px rgba(14,245,194,0.10), 0 0 38px rgba(14,245,194,0.12); }
+        .skill-card-perspective {
+          perspective: 1000px;
         }
-        @media (max-width: 640px) {
-          .badge-hero-metrics {
-            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-          }
-          .badge-showcase-grid {
-            grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-          }
+        .skill-card-turntable {
+          position: relative;
+          min-height: 316px;
+          transform-style: preserve-3d;
+          transition: transform 0.38s cubic-bezier(0.16, 1, 0.3, 1);
+          cursor: grab;
+        }
+        .skill-card-face {
+          position: absolute;
+          inset: 0;
+          border-radius: 8px;
+          padding: 16px;
+          border: 1px solid rgba(255,255,255,0.13);
+          box-shadow: 0 18px 42px rgba(0,0,0,0.34), 0 0 30px var(--card-glow), inset 0 1px 0 rgba(255,255,255,0.14);
+          overflow: hidden;
+          backface-visibility: hidden;
+          -webkit-backface-visibility: hidden;
+        }
+        .skill-card-face.locked {
+          filter: grayscale(0.35);
+          box-shadow: 0 16px 34px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.08);
+        }
+        .skill-card-front.selected {
+          outline: 2px solid color-mix(in srgb, var(--card-accent) 58%, transparent);
+          outline-offset: 3px;
+        }
+        .skill-card-back {
+          transform: rotateY(180deg);
+          background:
+            radial-gradient(circle at 20% 18%, color-mix(in srgb, var(--card-accent) 28%, transparent), transparent 34%),
+            linear-gradient(145deg, #10141B 0%, #1B2330 100%);
+        }
+        .skill-card-sheen {
+          position: absolute;
+          inset: 0;
+          background:
+            linear-gradient(110deg, transparent 0%, rgba(255,255,255,0.28) 16%, transparent 32%),
+            radial-gradient(circle at 80% 8%, rgba(255,255,255,0.22), transparent 28%);
+          opacity: 0.62;
+          pointer-events: none;
+        }
+        .skill-card-topline,
+        .skill-card-footer,
+        .skill-card-back-strip {
+          position: relative;
+          z-index: 1;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          color: rgba(255,255,255,0.76);
+          font-size: 10px;
+          font-weight: 900;
+          letter-spacing: 1px;
+          text-transform: uppercase;
+        }
+        .skill-card-topline {
+          padding-right: 42px;
+        }
+        .skill-card-orbit {
+          position: relative;
+          z-index: 1;
+          width: 86px;
+          height: 86px;
+          margin: 34px auto 18px;
+          border-radius: 50%;
+          display: grid;
+          place-items: center;
+          background:
+            radial-gradient(circle, rgba(255,255,255,0.92) 0%, rgba(255,255,255,0.72) 50%, rgba(255,255,255,0.18) 51%, rgba(255,255,255,0.04) 70%),
+            conic-gradient(from 0deg, var(--card-accent), var(--card-accent-2), var(--card-accent));
+          box-shadow: 0 18px 36px rgba(0,0,0,0.32), 0 0 28px var(--card-glow);
+        }
+        .skill-card-title {
+          position: relative;
+          z-index: 1;
+          color: #F7FAFC;
+          font-size: clamp(18px, 1.4vw, 21px);
+          font-weight: 950;
+          line-height: 1.08;
+          letter-spacing: -0.4px;
+          text-align: center;
+          min-height: 68px;
+          display: grid;
+          place-items: center;
+          overflow-wrap: anywhere;
+        }
+        .skill-card-subtitle {
+          position: relative;
+          z-index: 1;
+          margin: 8px 0 16px;
+          color: rgba(255,255,255,0.68);
+          font-size: 12px;
+          font-weight: 700;
+          line-height: 1.45;
+          text-align: center;
+          min-height: 38px;
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+        }
+        .skill-card-footer {
+          position: absolute;
+          left: 16px;
+          right: 16px;
+          bottom: 14px;
+        }
+        .skill-card-back-mark {
+          width: 58px;
+          height: 58px;
+          border-radius: 8px;
+          display: grid;
+          place-items: center;
+          background: rgba(255,255,255,0.05);
+          border: 1px solid rgba(255,255,255,0.10);
+          margin-bottom: 18px;
+        }
+        .skill-card-back-label {
+          color: var(--card-accent);
+          font-size: 10px;
+          font-weight: 950;
+          letter-spacing: 1px;
+          text-transform: uppercase;
+          margin-bottom: 8px;
+        }
+        .skill-card-back p {
+          margin: 0;
+          color: #D8DEE8;
+          font-size: 13px;
+          font-weight: 700;
+          line-height: 1.58;
+        }
+        .skill-card-back-strip {
+          position: absolute;
+          left: 16px;
+          right: 16px;
+          bottom: 14px;
+          color: rgba(255,255,255,0.62);
+        }
+        .skill-card-turn-button {
+          position: absolute;
+          right: 10px;
+          top: 10px;
+          z-index: 3;
+          width: 34px;
+          height: 34px;
+          padding: 0;
+          border-radius: 9999px;
+          border: 1px solid rgba(255,255,255,0.13);
+          background: rgba(5,7,10,0.72);
+          color: #F7FAFC;
+          font-family: ${font};
+          font-size: 11px;
+          font-weight: 900;
+          cursor: pointer;
+          backdrop-filter: blur(16px);
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          transition: transform 0.12s ease, filter 0.12s ease;
+        }
+        .skill-card-turn-button:active {
+          transform: translateY(2px);
+          filter: brightness(0.82);
+        }
+        @media (max-width: 860px) {
+          .card-collection-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+        @media (max-width: 560px) {
+          .card-collection-grid { grid-template-columns: 1fr; }
+          .skill-card-turntable { min-height: 300px; }
         }
       `}</style>
 
-      <div style={{
-        maxWidth, margin: '0 auto', padding: outerPadding,
-        fontFamily: font,
-      }}>
+      <div style={{ maxWidth, margin: '0 auto', padding: outerPadding, fontFamily: font }}>
         <div style={{
           position: 'relative',
           overflow: 'hidden',
-          borderRadius: 32,
-          padding: '20px 18px 24px',
-          background: 'linear-gradient(180deg, rgba(17,19,24,0.96) 0%, rgba(9,11,16,0.98) 100%)',
+          borderRadius: 8,
+          padding: 20,
+          background: 'linear-gradient(180deg, rgba(17,20,25,0.98) 0%, rgba(8,10,14,0.98) 100%)',
           border: '1px solid rgba(255,255,255,0.08)',
           boxShadow: '0 32px 60px rgba(0,0,0,0.38), inset 0 1px 0 rgba(255,255,255,0.06)',
-          animation: 'vaultGlow 5s ease-in-out infinite',
+          animation: 'skillGlow 5s ease-in-out infinite',
         }}>
           <div style={{
             position: 'absolute',
             inset: 0,
-            background: 'radial-gradient(circle at top right, rgba(14,245,194,0.12), transparent 28%), radial-gradient(circle at bottom left, rgba(96,165,250,0.10), transparent 32%)',
+            background: 'radial-gradient(circle at top left, rgba(14,245,194,0.12), transparent 28%), radial-gradient(circle at bottom right, rgba(251,191,36,0.10), transparent 30%)',
             pointerEvents: 'none',
-          }}/>
-          <div style={{
-            position: 'absolute',
-            top: 0,
-            left: 28,
-            right: 28,
-            height: 1,
-            background: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.22) 50%, transparent 100%)',
-            pointerEvents: 'none',
-          }}/>
+          }} />
 
           <div style={{ position: 'relative', zIndex: 1 }}>
             <div style={{
-              display: 'flex',
-              alignItems: 'flex-start',
-              justifyContent: 'space-between',
-              gap: 14,
+              display: 'grid',
+              gridTemplateColumns: 'minmax(0, 1fr) auto',
+              gap: 18,
+              alignItems: 'start',
               marginBottom: 18,
             }}>
               <div>
@@ -543,159 +551,135 @@ export default function BadgeShowcase({ earnedIds, maxWidth = 680, outerPadding 
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: 8,
-                  padding: '6px 10px',
-                  borderRadius: 9999,
-                  background: 'rgba(255,255,255,0.04)',
+                  height: 30,
+                  padding: '0 10px',
+                  borderRadius: 8,
+                  background: 'rgba(255,255,255,0.05)',
                   border: '1px solid rgba(255,255,255,0.08)',
+                  color: '#AAB4C3',
+                  fontSize: 10,
+                  fontWeight: 950,
+                  textTransform: 'uppercase',
+                  letterSpacing: 1,
                   marginBottom: 12,
                 }}>
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#0ef5c2', boxShadow: '0 0 10px rgba(14,245,194,0.70)' }}/>
-                  <span style={{ fontSize: 10, fontWeight: 800, color: '#98A1B2', textTransform: 'uppercase', letterSpacing: '1.4px' }}>
-                    Achievement Vault
-                  </span>
+                  <IconGlyph name="sparkles" size={13} strokeWidth={2.3} color="#0ef5c2" />
+                  Card Collection
                 </div>
-                <div style={{ fontSize: 28, fontWeight: 900, color: '#F3F6FA', letterSpacing: '-0.9px', lineHeight: 1.04, marginBottom: 8 }}>
-                  Earned skill proof,
-                  <br/>
-                  not just streak trophies.
-                </div>
+                <h2 style={{
+                  margin: 0,
+                  color: '#F7FAFC',
+                  fontSize: 34,
+                  lineHeight: 1.02,
+                  letterSpacing: '-1.1px',
+                  fontWeight: 950,
+                }}>
+                  Collect what you learn.
+                </h2>
+                <p style={{
+                  margin: '10px 0 0',
+                  color: '#9AA6B8',
+                  fontSize: 14,
+                  lineHeight: 1.6,
+                  fontWeight: 700,
+                  maxWidth: 620,
+                }}>
+                  Each card is proof of a concept, habit, or milestone. Finish Neural Networks and it becomes a Neural Networks card in your collection.
+                </p>
               </div>
 
               <div style={{
-                minWidth: 122,
-                padding: '14px 16px',
-                borderRadius: 22,
-                background: 'linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.03) 100%)',
+                minWidth: 132,
+                borderRadius: 8,
+                padding: '14px 15px',
+                background: 'rgba(255,255,255,0.055)',
                 border: '1px solid rgba(255,255,255,0.08)',
-                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05)',
               }}>
-                <div style={{ fontSize: 10, fontWeight: 800, color: '#7E8797', textTransform: 'uppercase', letterSpacing: '1.2px', marginBottom: 6 }}>
-                  Completion
+                <div style={{ color: '#7E8797', fontSize: 10, fontWeight: 950, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 7 }}>
+                  Collected
                 </div>
-                <div style={{ fontSize: 30, fontWeight: 900, color: '#F3F6FA', letterSpacing: '-1px', lineHeight: 1 }}>
-                  {completionPct}%
+                <div style={{ color: '#F7FAFC', fontSize: 31, fontWeight: 950, lineHeight: 1 }}>
+                  {earnedCount}
                 </div>
-                <div style={{ fontSize: 11, color: '#7E8797', marginTop: 6 }}>
-                  {earnedCount}/{BADGES.length} unlocked
+                <div style={{ color: '#7E8797', fontSize: 11, fontWeight: 800, marginTop: 7 }}>
+                  {completionPct}% of visible set
                 </div>
               </div>
             </div>
 
             <div style={{
-              height: 7,
-              borderRadius: 9999,
-              overflow: 'hidden',
-              background: 'rgba(255,255,255,0.05)',
-              marginBottom: 18,
-            }}>
-              <div style={{
-                height: '100%',
-                width: `${(earnedCount / BADGES.length) * 100}%`,
-                background: 'linear-gradient(90deg, #0ef5c2 0%, #00d4ff 48%, #A855F7 100%)',
-                backgroundSize: '180% 100%',
-                animation: earnedCount > 0 ? 'progressShimmer 3.5s ease-in-out infinite' : 'none',
-                boxShadow: '0 0 24px rgba(14,245,194,0.22)',
-                transition: 'width 0.8s cubic-bezier(0.16,1,0.3,1)',
-              }}/>
-            </div>
-
-            <div className="badge-hero-metrics" style={{
               display: 'grid',
               gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
               gap: 10,
-              marginBottom: 18,
+              marginBottom: 16,
             }}>
               {[
-                { label: 'Unlocked', value: earnedCount, tone: '#0ef5c2' },
-                { label: 'Locked', value: lockedCount, tone: '#8B8D98' },
-                { label: 'Legendary', value: legendaryCount, tone: '#FFD700' },
-                { label: 'Mastered', value: masteredCategories, tone: '#A855F7' },
+                { label: 'Learned', value: learnedCount, color: '#0ef5c2', icon: 'brain' },
+                { label: 'Achievements', value: BADGES.length, color: '#FBBF24', icon: 'badge' },
+                { label: 'Locked', value: lockedCount, color: '#8B8D98', icon: 'lock' },
+                { label: 'Rare+', value: cards.filter((card) => card.earned && card.rarity !== 'common').length, color: '#60A5FA', icon: 'sparkles' },
               ].map((item) => (
                 <div key={item.label} style={{
-                  padding: '12px 12px 13px',
-                  borderRadius: 18,
-                  background: 'linear-gradient(180deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%)',
+                  borderRadius: 8,
+                  padding: '12px 12px',
+                  background: 'rgba(255,255,255,0.04)',
                   border: '1px solid rgba(255,255,255,0.07)',
+                  minWidth: 0,
                 }}>
-                  <div style={{ fontSize: 10, fontWeight: 800, color: '#7E8797', textTransform: 'uppercase', letterSpacing: '1.1px', marginBottom: 8 }}>
-                    {item.label}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 7, color: item.color, marginBottom: 8 }}>
+                    <IconGlyph name={item.icon} size={13} strokeWidth={2.3} />
+                    <span style={{ fontSize: 10, fontWeight: 950, textTransform: 'uppercase', letterSpacing: 1 }}>{item.label}</span>
                   </div>
-                  <div style={{ fontSize: 22, fontWeight: 900, color: item.tone, letterSpacing: '-0.6px', lineHeight: 1 }}>
-                    {item.value}
-                  </div>
+                  <div style={{ color: '#F7FAFC', fontSize: 23, fontWeight: 950, lineHeight: 1 }}>{item.value}</div>
                 </div>
               ))}
             </div>
 
             <div style={{
-              padding: '10px',
-              borderRadius: 22,
-              background: 'rgba(255,255,255,0.035)',
-              border: '1px solid rgba(255,255,255,0.08)',
-              marginBottom: 14,
+              display: 'grid',
+              gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 0.78fr)',
+              gap: 12,
+              marginBottom: 18,
             }}>
-              <div style={{
-                display: 'flex',
-                gap: 8,
-                overflowX: 'auto',
-                scrollbarWidth: 'none',
-                marginBottom: 8,
-              }}>
-                {categories.map((cat) => {
-                  const active = selectedCategory === cat
-                  const catCount = cat === 'all'
-                    ? earnedCount
-                    : BADGES.filter((badge) => badge.category === cat && earnedIds.has(badge.id)).length
-                  const catTotal = cat === 'all' ? BADGES.length : BADGES.filter((badge) => badge.category === cat).length
+              <div style={{ display: 'flex', gap: 8, overflowX: 'auto', scrollbarWidth: 'none' }}>
+                {categories.map((category) => {
+                  const active = selectedCategory === category
                   return (
-                    <button key={cat} onClick={() => setSelectedCategory(cat)} style={{
-                      padding: '8px 14px',
-                      borderRadius: 14,
-                      border: active ? '1px solid rgba(14,245,194,0.28)' : '1px solid rgba(255,255,255,0.06)',
-                      background: active ? 'rgba(14,245,194,0.09)' : 'rgba(255,255,255,0.03)',
-                      color: active ? '#0ef5c2' : '#98A1B2',
-                      fontSize: 12,
-                      fontWeight: 700,
-                      cursor: 'pointer',
+                    <button key={category} type="button" onClick={() => setSelectedCategory(category)} style={{
+                      height: 36,
+                      padding: '0 12px',
+                      borderRadius: 8,
+                      border: active ? '1px solid rgba(14,245,194,0.32)' : '1px solid rgba(255,255,255,0.07)',
+                      background: active ? 'rgba(14,245,194,0.10)' : 'rgba(255,255,255,0.035)',
+                      color: active ? '#0ef5c2' : '#9AA6B8',
                       fontFamily: font,
+                      fontSize: 12,
+                      fontWeight: 900,
+                      cursor: 'pointer',
                       whiteSpace: 'nowrap',
-                      flexShrink: 0,
-                      transition: 'all 0.18s ease',
                     }}>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
-                        {cat === 'all'
-                          ? 'Vault'
-                          : (
-                            <>
-                              <IconGlyph name={CATEGORY_ICONS[cat]} size={12} strokeWidth={2.4}/>
-                              {CATEGORY_LABELS[cat]}
-                            </>
-                          )}
-                      </span>
-                      <span style={{ marginLeft: 6, fontSize: 10, color: active ? '#0ef5c2' : '#667085' }}>
-                        {catCount}/{catTotal}
-                      </span>
+                      {CATEGORY_META[category]?.label || category}
                     </button>
                   )
                 })}
               </div>
 
-              <div style={{ display: 'flex', gap: 8, overflowX: 'auto', scrollbarWidth: 'none' }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, overflowX: 'auto', scrollbarWidth: 'none' }}>
                 {views.map((view) => {
                   const active = selectedView === view.id
                   return (
-                    <button key={view.id} onClick={() => setSelectedView(view.id)} style={{
-                      padding: '8px 12px',
-                      borderRadius: 12,
-                      border: active ? '1px solid rgba(255,255,255,0.12)' : '1px solid rgba(255,255,255,0.05)',
-                      background: active ? 'rgba(255,255,255,0.07)' : 'rgba(255,255,255,0.02)',
-                      color: active ? '#F3F6FA' : '#7E8797',
-                      fontSize: 11,
-                      fontWeight: 700,
-                      cursor: 'pointer',
+                    <button key={view.id} type="button" onClick={() => setSelectedView(view.id)} style={{
+                      height: 36,
+                      padding: '0 12px',
+                      borderRadius: 8,
+                      border: active ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(255,255,255,0.06)',
+                      background: active ? 'rgba(255,255,255,0.075)' : 'rgba(255,255,255,0.025)',
+                      color: active ? '#F7FAFC' : '#7E8797',
                       fontFamily: font,
+                      fontSize: 12,
+                      fontWeight: 900,
+                      cursor: 'pointer',
                       whiteSpace: 'nowrap',
-                      flexShrink: 0,
                     }}>
                       {view.label}
                     </button>
@@ -704,175 +688,85 @@ export default function BadgeShowcase({ earnedIds, maxWidth = 680, outerPadding 
               </div>
             </div>
 
-            {selectedBadge && (
+            {selectedCard && (
               <div style={{
-                position: 'relative',
-                overflow: 'hidden',
-                borderRadius: 26,
-                padding: '16px',
-                background: 'linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.03) 100%)',
-                border: `1px solid ${selectedEarned ? `${selectedAccent}24` : 'rgba(255,255,255,0.08)'}`,
-                boxShadow: selectedEarned ? `0 0 28px ${selectedAccent}12` : 'none',
+                display: 'grid',
+                gridTemplateColumns: '64px minmax(0, 1fr) auto',
+                gap: 13,
+                alignItems: 'center',
+                borderRadius: 8,
+                padding: 14,
                 marginBottom: 18,
+                background: 'rgba(255,255,255,0.045)',
+                border: `1px solid ${selectedCard.earned ? `${selectedTone.accent}42` : 'rgba(255,255,255,0.08)'}`,
+                boxShadow: selectedCard.earned ? `0 0 28px ${selectedTone.glow}` : 'none',
               }}>
                 <div style={{
-                  position: 'absolute',
-                  right: -24,
-                  top: -36,
-                  width: 140,
-                  height: 140,
-                  borderRadius: '50%',
-                  background: selectedEarned
-                    ? `radial-gradient(circle, ${selectedAccent}18 0%, transparent 70%)`
-                    : 'radial-gradient(circle, rgba(255,255,255,0.08) 0%, transparent 70%)',
-                  pointerEvents: 'none',
-                }}/>
-
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  justifyContent: 'space-between',
-                  gap: 12,
-                  marginBottom: 14,
-                  position: 'relative',
-                  zIndex: 1,
+                  width: 64,
+                  height: 64,
+                  borderRadius: 8,
+                  display: 'grid',
+                  placeItems: 'center',
+                  background: selectedCard.earned ? selectedTone.plate : 'rgba(255,255,255,0.04)',
+                  border: '1px solid rgba(255,255,255,0.10)',
                 }}>
-                  <div>
-                    <div style={{ fontSize: 10, fontWeight: 800, color: '#7E8797', textTransform: 'uppercase', letterSpacing: '1.3px', marginBottom: 4 }}>
-                      Inspector
-                    </div>
-                    <div style={{ fontSize: 22, fontWeight: 900, color: '#F3F6FA', letterSpacing: '-0.6px' }}>
-                      {selectedEarned ? selectedBadge.name : 'Locked badge'}
-                    </div>
+                  <IconGlyph name={selectedCard.earned ? selectedCard.icon : 'lock'} size={28} strokeWidth={2.2} color={selectedCard.earned ? '#061014' : '#7E8797'} />
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ color: selectedTone.accent, fontSize: 10, fontWeight: 950, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 4 }}>
+                    {selectedCard.source}
                   </div>
-                  <div style={{
-                    padding: '7px 12px',
-                    borderRadius: 9999,
-                    border: `1px solid ${selectedEarned ? `${selectedAccent}28` : 'rgba(255,255,255,0.08)'}`,
-                    background: selectedEarned ? `${selectedAccent}10` : 'rgba(255,255,255,0.04)',
-                    fontSize: 11,
-                    fontWeight: 800,
-                    color: selectedEarned ? selectedAccent : '#98A1B2',
-                    textTransform: 'uppercase',
-                    letterSpacing: '1px',
-                    whiteSpace: 'nowrap',
-                  }}>
-                    {selectedEarned ? 'Unlocked' : 'Reveal by earning'}
+                  <div style={{ color: '#F7FAFC', fontSize: 20, fontWeight: 950, letterSpacing: '-0.4px', overflowWrap: 'anywhere' }}>
+                    {selectedCard.earned ? selectedCard.title : 'Locked card'}
+                  </div>
+                  <div style={{ color: '#9AA6B8', fontSize: 13, fontWeight: 700, lineHeight: 1.5, marginTop: 4 }}>
+                    {selectedCard.description}
                   </div>
                 </div>
-
                 <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: '84px 1fr',
-                  gap: 14,
+                  display: 'flex',
                   alignItems: 'center',
-                  position: 'relative',
-                  zIndex: 1,
+                  justifyContent: 'center',
+                  minWidth: 90,
+                  height: 34,
+                  borderRadius: 8,
+                  background: selectedCard.earned ? `${selectedTone.accent}18` : 'rgba(255,255,255,0.04)',
+                  border: `1px solid ${selectedCard.earned ? `${selectedTone.accent}36` : 'rgba(255,255,255,0.08)'}`,
+                  color: selectedCard.earned ? selectedTone.accent : '#8B8D98',
+                  fontSize: 11,
+                  fontWeight: 950,
+                  textTransform: 'uppercase',
+                  letterSpacing: 0.8,
                 }}>
-                  <div style={{
-                    width: 84,
-                    height: 84,
-                    borderRadius: 24,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    background: selectedEarned ? `${selectedAccent}12` : 'rgba(255,255,255,0.04)',
-                    border: `1px solid ${selectedEarned ? `${selectedAccent}24` : 'rgba(255,255,255,0.08)'}`,
-                    boxShadow: selectedEarned ? `0 0 20px ${selectedAccent}14` : 'none',
-                    color: selectedAccent,
-                  }}>
-                    {selectedEarned ? <IconGlyph name={selectedBadge.icon} size={34} strokeWidth={2.2} color={selectedAccent}/> : <Lock size={26} color="rgba(255,255,255,0.26)" />}
-                  </div>
-
-                  <div>
-                    <div style={{ fontSize: 14, lineHeight: 1.65, color: '#A5ACB8', marginBottom: 12 }}>
-                      {selectedEarned ? selectedBadge.description : `Unlock condition: ${selectedBadge.description}`}
-                    </div>
-
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                      {[
-                        { label: RARITY_LABELS[selectedBadge.rarity], color: selectedAccent },
-                        { label: CATEGORY_LABELS[selectedBadge.category], color: '#98A1B2' },
-                        { label: selectedEarned ? 'Collected' : 'Hidden', color: selectedEarned ? '#0ef5c2' : '#7E8797' },
-                      ].map((chip) => (
-                        <span key={chip.label} style={{
-                          padding: '7px 10px',
-                          borderRadius: 9999,
-                          background: 'rgba(255,255,255,0.04)',
-                          border: '1px solid rgba(255,255,255,0.07)',
-                          fontSize: 11,
-                          fontWeight: 700,
-                          color: chip.color,
-                        }}>
-                          {chip.label}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
+                  {selectedCard.earned ? 'Collected' : 'Locked'}
                 </div>
               </div>
             )}
 
-            <div style={{
-              padding: '16px',
-              borderRadius: 26,
-              background: 'rgba(255,255,255,0.03)',
-              border: '1px solid rgba(255,255,255,0.07)',
-            }}>
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: 12,
-                marginBottom: 16,
-              }}>
-                <div>
-                  <div style={{ fontSize: 10, fontWeight: 800, color: '#7E8797', textTransform: 'uppercase', letterSpacing: '1.2px', marginBottom: 4 }}>
-                    Badge Grid
-                  </div>
-                  <div style={{ fontSize: 18, fontWeight: 900, color: '#F3F6FA', letterSpacing: '-0.4px' }}>
-                    {selectedCategory === 'all' ? 'All badges' : `${CATEGORY_LABELS[selectedCategory]} badges`}
-                  </div>
-                </div>
-                <div style={{ fontSize: 11, color: '#7E8797', fontWeight: 700 }}>
-                  {categoryEarnedCount}/{categoryTotalCount} in view
-                </div>
+            {sortedCards.length > 0 ? (
+              <div className="card-collection-grid">
+                {sortedCards.map((card, index) => (
+                  <SkillCard
+                    key={card.id}
+                    card={card}
+                    selected={selectedCard?.id === card.id}
+                    onSelect={setSelectedCardId}
+                    delay={index * 0.035}
+                  />
+                ))}
               </div>
-
-              {sorted.length > 0 ? (
-                <div className="badge-showcase-grid" style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-                  gap: 14,
-                }}>
-                  {sorted.map((badge, i) => (
-                    <MetallicBadge
-                      key={badge.id}
-                      badge={badge}
-                      earned={earnedIds.has(badge.id)}
-                      selected={selectedBadge?.id === badge.id}
-                      onSelect={setSelectedBadgeId}
-                      delay={i * 0.04}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <div style={{
-                  padding: '28px 16px',
-                  borderRadius: 20,
-                  background: 'rgba(255,255,255,0.02)',
-                  border: '1px dashed rgba(255,255,255,0.10)',
-                  textAlign: 'center',
-                }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#F3F6FA', marginBottom: 6 }}>
-                    No badges in this view
-                  </div>
-                  <div style={{ fontSize: 12, color: '#7E8797', lineHeight: 1.6 }}>
-                    Try switching the filter to see the rest of your collection.
-                  </div>
-                </div>
-              )}
-            </div>
+            ) : (
+              <div style={{
+                borderRadius: 8,
+                padding: '30px 18px',
+                border: '1px dashed rgba(255,255,255,0.13)',
+                background: 'rgba(255,255,255,0.025)',
+                textAlign: 'center',
+              }}>
+                <div style={{ color: '#F7FAFC', fontSize: 15, fontWeight: 900, marginBottom: 6 }}>No cards in this view</div>
+                <div style={{ color: '#8B8D98', fontSize: 13, fontWeight: 700 }}>Switch filters or complete a learning task to collect more.</div>
+              </div>
+            )}
           </div>
         </div>
       </div>

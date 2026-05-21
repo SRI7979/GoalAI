@@ -1,11 +1,18 @@
 import { getOpenAIModel } from '@/lib/openaiModels'
+import { formatDomainForPrompt, normalizeDomain, parseDomainFromConstraints } from '@/lib/domainAdapter'
+
+function buildDomainPrompt({ domain, knowledge } = {}) {
+  const resolvedDomain = normalizeDomain(domain || parseDomainFromConstraints([knowledge]), null)
+  return resolvedDomain ? `\nDOMAIN ADAPTER:\n${formatDomainForPrompt(resolvedDomain)}\n` : ''
+}
 
 export async function POST(request) {
   try {
-    const { concept, taskTitle, goal, knowledge } = await request.json()
+    const { concept, taskTitle, goal, knowledge, domain } = await request.json()
     if (!concept || !goal) return Response.json({ error: 'Missing concept or goal' }, { status: 400 })
 
     const prompt = `You are a world-class educator writing for an interactive learning platform. Write a deeply engaging reading article about "${taskTitle || concept}" for someone whose goal is: "${goal}".
+${buildDomainPrompt({ domain, knowledge })}
 ${knowledge ? `The student already knows: ${knowledge}. Build on this — don't repeat basics they know.` : ''}
 
 Return ONLY valid JSON — no markdown, no backticks:

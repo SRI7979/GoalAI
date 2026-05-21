@@ -9,45 +9,38 @@ import GenerationStepList from '@/components/premium/GenerationStepList'
 import PremiumFrame from '@/components/premium/PremiumFrame'
 import ScrollReveal from '@/components/premium/ScrollReveal'
 import { createLocalGoalBundle, isLocalAccessUser } from '@/lib/localGoalStore'
+import { EVENTS, track } from '@/lib/analytics'
 import { getSafeSupabaseSession, getSafeSupabaseUser, supabaseData } from '@/lib/supabase'
 import { consumeSupabaseAuthRedirect } from '@/lib/supabaseAuth'
-import { getCourseById } from '@/lib/courses'
+import {
+  DOMAIN_CONFIDENCE_THRESHOLD,
+  DOMAIN_METADATA,
+  LEARNING_DOMAINS,
+  buildDomainConfig,
+  buildDomainKnowledgeLine,
+  normalizeDomain,
+  setStoredLearningDomain,
+} from '@/lib/domainAdapter'
+import {
+  buildFallbackOnboardingCalibration,
+  getDomainLabel,
+  getShortGoal,
+  normalizeOnboardingCalibration,
+} from '@/lib/onboardingCalibration'
 
 const STEPS = [
-  'What do you want to learn?',
-  'How should we build your path?',
-  "Let's see where you're starting.",
-  'Building your path...',
+  'Goal',
+  'Calibrate',
+  'Launch',
 ]
 
 const GOAL_OPTIONS = [
-  { label: 'Learn JavaScript', description: 'Code, logic, and real builds', icon: 'code', accent: '#00e5c7' },
-  { label: 'Master Machine Learning', description: 'Models, evaluation, and projects', icon: 'brain', accent: '#84a3ff' },
-  { label: 'Learn Python', description: 'From zero to building real tools', icon: 'cpu', accent: '#60A5FA' },
-  { label: 'Learn Spanish', description: 'Conversation, grammar, and confidence', icon: 'message', accent: '#34D399' },
-  { label: 'UI/UX Design', description: 'Hierarchy, systems, and interface craft', icon: 'design', accent: '#f472b6' },
-  { label: 'Build Real Projects', description: 'Create portfolio-ready proof', icon: 'artifact', accent: '#f59e0b' },
-]
-
-const PATH_OPTIONS = [
-  {
-    id: 'goal',
-    title: 'Structured Path',
-    description: 'A guided route from foundations to mastery. Best if you want clear daily missions.',
-    icon: 'map',
-  },
-  {
-    id: 'explore',
-    title: 'Explore Mode',
-    description: 'A flexible route that adapts to your curiosity. Best if you want to jump around.',
-    icon: 'orbit',
-  },
-]
-
-const PACE_OPTIONS = [
-  { id: 'relaxed', label: 'Relaxed' },
-  { id: 'balanced', label: 'Balanced' },
-  { id: 'intensive', label: 'Intensive' },
+  { label: 'Learn Python', icon: 'code' },
+  { label: 'Understand kinematics', icon: 'orbit' },
+  { label: 'Speak Spanish for travel', icon: 'message' },
+  { label: 'Build a SaaS dashboard', icon: 'artifact' },
+  { label: 'Learn cybersecurity defense', icon: 'shield' },
+  { label: 'Improve UI/UX design', icon: 'design' },
 ]
 
 const GENERATION_STEPS = [
@@ -85,161 +78,6 @@ function getFamilyAccent(family) {
   }
 }
 
-function getDiagnosticQuestions(goalFamily) {
-  switch (goalFamily) {
-    case 'programming':
-      return [
-        {
-          id: 'prog-1',
-          prompt: 'Have you written code before?',
-          options: [
-            { label: 'No, I am brand new', score: 0 },
-            { label: 'A little, mostly tutorials', score: 1 },
-            { label: 'Yes, I have built small things', score: 2 },
-          ],
-        },
-        {
-          id: 'prog-2',
-          prompt: 'Do you know what a variable is?',
-          options: [
-            { label: 'Not yet', score: 0 },
-            { label: 'Kind of, but not confidently', score: 1 },
-            { label: 'Yes, I use them already', score: 2 },
-          ],
-        },
-        {
-          id: 'prog-3',
-          prompt: 'Have you ever finished a small website or script?',
-          options: [
-            { label: 'No', score: 0 },
-            { label: 'Almost, with help', score: 1 },
-            { label: 'Yes', score: 2 },
-          ],
-        },
-      ]
-    case 'machineLearning':
-      return [
-        {
-          id: 'ml-1',
-          prompt: 'How familiar are you with Python for data work?',
-          options: [
-            { label: 'I have never used it', score: 0 },
-            { label: 'I can read simple code', score: 1 },
-            { label: 'I have used pandas or notebooks', score: 2 },
-          ],
-        },
-        {
-          id: 'ml-2',
-          prompt: 'Do you know the difference between training and testing data?',
-          options: [
-            { label: 'Not yet', score: 0 },
-            { label: 'Roughly', score: 1 },
-            { label: 'Yes, clearly', score: 2 },
-          ],
-        },
-        {
-          id: 'ml-3',
-          prompt: 'Have you trained any model before?',
-          options: [
-            { label: 'Never', score: 0 },
-            { label: 'Only by following a tutorial', score: 1 },
-            { label: 'Yes, a few small experiments', score: 2 },
-          ],
-        },
-      ]
-    case 'language':
-      return [
-        {
-          id: 'lang-1',
-          prompt: 'Can you hold a basic conversation already?',
-          options: [
-            { label: 'No, not yet', score: 0 },
-            { label: 'A few phrases', score: 1 },
-            { label: 'Yes, short exchanges', score: 2 },
-          ],
-        },
-        {
-          id: 'lang-2',
-          prompt: 'How comfortable are you with grammar basics?',
-          options: [
-            { label: 'Very new', score: 0 },
-            { label: 'I know some rules', score: 1 },
-            { label: 'Pretty comfortable', score: 2 },
-          ],
-        },
-        {
-          id: 'lang-3',
-          prompt: 'Have you practiced speaking out loud regularly?',
-          options: [
-            { label: 'No', score: 0 },
-            { label: 'Sometimes', score: 1 },
-            { label: 'Yes', score: 2 },
-          ],
-        },
-      ]
-    case 'design':
-      return [
-        {
-          id: 'design-1',
-          prompt: 'Have you designed an interface before?',
-          options: [
-            { label: 'No, I am new', score: 0 },
-            { label: 'Only small mockups', score: 1 },
-            { label: 'Yes, real screens or flows', score: 2 },
-          ],
-        },
-        {
-          id: 'design-2',
-          prompt: 'How strong is your understanding of hierarchy and layout?',
-          options: [
-            { label: 'Very early', score: 0 },
-            { label: 'Basic understanding', score: 1 },
-            { label: 'Comfortable applying it', score: 2 },
-          ],
-        },
-        {
-          id: 'design-3',
-          prompt: 'Do you already use a tool like Figma?',
-          options: [
-            { label: 'Not yet', score: 0 },
-            { label: 'A little', score: 1 },
-            { label: 'Yes, regularly', score: 2 },
-          ],
-        },
-      ]
-    default:
-      return [
-        {
-          id: 'gen-1',
-          prompt: 'How experienced are you with this skill today?',
-          options: [
-            { label: 'Complete beginner', score: 0 },
-            { label: 'Some exposure', score: 1 },
-            { label: 'I have built small wins', score: 2 },
-          ],
-        },
-        {
-          id: 'gen-2',
-          prompt: 'How often have you practiced this recently?',
-          options: [
-            { label: 'Almost never', score: 0 },
-            { label: 'Occasionally', score: 1 },
-            { label: 'Fairly consistently', score: 2 },
-          ],
-        },
-        {
-          id: 'gen-3',
-          prompt: 'How much of the basics do you already recognize?',
-          options: [
-            { label: 'Very little', score: 0 },
-            { label: 'Some of it', score: 1 },
-            { label: 'Most of it', score: 2 },
-          ],
-        },
-      ]
-  }
-}
-
 function getRecommendedLevel(score) {
   if (score <= 1) return 'Beginner'
   if (score <= 4) return 'Intermediate'
@@ -250,43 +88,117 @@ function shouldBypassPathGeneration(errorMessage = '') {
   return /Failed to fetch|fetch failed|Supabase project URL is unreachable|Unable to reach Supabase|NEXT_PUBLIC_SUPABASE_URL/i.test(String(errorMessage))
 }
 
-function resolveCadence(pathStyle, pace, recommendedLevel) {
+function parseExplicitTimelineDays(goal = '') {
+  const text = String(goal).toLowerCase()
+  const dayMatch = text.match(/\b(?:in|within|over|for)\s+(\d{1,3})\s*(day|days)\b/)
+  if (dayMatch) return Number(dayMatch[1])
+
+  const weekMatch = text.match(/\b(?:in|within|over|for)\s+(\d{1,2})\s*(week|weeks)\b/)
+  if (weekMatch) return Number(weekMatch[1]) * 7
+
+  const monthMatch = text.match(/\b(?:in|within|over|for)\s+(\d{1,2})\s*(month|months)\b/)
+  if (monthMatch) return Number(monthMatch[1]) * 30
+
+  return null
+}
+
+function estimateGoalHours({ goal = '', domain = '', recommendedLevel, desiredOutcome, prereqComfort }) {
+  const text = String(goal).toLowerCase()
+  const domainBaseHours = {
+    CS_CODING: 32,
+    MATHEMATICS: 28,
+    PHYSICS: 30,
+    CHEMISTRY: 30,
+    BIOLOGY: 28,
+    ENGINEERING: 38,
+    TECHNOLOGY: 22,
+    CYBERSECURITY: 36,
+    ML_AI: 48,
+    DATA_SCIENCE: 38,
+    STATISTICS: 34,
+    ECONOMICS: 28,
+    FINANCE: 30,
+    BUSINESS: 28,
+    WRITING: 24,
+    READING_COMPREHENSION: 18,
+    HISTORY: 24,
+    GOVERNMENT_CIVICS: 24,
+    PSYCHOLOGY: 26,
+    MEDICINE_HEALTH: 36,
+    ENVIRONMENTAL_SCIENCE: 28,
+    FOREIGN_LANGUAGE: 64,
+    ART_DESIGN: 30,
+    MUSIC: 42,
+    COMMUNICATION: 20,
+    PHILOSOPHY_LOGIC: 24,
+  }
+
+  let hours = domainBaseHours[domain] || 28
+
+  if (/\b(print\(\)|variable|for loop|if statement|html document structure|single concept|one concept|basics of|what is|how to use)\b/.test(text)) {
+    hours *= 0.45
+  }
+
+  if (/\b(intro|introduction|overview|starter|getting started|beginner)\b/.test(text)) {
+    hours *= 0.7
+  }
+
+  if (/\b(build|project|app|website|dashboard|portfolio|tool|automation|saas|game|ship|deploy)\b/.test(text)) {
+    hours *= 1.3
+  }
+
+  if (/\b(master|expert|professional|career|job|interview|certification|exam|fluent|from scratch|zero to|full stack|complete)\b/.test(text)) {
+    hours *= 1.45
+  }
+
+  if (/\b(machine learning|data science|cybersecurity|physics|calculus|chemistry|finance|music theory)\b/.test(text)) {
+    hours *= 1.16
+  }
+
+  if (desiredOutcome === 'career') hours *= 1.18
+  if (desiredOutcome === 'project') hours *= 1.08
+  if (desiredOutcome === 'understand') hours *= 0.94
+
+  if (recommendedLevel === 'Beginner') hours *= 1.18
+  if (recommendedLevel === 'Advanced') hours *= 0.74
+
+  if (prereqComfort === 'full') hours *= 1.18
+  if (prereqComfort === 'test_out') hours *= 0.72
+
+  return Math.max(3, Math.min(220, hours))
+}
+
+function resolveCadence({ pathStyle, pace, recommendedLevel, goal, domain, desiredOutcome, prereqComfort }) {
+  const paceMap = {
+    relaxed: { weekdayMins: 20, weekendMins: 35 },
+    balanced: { weekdayMins: 30, weekendMins: 50 },
+    intensive: { weekdayMins: 45, weekendMins: 75 },
+  }
+  const base = paceMap[pace] || paceMap.balanced
+
   if (pathStyle === 'explore') {
     return {
       mode: 'explore',
       days: 0,
-      weekdayMins: pace === 'intensive' ? 40 : 30,
-      weekendMins: pace === 'relaxed' ? 45 : 60,
-    }
-  }
-
-  const paceMap = {
-    relaxed: { days: 56, weekdayMins: 25, weekendMins: 45 },
-    balanced: { days: 42, weekdayMins: 30, weekendMins: 60 },
-    intensive: { days: 28, weekdayMins: 40, weekendMins: 75 },
-  }
-
-  const base = paceMap[pace] || paceMap.balanced
-
-  if (recommendedLevel === 'Advanced') {
-    return {
-      mode: 'goal',
-      days: Math.max(21, base.days - 10),
-      weekdayMins: base.weekdayMins,
-      weekendMins: Math.max(45, base.weekendMins - 15),
-    }
-  }
-
-  if (recommendedLevel === 'Beginner') {
-    return {
-      mode: 'goal',
-      days: base.days + 7,
       weekdayMins: base.weekdayMins,
       weekendMins: base.weekendMins,
+      reason: 'Open-ended exploration',
     }
   }
 
-  return { mode: 'goal', ...base }
+  const explicitDays = parseExplicitTimelineDays(goal)
+  const averageDailyMins = ((base.weekdayMins * 5) + (base.weekendMins * 2)) / 7
+  const estimatedHours = estimateGoalHours({ goal, domain, recommendedLevel, desiredOutcome, prereqComfort })
+  const estimatedDays = Math.ceil((estimatedHours * 60) / averageDailyMins)
+  const days = explicitDays || estimatedDays
+
+  return {
+    mode: 'goal',
+    days: Math.max(3, Math.min(240, days)),
+    weekdayMins: base.weekdayMins,
+    weekendMins: base.weekendMins,
+    reason: explicitDays ? 'Timeline from your goal' : 'Estimated from goal scope',
+  }
 }
 
 function buildPathPreview(goal, family, recommendedLevel, pathStyle) {
@@ -309,68 +221,60 @@ function buildPathPreview(goal, family, recommendedLevel, pathStyle) {
   }
 }
 
-function GoalCard({ option, selected, onSelect }) {
+function DomainOption({ domain, selected, onSelect }) {
+  const meta = DOMAIN_METADATA[domain]
   return (
     <button
       type="button"
-      className="onboarding-goal-card interactive-card"
+      className={`onboarding-domain-card ${selected ? 'active' : ''}`}
       onClick={onSelect}
-      style={{
-        '--goal-accent': option.accent,
-        borderColor: selected ? `${option.accent}50` : 'rgba(255,255,255,0.08)',
-        background: selected
-          ? `linear-gradient(180deg, ${option.accent}14, rgba(18,18,26,0.96))`
-          : 'linear-gradient(180deg, rgba(18,18,26,0.96), rgba(11,11,17,0.98))',
-        boxShadow: selected
-          ? `0 30px 64px ${option.accent}12, inset 0 1px 0 rgba(255,255,255,0.10)`
-          : '0 22px 54px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.06)',
-      }}
     >
-      <div className="onboarding-goal-icon" style={{ background: selected ? `${option.accent}18` : 'rgba(255,255,255,0.04)' }}>
-        <IconGlyph name={option.icon} size={20} strokeWidth={2.2} color={selected ? option.accent : '#d7dce3'} />
-      </div>
-      <div className="onboarding-goal-title">{option.label}</div>
-      <div className="onboarding-goal-copy">{option.description}</div>
-    </button>
-  )
-}
-
-function PathOption({ option, selected, onSelect }) {
-  return (
-    <button
-      type="button"
-      className="onboarding-path-card interactive-card"
-      onClick={onSelect}
-      style={{
-        borderColor: selected ? 'rgba(0,229,199,0.26)' : 'rgba(255,255,255,0.08)',
-        background: selected
-          ? 'linear-gradient(180deg, rgba(0,229,199,0.10), rgba(13,14,20,0.96))'
-          : 'linear-gradient(180deg, rgba(18,18,26,0.96), rgba(11,11,17,0.98))',
-      }}
-    >
-      <div className="onboarding-path-icon">
-        <IconGlyph name={option.icon} size={22} strokeWidth={2.2} color={selected ? '#00e5c7' : '#d8dce3'} />
+      <div className="onboarding-domain-icon">
+        <IconGlyph name={meta.icon} size={18} strokeWidth={2.3} color={selected ? '#071015' : '#00e5c7'} />
       </div>
       <div>
-        <div className="onboarding-path-title">{option.title}</div>
-        <div className="onboarding-path-copy">{option.description}</div>
+        <div className="onboarding-domain-title">{meta.label}</div>
+        <div className="onboarding-domain-copy">{meta.description}</div>
       </div>
     </button>
   )
 }
 
-function PreviewRail({ preview, cadence, pathStyle, pace, recommendedLevel, accent, goal, family }) {
+function PreviewRail({
+  preview,
+  cadence,
+  pathStyle,
+  pace,
+  recommendedLevel,
+  accent,
+  goal,
+  family,
+  domain,
+  summary,
+}) {
+  const domainLabel = getDomainLabel(domain, family)
+
   return (
-    <PremiumFrame accent={`${accent}1c`} style={{ padding: 26, height: '100%' }}>
-      <div className="onboarding-rail-top">
-        <div>
-          <div className="onboarding-rail-eyebrow">PathAI Preview</div>
-          <div className="onboarding-rail-title">{goal || 'Your learning route'}</div>
+    <PremiumFrame accent={`${accent}1c`} className="onboarding-snapshot">
+      <div className="onboarding-snapshot-top">
+        <div className="onboarding-snapshot-icon">
+          <IconGlyph name={DOMAIN_METADATA[domain]?.icon || 'sparkles'} size={18} strokeWidth={2.4} color="#071015" />
         </div>
-        <div className="onboarding-rail-chip">{family === 'machineLearning' ? 'Machine Learning' : family === 'programming' ? 'Programming' : family === 'language' ? 'Language' : family === 'design' ? 'Design' : 'Adaptive'}</div>
+        <div>
+          <div className="onboarding-rail-eyebrow">Live route</div>
+          <div className="onboarding-rail-title">{goal || 'Tell PathAI your goal'}</div>
+        </div>
+      </div>
+
+      <div className="onboarding-snapshot-note">
+        {summary || `PathAI will turn ${getShortGoal(goal)} into a focused ${domainLabel} route.`}
       </div>
 
       <div className="onboarding-rail-grid">
+        <div>
+          <label>Domain</label>
+          <strong>{domainLabel}</strong>
+        </div>
         <div>
           <label>Mode</label>
           <strong>{pathStyle === 'explore' ? 'Explore' : 'Structured'}</strong>
@@ -388,11 +292,12 @@ function PreviewRail({ preview, cadence, pathStyle, pace, recommendedLevel, acce
           <strong>{cadence.mode === 'explore' ? 'Open-ended' : `${cadence.days} days`}</strong>
         </div>
       </div>
+      {cadence.reason ? <div className="onboarding-cadence-note">{cadence.reason}</div> : null}
 
       <div className="onboarding-route-block">
-        <div className="onboarding-rail-label">Projected route</div>
+        <div className="onboarding-rail-label">First route draft</div>
         <div className="onboarding-route-list">
-          {preview.route.map((item, index) => (
+          {preview.route.slice(0, 3).map((item, index) => (
             <div className="onboarding-route-item" key={`${item}-${index}`}>
               <div className={`onboarding-route-index ${index === 0 ? 'active' : ''}`}>{index + 1}</div>
               <div>
@@ -405,7 +310,7 @@ function PreviewRail({ preview, cadence, pathStyle, pace, recommendedLevel, acce
       </div>
 
       <div className="onboarding-route-summary">
-        <div className="onboarding-rail-label">What PathAI will optimize</div>
+        <div className="onboarding-rail-label">Optimization</div>
         <p>{preview.supportMode}</p>
         <p>{preview.completion}</p>
       </div>
@@ -424,13 +329,22 @@ export default function OnboardingPage() {
   const [customGoal, setCustomGoal] = useState('')
   const [pathStyle, setPathStyle] = useState('goal')
   const [pace, setPace] = useState('balanced')
+  const [experienceLevel, setExperienceLevel] = useState('beginner')
+  const [learningStyle, setLearningStyle] = useState('visual')
+  const [desiredOutcome, setDesiredOutcome] = useState('project')
+  const [prereqComfort, setPrereqComfort] = useState('compressed')
   const [answers, setAnswers] = useState({})
-  const [questionIndex, setQuestionIndex] = useState(0)
+  const [calibration, setCalibration] = useState(() => buildFallbackOnboardingCalibration())
+  const [questionLoading, setQuestionLoading] = useState(false)
   const [loading, setLoading] = useState(false)
   const [genStep, setGenStep] = useState(0)
   const [buildReady, setBuildReady] = useState(false)
   const [error, setError] = useState('')
-  const [courseIntent, setCourseIntent] = useState(null)
+  const [domainDetecting, setDomainDetecting] = useState(false)
+  const [domainPickerVisible, setDomainPickerVisible] = useState(false)
+  const [domainClassification, setDomainClassification] = useState(null)
+  const [selectedDomain, setSelectedDomain] = useState('')
+  const [domainGoalSnapshot, setDomainGoalSnapshot] = useState('')
 
   useEffect(() => {
     void (async () => {
@@ -449,45 +363,78 @@ export default function OnboardingPage() {
     })()
   }, [router])
 
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    const params = new URLSearchParams(window.location.search)
-    const urlCourseId = params.get('course')
-    let storedIntent = null
-    try {
-      storedIntent = JSON.parse(window.localStorage.getItem('pathai-course-intent') || 'null')
-    } catch {}
-    const course = getCourseById(urlCourseId || storedIntent?.id)
-    if (!course) return
-    setCourseIntent(course)
-    setPresetGoal(course.goalText)
-    setCustomGoal('')
-    setStep(2)
-  }, [])
-
   const goal = useMemo(() => customGoal.trim() || presetGoal, [customGoal, presetGoal])
   const family = useMemo(() => detectGoalFamily(goal), [goal])
   const accent = useMemo(() => getFamilyAccent(family), [family])
-  const questions = useMemo(() => getDiagnosticQuestions(family), [family])
+  const confirmedDomain = useMemo(() => normalizeDomain(selectedDomain, null), [selectedDomain])
+  const confirmedDomainConfig = useMemo(
+    () => confirmedDomain ? buildDomainConfig(confirmedDomain) : null,
+    [confirmedDomain],
+  )
+  const questions = useMemo(() => calibration.questions || [], [calibration.questions])
   const diagnosticScore = useMemo(
     () => questions.reduce((sum, question) => sum + (answers[question.id]?.score || 0), 0),
     [answers, questions],
   )
   const recommendedLevel = useMemo(() => getRecommendedLevel(diagnosticScore), [diagnosticScore])
-  const cadence = useMemo(() => resolveCadence(pathStyle, pace, recommendedLevel), [pathStyle, pace, recommendedLevel])
+  const learnerProfile = useMemo(() => ({
+    level: experienceLevel || recommendedLevel.toLowerCase(),
+    recommendedLevel,
+    diagnosticScore,
+    pace,
+    pathStyle,
+    learningStyle,
+    visualPreference: learningStyle === 'visual' ? 'visual' : 'balanced',
+    desiredOutcome,
+    prereqComfort,
+    prerequisiteMode: prereqComfort === 'full' ? 'full' : 'compressed',
+    domain: confirmedDomain,
+    domainConfig: confirmedDomainConfig,
+  }), [
+    confirmedDomain,
+    confirmedDomainConfig,
+    desiredOutcome,
+    diagnosticScore,
+    experienceLevel,
+    learningStyle,
+    pace,
+    pathStyle,
+    prereqComfort,
+    recommendedLevel,
+  ])
+  const cadence = useMemo(
+    () => resolveCadence({
+      pathStyle,
+      pace,
+      recommendedLevel,
+      goal,
+      domain: confirmedDomain,
+      desiredOutcome,
+      prereqComfort,
+    }),
+    [confirmedDomain, desiredOutcome, goal, pace, pathStyle, prereqComfort, recommendedLevel],
+  )
   const preview = useMemo(
     () => buildPathPreview(goal, family, recommendedLevel, pathStyle),
     [goal, family, recommendedLevel, pathStyle],
   )
 
-  const currentQuestion = questions[questionIndex]
   const allQuestionsAnswered = questions.length > 0 && questions.every((question) => Boolean(answers[question.id]))
-  const skipDiagnostic = Boolean(courseIntent?.concepts?.length)
 
   useEffect(() => {
     setAnswers({})
-    setQuestionIndex(0)
-  }, [family])
+    if (!goal) {
+      setCalibration(buildFallbackOnboardingCalibration())
+    }
+  }, [goal])
+
+  useEffect(() => {
+    if (goal && goal === domainGoalSnapshot) return
+    setDomainPickerVisible(false)
+    setDomainClassification(null)
+    setSelectedDomain('')
+    setDomainGoalSnapshot('')
+  }, [domainGoalSnapshot, goal])
 
   const goToStep = useCallback((nextStep, dir) => {
     setDirection(dir)
@@ -495,15 +442,135 @@ export default function OnboardingPage() {
     setError('')
   }, [])
 
+  const applyCalibrationDefaults = useCallback((defaults = {}) => {
+    if (defaults.pathStyle) setPathStyle(defaults.pathStyle)
+    if (defaults.pace) setPace(defaults.pace)
+    if (defaults.experienceLevel) setExperienceLevel(defaults.experienceLevel)
+    if (defaults.learningStyle) setLearningStyle(defaults.learningStyle)
+    if (defaults.desiredOutcome) setDesiredOutcome(defaults.desiredOutcome)
+    if (defaults.prereqComfort) setPrereqComfort(defaults.prereqComfort)
+  }, [])
+
+  const loadCalibration = useCallback(async (domain) => {
+    const fallback = buildFallbackOnboardingCalibration({ goal, domain, family })
+    setQuestionLoading(true)
+    setAnswers({})
+
+    try {
+      const res = await fetch('/api/onboarding-questions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ goal, domain, family }),
+      })
+      const data = await res.json().catch(() => ({}))
+      const normalized = normalizeOnboardingCalibration(data, { goal, domain, family })
+      setCalibration(normalized)
+      applyCalibrationDefaults(normalized.defaults)
+    } catch {
+      setCalibration(fallback)
+      applyCalibrationDefaults(fallback.defaults)
+    } finally {
+      setQuestionLoading(false)
+    }
+  }, [applyCalibrationDefaults, family, goal])
+
   const handleAnswer = useCallback((question, option) => {
     setAnswers((current) => ({ ...current, [question.id]: option }))
-    if (questionIndex < questions.length - 1) {
-      window.setTimeout(() => setQuestionIndex((value) => value + 1), 180)
+    if (option?.sets) applyCalibrationDefaults(option.sets)
+  }, [applyCalibrationDefaults])
+
+  const persistDomainContext = useCallback(async ({ goalId = null, domain, domainConfig }) => {
+    if (!user || !domain) return
+    setStoredLearningDomain(domain)
+
+    try {
+      await supabaseData
+        .from('users')
+        .upsert({
+          id: user.id,
+          email: user.email || null,
+          domain,
+          domain_confirmed_at: new Date().toISOString(),
+        }, { onConflict: 'id' })
+    } catch {
+      // Some projects only have auth.users plus app tables. The goal row remains the source of truth.
     }
-  }, [questionIndex, questions.length])
+
+    if (goalId) {
+      try {
+        await supabaseData
+          .from('goals')
+          .update({ domain, domain_config: domainConfig })
+          .eq('id', goalId)
+          .eq('user_id', user.id)
+      } catch {
+        // Migration may not be applied yet; constraints still carry the domain.
+      }
+    }
+  }, [user])
+
+  const handleGoalContinue = useCallback(async () => {
+    if (!goal || domainDetecting) return
+
+    if (confirmedDomain && domainGoalSnapshot === goal) {
+      await persistDomainContext({
+        domain: confirmedDomain,
+        domainConfig: confirmedDomainConfig || buildDomainConfig(confirmedDomain),
+      })
+      await loadCalibration(confirmedDomain)
+      goToStep(2, 1)
+      return
+    }
+
+    setDomainDetecting(true)
+    setError('')
+
+    try {
+      const res = await fetch('/api/domain-classify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ goal }),
+      })
+      const data = await res.json().catch(() => ({}))
+      const nextDomain = normalizeDomain(data?.domain, 'CS_CODING')
+      const confidence = Number(data?.confidence) || 0
+
+      setSelectedDomain(nextDomain)
+      setDomainClassification({ ...data, domain: nextDomain, confidence })
+      setDomainGoalSnapshot(goal)
+
+      if (confidence >= DOMAIN_CONFIDENCE_THRESHOLD) {
+        setDomainPickerVisible(false)
+        await persistDomainContext({
+          domain: nextDomain,
+          domainConfig: buildDomainConfig(nextDomain),
+        })
+        await loadCalibration(nextDomain)
+        goToStep(2, 1)
+      } else {
+        setDomainPickerVisible(true)
+      }
+    } catch {
+      setSelectedDomain('CS_CODING')
+      setDomainClassification({ domain: 'CS_CODING', confidence: 0, source: 'client_fallback' })
+      setDomainGoalSnapshot(goal)
+      setDomainPickerVisible(true)
+    } finally {
+      setDomainDetecting(false)
+    }
+  }, [
+    confirmedDomain,
+    confirmedDomainConfig,
+    domainDetecting,
+    domainGoalSnapshot,
+    goal,
+    goToStep,
+    loadCalibration,
+    persistDomainContext,
+  ])
 
   const startGeneration = useCallback(async () => {
-    if (!user || !goal) return
+    if (!user || !goal || !confirmedDomain || !confirmedDomainConfig) return
 
     setLoading(true)
     setBuildReady(false)
@@ -516,19 +583,37 @@ export default function OnboardingPage() {
 
     const knowledge = [
       `Goal family: ${family}`,
-      `Recommended level: ${recommendedLevel}`,
-      `Diagnostic score: ${diagnosticScore}/${questions.length * 2}`,
-      `Preferred pace: ${pace}`,
-      `Path style: ${pathStyle === 'explore' ? 'exploration' : 'structured path'}`,
-      courseIntent ? `Prebuilt course: ${courseIntent.title}` : '',
-      courseIntent?.concepts?.length ? `Course concepts: ${courseIntent.concepts.join(', ')}` : '',
+      buildDomainKnowledgeLine(confirmedDomain),
+      `Learner profile JSON: ${JSON.stringify(learnerProfile)}`,
     ].join('. ')
+    let decomposition = null
+    let modelUsed = null
 
     try {
+      const decompositionRes = await fetch('/api/goal-decompose', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          goalText: goal,
+          userContext: {
+            knowledge,
+            level: recommendedLevel,
+          },
+        }),
+      })
+      const decompositionData = await decompositionRes.json().catch(() => ({}))
+      if (!decompositionRes.ok || !decompositionData?.decomposition) {
+        throw new Error(decompositionData?.error || 'Failed to decompose your goal')
+      }
+
+      decomposition = decompositionData.decomposition
+      modelUsed = decompositionData.modelUsed || null
+
       if (isLocalAccessUser(user)) {
-        await createLocalGoalBundle({
+        const localBundle = await createLocalGoalBundle({
           user,
           goalText: goal,
+          decomposition,
           mode: cadence.mode,
           days: cadence.days || 30,
           weekdayMins: cadence.weekdayMins,
@@ -538,7 +623,22 @@ export default function OnboardingPage() {
           diagnosticScore,
           pace,
           pathStyle,
+          learnerProfile,
+          domain: confirmedDomain,
+          domainConfig: confirmedDomainConfig,
         })
+      track(EVENTS.GOAL_DECOMPOSED, {
+          goal_id: localBundle.goal.id,
+          primary_mode: decomposition.primaryMode,
+          estimated_days: decomposition.estimatedDays,
+          confidence: decomposition.confidence,
+          model_used: modelUsed,
+          fallback: decomposition.decompositionStatus === 'pending_retry',
+        }, {
+          userId: user.id,
+          goalId: localBundle.goal.id,
+        })
+        await persistDomainContext({ domain: confirmedDomain, domainConfig: confirmedDomainConfig })
         await new Promise((resolve) => window.setTimeout(resolve, 600))
         window.clearInterval(interval)
         setLoading(false)
@@ -551,33 +651,56 @@ export default function OnboardingPage() {
       const deadline = new Date()
       if (cadence.mode === 'goal') deadline.setDate(deadline.getDate() + cadence.days)
 
-      const { data: goalData, error: goalError } = await supabaseData
-        .from('goals')
-        .insert({
-          user_id: user.id,
-          goal_text: goal,
-          mode: cadence.mode,
-          deadline: cadence.mode === 'goal' ? deadline.toISOString().split('T')[0] : null,
-          weekday_mins: cadence.weekdayMins,
-          weekend_mins: cadence.weekendMins,
-          constraints: [
-            `Recommended level: ${recommendedLevel}`,
-            `Diagnostic score: ${diagnosticScore}/${questions.length * 2}`,
-            `Pace: ${pace}`,
-            `Path style: ${pathStyle}`,
-            courseIntent ? `Course: ${courseIntent.title}` : '',
-            courseIntent?.concepts?.length ? `Course concepts: ${courseIntent.concepts.join(', ')}` : '',
-          ],
-          status: 'active',
-          total_days: cadence.mode === 'goal' ? cadence.days : 0,
-        })
-        .select()
-        .single()
-
-      if (goalError) throw goalError
-
       const { session } = await getSafeSupabaseSession()
       const accessToken = session?.access_token || null
+      if (!accessToken) {
+        window.clearInterval(interval)
+        setLoading(false)
+        router.push('/login')
+        return
+      }
+      const goalCreateRes = await fetch('/api/goals', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        },
+        body: JSON.stringify({
+          goalText: goal,
+          decomposition,
+          mode: cadence.mode,
+          deadline: cadence.mode === 'goal' ? deadline.toISOString().split('T')[0] : null,
+          weekdayMins: cadence.weekdayMins,
+          weekendMins: cadence.weekendMins,
+          totalDays: cadence.mode === 'goal' ? cadence.days : 0,
+          domain: confirmedDomain,
+          learnerProfile,
+          accessToken,
+        }),
+      })
+      const goalCreateData = await goalCreateRes.json().catch(() => ({}))
+      if (!goalCreateRes.ok || !goalCreateData?.goal) {
+        throw new Error(goalCreateData?.error || 'Failed to create your goal')
+      }
+      const goalData = goalCreateData.goal
+
+      track(EVENTS.GOAL_DECOMPOSED, {
+        goal_id: goalData.id,
+        primary_mode: decomposition.primaryMode,
+        estimated_days: decomposition.estimatedDays,
+        confidence: decomposition.confidence,
+        model_used: modelUsed,
+        fallback: decomposition.decompositionStatus === 'pending_retry',
+      }, {
+        userId: user.id,
+        goalId: goalData.id,
+      })
+
+      await persistDomainContext({
+        goalId: goalData.id,
+        domain: confirmedDomain,
+        domainConfig: confirmedDomainConfig,
+      })
 
       const res = await fetch('/api/generate', {
         method: 'POST',
@@ -594,6 +717,9 @@ export default function OnboardingPage() {
           weekdayMins: cadence.weekdayMins,
           weekendMins: cadence.weekendMins,
           knowledge,
+          learnerProfile,
+          domain: confirmedDomain,
+          domainConfig: confirmedDomainConfig,
           accessToken,
         }),
       })
@@ -609,10 +735,11 @@ export default function OnboardingPage() {
       setGenStep(GENERATION_STEPS.length - 1)
     } catch (err) {
       window.clearInterval(interval)
-      if (shouldBypassPathGeneration(err?.message)) {
-        await createLocalGoalBundle({
+      if (decomposition && shouldBypassPathGeneration(err?.message)) {
+        const localBundle = await createLocalGoalBundle({
           user,
           goalText: goal,
+          decomposition,
           mode: cadence.mode,
           days: cadence.days || 30,
           weekdayMins: cadence.weekdayMins,
@@ -622,7 +749,22 @@ export default function OnboardingPage() {
           diagnosticScore,
           pace,
           pathStyle,
+          learnerProfile,
+          domain: confirmedDomain,
+          domainConfig: confirmedDomainConfig,
         })
+        track(EVENTS.GOAL_DECOMPOSED, {
+          goal_id: localBundle.goal.id,
+          primary_mode: decomposition.primaryMode,
+          estimated_days: decomposition.estimatedDays,
+          confidence: decomposition.confidence,
+          model_used: modelUsed,
+          fallback: decomposition.decompositionStatus === 'pending_retry',
+        }, {
+          userId: user.id,
+          goalId: localBundle.goal.id,
+        })
+        await persistDomainContext({ domain: confirmedDomain, domainConfig: confirmedDomainConfig })
         setLoading(false)
         setBuildReady(true)
         setGenStep(GENERATION_STEPS.length - 1)
@@ -639,20 +781,22 @@ export default function OnboardingPage() {
     cadence.mode,
     cadence.weekdayMins,
     cadence.weekendMins,
+    confirmedDomain,
+    confirmedDomainConfig,
     diagnosticScore,
     family,
     goal,
+    learnerProfile,
     pace,
+    persistDomainContext,
     pathStyle,
-    questions.length,
     recommendedLevel,
     router,
     user,
-    courseIntent,
   ])
 
   useEffect(() => {
-    if (step === 4 && !loading && !buildReady && !error && user && goal) {
+    if (step === 3 && !loading && !buildReady && !error && user && goal) {
       startGeneration()
     }
   }, [step, loading, buildReady, error, user, goal, startGeneration])
@@ -753,9 +897,9 @@ export default function OnboardingPage() {
         .onboarding-title {
           margin-top: 18px;
           color: #f0f0f0;
-          font-size: clamp(3rem, 7vw, 5.8rem);
+	          font-size: 4.7rem;
           line-height: 0.94;
-          letter-spacing: -0.05em;
+	          letter-spacing: 0;
         }
         .onboarding-copy {
           margin-top: 20px;
@@ -835,9 +979,9 @@ export default function OnboardingPage() {
         }
         .onboarding-step-header h2 {
           color: #f0f0f0;
-          font-size: clamp(2.2rem, 4vw, 3.2rem);
+	          font-size: 2.35rem;
           line-height: 0.98;
-          letter-spacing: -0.04em;
+	          letter-spacing: 0;
         }
         .onboarding-step-header p {
           margin-top: 12px;
@@ -874,7 +1018,7 @@ export default function OnboardingPage() {
           color: #f0f0f0;
           font-size: 18px;
           font-weight: 700;
-          letter-spacing: -0.03em;
+	          letter-spacing: 0;
         }
         .onboarding-goal-copy,
         .onboarding-path-copy {
@@ -896,10 +1040,147 @@ export default function OnboardingPage() {
         .onboarding-input::placeholder {
           color: rgba(240,240,240,0.32);
         }
+        .onboarding-domain-confirmed {
+          margin-top: 14px;
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          padding: 10px 14px;
+          border-radius: 999px;
+          background: rgba(0,229,199,0.08);
+          border: 1px solid rgba(0,229,199,0.18);
+          color: rgba(240,240,240,0.78);
+          font-size: 12px;
+          font-weight: 800;
+        }
+        .onboarding-domain-panel {
+          margin-top: 18px;
+          padding: 18px;
+          border-radius: 24px;
+          background: rgba(255,255,255,0.03);
+          border: 1px solid rgba(255,255,255,0.08);
+        }
+        .onboarding-domain-panel-top {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 14px;
+          margin-bottom: 14px;
+        }
+        .onboarding-domain-panel-title {
+          margin-top: 6px;
+          color: #f0f0f0;
+          font-size: 18px;
+          font-weight: 800;
+	          letter-spacing: 0;
+        }
+        .onboarding-domain-confidence {
+          flex-shrink: 0;
+          padding: 8px 10px;
+          border-radius: 999px;
+          background: rgba(255,255,255,0.05);
+          border: 1px solid rgba(255,255,255,0.08);
+          color: rgba(240,240,240,0.56);
+          font-size: 11px;
+          font-weight: 800;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+        }
+        .onboarding-domain-grid {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 10px;
+        }
+        .onboarding-domain-card {
+          width: 100%;
+          min-height: 116px;
+          padding: 13px;
+          display: grid;
+          grid-template-columns: 34px minmax(0, 1fr);
+          gap: 11px;
+          text-align: left;
+          border-radius: 18px;
+          border: 1px solid rgba(255,255,255,0.08);
+          background: rgba(255,255,255,0.035);
+          color: #f0f0f0;
+        }
+        .onboarding-domain-card.active {
+          border-color: rgba(0,229,199,0.30);
+          background: rgba(0,229,199,0.10);
+        }
+        .onboarding-domain-icon {
+          width: 34px;
+          height: 34px;
+          border-radius: 12px;
+          display: grid;
+          place-items: center;
+          background: rgba(0,229,199,0.08);
+          border: 1px solid rgba(0,229,199,0.14);
+        }
+        .onboarding-domain-card.active .onboarding-domain-icon {
+          background: linear-gradient(135deg, #00e5c7, #7fe7ff);
+          border-color: transparent;
+        }
+        .onboarding-domain-title {
+          font-size: 13px;
+          font-weight: 800;
+          color: #f0f0f0;
+          line-height: 1.2;
+        }
+        .onboarding-domain-copy {
+          margin-top: 6px;
+          color: rgba(240,240,240,0.50);
+          font-size: 11px;
+          line-height: 1.45;
+        }
         .onboarding-path-grid {
           display: grid;
           grid-template-columns: repeat(2, minmax(0, 1fr));
           gap: 14px;
+        }
+        .onboarding-preference-group {
+          margin-top: 22px;
+          display: grid;
+          gap: 10px;
+        }
+        .onboarding-preference-label {
+          color: rgba(240,240,240,0.48);
+          font-size: 11px;
+          font-weight: 800;
+          letter-spacing: 0.14em;
+          text-transform: uppercase;
+        }
+        .onboarding-preference-grid {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 10px;
+        }
+        .onboarding-preference-card {
+          min-height: 92px;
+          padding: 14px;
+          border-radius: 18px;
+          border: 1px solid rgba(255,255,255,0.08);
+          background: rgba(255,255,255,0.035);
+          text-align: left;
+          color: rgba(240,240,240,0.72);
+        }
+        .onboarding-preference-card.active {
+          border-color: rgba(0,229,199,0.30);
+          background: rgba(0,229,199,0.09);
+          box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+        }
+        .onboarding-preference-card strong {
+          display: block;
+          color: #f0f0f0;
+          font-size: 13px;
+          font-weight: 800;
+        }
+        .onboarding-preference-card span {
+          display: block;
+          margin-top: 7px;
+          color: rgba(240,240,240,0.52);
+          font-size: 12px;
+          line-height: 1.45;
         }
         .onboarding-path-card {
           width: 100%;
@@ -951,9 +1232,9 @@ export default function OnboardingPage() {
         .onboarding-question-title {
           margin-top: 16px;
           color: #f0f0f0;
-          font-size: clamp(1.8rem, 3vw, 2.4rem);
+	          font-size: 1.35rem;
           line-height: 1.08;
-          letter-spacing: -0.04em;
+	          letter-spacing: 0;
         }
         .onboarding-answer-list {
           display: grid;
@@ -1025,7 +1306,7 @@ export default function OnboardingPage() {
           font-size: 28px;
           font-weight: 700;
           line-height: 1.02;
-          letter-spacing: -0.05em;
+	          letter-spacing: 0;
         }
         .onboarding-rail-chip {
           padding: 8px 12px;
@@ -1193,24 +1474,279 @@ export default function OnboardingPage() {
           text-transform: uppercase;
           letter-spacing: 0.14em;
         }
-        .onboarding-error {
-          margin-top: 18px;
-          padding: 14px 16px;
+	        .onboarding-error {
+	          margin-top: 18px;
+	          padding: 14px 16px;
           border-radius: 18px;
           background: rgba(255,107,107,0.10);
           border: 1px solid rgba(255,107,107,0.18);
-          color: #ff9b9b;
-          font-size: 14px;
-        }
-        @media (max-width: 1120px) {
-          .onboarding-layout,
-          .onboarding-generation {
-            grid-template-columns: minmax(0, 1fr);
-          }
-        }
+	          color: #ff9b9b;
+	          font-size: 14px;
+	        }
+	        .onboarding-shell {
+	          max-width: 1180px;
+	          padding-top: calc(env(safe-area-inset-top, 0px) + 24px);
+	        }
+	        .onboarding-top {
+	          margin-bottom: 22px;
+	        }
+	        .onboarding-header {
+	          max-width: 880px;
+	        }
+	        .onboarding-title {
+	          max-width: 820px;
+	          font-size: 4.7rem;
+	          line-height: 1.02;
+	          letter-spacing: 0;
+	        }
+	        .onboarding-copy {
+	          max-width: 660px;
+	          font-size: 16px;
+	          line-height: 1.65;
+	        }
+	        .onboarding-layout {
+	          grid-template-columns: minmax(0, 1fr) 340px;
+	          gap: 18px;
+	        }
+	        .onboarding-main-card {
+	          min-height: 620px;
+	          padding: 24px;
+	        }
+	        .onboarding-progress {
+	          gap: 12px;
+	          margin-bottom: 22px;
+	        }
+	        .onboarding-progress-track {
+	          height: 7px;
+	        }
+	        .onboarding-progress-steps {
+	          grid-template-columns: repeat(3, minmax(0, 1fr));
+	        }
+	        .onboarding-progress-badge {
+	          width: 30px;
+	          height: 30px;
+	        }
+	        .onboarding-step-header {
+	          margin-bottom: 18px;
+	        }
+	        .onboarding-step-header h2 {
+	          font-size: 2.35rem;
+	          line-height: 1.08;
+	          letter-spacing: 0;
+	        }
+	        .onboarding-goal-composer {
+	          padding: 18px;
+	          border-radius: 24px;
+	          background:
+	            linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.025)),
+	            radial-gradient(circle at 12% 0%, rgba(0,229,199,0.12), transparent 34%);
+	          border: 1px solid rgba(255,255,255,0.09);
+	        }
+	        .onboarding-input-label,
+	        .onboarding-example-label {
+	          display: block;
+	          color: rgba(240,240,240,0.52);
+	          font-size: 11px;
+	          font-weight: 800;
+	          letter-spacing: 0.14em;
+	          text-transform: uppercase;
+	        }
+	        .onboarding-goal-input {
+	          min-height: 118px;
+	          resize: vertical;
+	          margin-top: 10px;
+	          border-radius: 20px;
+	          font-size: 18px;
+	          line-height: 1.5;
+	          background: rgba(2,8,12,0.54);
+	          box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+	        }
+	        .onboarding-example-label {
+	          margin-top: 18px;
+	        }
+	        .onboarding-suggestion-grid {
+	          display: flex;
+	          flex-wrap: wrap;
+	          gap: 10px;
+	          margin-top: 10px;
+	        }
+	        .onboarding-suggestion-chip {
+	          min-height: 42px;
+	          display: inline-flex;
+	          align-items: center;
+	          gap: 8px;
+	          padding: 0 14px;
+	          border-radius: 999px;
+	          border: 1px solid rgba(255,255,255,0.09);
+	          background: rgba(255,255,255,0.04);
+	          color: rgba(240,240,240,0.76);
+	          font-size: 13px;
+	          font-weight: 800;
+	        }
+	        .onboarding-suggestion-chip.active {
+	          border-color: rgba(255,255,255,0.20);
+	          background: linear-gradient(135deg, #00e5c7, #7fe7ff);
+	          color: #071015;
+	        }
+	        .onboarding-calibration-list {
+	          display: grid;
+	          gap: 12px;
+	        }
+	        .onboarding-question-card {
+	          padding: 18px;
+	          border-radius: 22px;
+	          background: rgba(255,255,255,0.035);
+	        }
+	        .onboarding-question-title {
+	          margin-top: 8px;
+	          font-size: 1.35rem;
+	          line-height: 1.24;
+	          letter-spacing: 0;
+	        }
+	        .onboarding-question-helper {
+	          margin-top: 8px;
+	          color: rgba(240,240,240,0.52);
+	          font-size: 13px;
+	          line-height: 1.55;
+	        }
+	        .onboarding-answer-list {
+	          grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+	          gap: 10px;
+	          margin-top: 14px;
+	        }
+	        .onboarding-answer {
+	          min-height: 52px;
+	          padding: 13px 14px;
+	          border-radius: 16px;
+	          font-size: 13px;
+	          line-height: 1.35;
+	        }
+	        .onboarding-answer.active {
+	          border-color: rgba(0,229,199,0.34);
+	          background: rgba(0,229,199,0.11);
+	          box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 14px 28px rgba(0,229,199,0.08);
+	        }
+	        .onboarding-inferred-strip,
+	        .onboarding-loading-card {
+	          margin-top: 14px;
+	          display: grid;
+	          grid-template-columns: repeat(3, minmax(0, 1fr));
+	          gap: 10px;
+	          padding: 14px;
+	          border-radius: 20px;
+	          background: rgba(0,229,199,0.06);
+	          border: 1px solid rgba(0,229,199,0.12);
+	        }
+	        .onboarding-inferred-strip span {
+	          display: block;
+	          color: rgba(240,240,240,0.46);
+	          font-size: 10px;
+	          font-weight: 800;
+	          letter-spacing: 0.12em;
+	          text-transform: uppercase;
+	        }
+	        .onboarding-inferred-strip strong {
+	          display: block;
+	          margin-top: 5px;
+	          color: #f0f0f0;
+	          font-size: 13px;
+	          text-transform: capitalize;
+	        }
+	        .onboarding-loading-card {
+	          grid-template-columns: 42px minmax(0, 1fr);
+	          align-items: center;
+	        }
+	        .onboarding-loading-card strong,
+	        .onboarding-loading-card span {
+	          display: block;
+	        }
+	        .onboarding-loading-card strong {
+	          color: #f0f0f0;
+	          font-size: 16px;
+	        }
+	        .onboarding-loading-card span {
+	          margin-top: 4px;
+	          color: rgba(240,240,240,0.56);
+	          font-size: 13px;
+	        }
+	        .onboarding-snapshot {
+	          padding: 22px;
+	          position: sticky;
+	          top: 24px;
+	        }
+	        .onboarding-snapshot-top {
+	          display: grid;
+	          grid-template-columns: 42px minmax(0, 1fr);
+	          gap: 12px;
+	          align-items: start;
+	        }
+	        .onboarding-snapshot-icon {
+	          width: 42px;
+	          height: 42px;
+	          border-radius: 14px;
+	          display: grid;
+	          place-items: center;
+	          background: linear-gradient(135deg, #00e5c7, #7fe7ff);
+	          box-shadow: 0 16px 34px rgba(0,229,199,0.16);
+	        }
+	        .onboarding-snapshot-note {
+	          margin: 16px 0;
+	          color: rgba(240,240,240,0.58);
+	          font-size: 13px;
+	          line-height: 1.62;
+	        }
+	        .onboarding-cadence-note {
+	          margin-top: 10px;
+	          padding: 10px 12px;
+	          border-radius: 14px;
+	          background: rgba(127,231,255,0.07);
+	          border: 1px solid rgba(127,231,255,0.10);
+	          color: rgba(240,240,240,0.58);
+	          font-size: 12px;
+	          font-weight: 700;
+	        }
+	        .onboarding-rail-title {
+	          margin-top: 6px;
+	          font-size: 1.15rem;
+	          line-height: 1.22;
+	          letter-spacing: 0;
+	        }
+	        .onboarding-rail-grid {
+	          grid-template-columns: repeat(2, minmax(0, 1fr));
+	          gap: 8px;
+	        }
+	        .onboarding-rail-grid > div,
+	        .onboarding-route-summary,
+	        .onboarding-route-item {
+	          border-radius: 16px;
+	        }
+	        .onboarding-route-list {
+	          gap: 8px;
+	        }
+	        .onboarding-route-title {
+	          font-size: 13px;
+	        }
+	        .onboarding-generation {
+	          grid-template-columns: 240px minmax(0, 1fr);
+	        }
+	        .onboarding-build-visual {
+	          min-height: 260px;
+	          border-radius: 26px;
+	        }
+	        @media (max-width: 1120px) {
+	          .onboarding-layout,
+	          .onboarding-generation {
+	            grid-template-columns: minmax(0, 1fr);
+	          }
+	          .onboarding-snapshot {
+	            position: static;
+	          }
+	        }
         @media (max-width: 860px) {
           .onboarding-goal-grid,
-          .onboarding-path-grid {
+          .onboarding-domain-grid,
+          .onboarding-path-grid,
+          .onboarding-preference-grid {
             grid-template-columns: minmax(0, 1fr);
           }
         }
@@ -1221,16 +1757,24 @@ export default function OnboardingPage() {
           .onboarding-main-card {
             padding: 22px 18px;
           }
-          .onboarding-progress-steps,
-          .onboarding-rail-grid {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-          }
-          .onboarding-title {
-            font-size: clamp(2.8rem, 14vw, 4.2rem);
-          }
-          .onboarding-copy {
-            font-size: 15px;
-          }
+	          .onboarding-progress-steps,
+	          .onboarding-rail-grid {
+	            grid-template-columns: repeat(3, minmax(0, 1fr));
+	          }
+	          .onboarding-title {
+	            font-size: 2.65rem;
+	          }
+	          .onboarding-step-header h2 {
+	            font-size: 1.9rem;
+	          }
+	          .onboarding-copy {
+	            font-size: 15px;
+	          }
+	          .onboarding-inferred-strip,
+	          .onboarding-answer-list,
+	          .onboarding-rail-grid {
+	            grid-template-columns: minmax(0, 1fr);
+	          }
           .onboarding-footer {
             flex-direction: column;
             align-items: stretch;
@@ -1245,41 +1789,30 @@ export default function OnboardingPage() {
       <div className="pathai-onboarding">
         <AtmosphericBackdrop variant="onboarding" />
 
-        <div className="onboarding-shell">
-          <div className="onboarding-top">
-            <ScrollReveal className="onboarding-header" distance={0}>
-              <div className="onboarding-brand">
+	        <div className="onboarding-shell">
+	          <div className="onboarding-top">
+	            <ScrollReveal className="onboarding-header" distance={0}>
+	              <div className="onboarding-brand">
                 <div className="onboarding-brandmark">
                   <IconGlyph name="bolt" size={20} strokeWidth={2.5} color="#071015" />
                 </div>
                 <div>
-                  <div style={{ color: '#f0f0f0', fontSize: 24, fontWeight: 800, letterSpacing: '-0.05em' }}>PathAI</div>
-                  <div style={{ color: 'rgba(240,240,240,0.44)', fontSize: 12 }}>Goal-based onboarding</div>
-                </div>
-              </div>
-              <div className="onboarding-eyebrow" style={{ marginTop: 24 }}>Premium route builder</div>
-              <h1 className="font-display onboarding-title">Build a route that feels serious from the first mission.</h1>
-              <p className="onboarding-copy">
-                PathAI maps the goal, calibrates the starting depth, and builds a first day that already feels like momentum.
-              </p>
-            </ScrollReveal>
-          </div>
-
-          <div className="onboarding-layout">
-            <PreviewRail
-              preview={preview}
-              cadence={cadence}
-              pathStyle={pathStyle}
-              pace={pace}
-              recommendedLevel={recommendedLevel}
-              accent={accent}
-              goal={goal}
-              family={family}
-            />
-
-            <PremiumFrame accent={`${accent}1a`} className="onboarding-main-card">
-              <div className="onboarding-progress">
-                <div className="onboarding-progress-track">
+	                  <div style={{ color: '#f0f0f0', fontSize: 24, fontWeight: 800, letterSpacing: 0 }}>PathAI</div>
+	                  <div style={{ color: 'rgba(240,240,240,0.44)', fontSize: 12 }}>Goal-based onboarding</div>
+	                </div>
+	              </div>
+	              <div className="onboarding-eyebrow" style={{ marginTop: 24 }}>Fast route setup</div>
+	              <h1 className="font-display onboarding-title">Tell PathAI the goal. We ask only what is missing.</h1>
+	              <p className="onboarding-copy">
+	                A cleaner onboarding flow: one goal, a few smart calibration questions, then a first route that starts at the right depth.
+	              </p>
+	            </ScrollReveal>
+	          </div>
+	
+	          <div className="onboarding-layout">
+	            <PremiumFrame accent={`${accent}1a`} className="onboarding-main-card">
+	              <div className="onboarding-progress">
+	                <div className="onboarding-progress-track">
                   <motion.div
                     className="onboarding-progress-fill"
                     initial={false}
@@ -1303,175 +1836,194 @@ export default function OnboardingPage() {
                   })}
                 </div>
               </div>
-
-              <div className="onboarding-step-header">
-                <h2 className="font-display">{STEPS[step - 1]}</h2>
-                <p>
-                  {step === 1 && 'Choose a launch direction or type your own goal. The route builder uses that signal to shape the first mission.'}
-                  {step === 2 && (courseIntent
-                    ? `${courseIntent.title} is selected. Pick the structure and pace, then PathAI will build the course route.`
-                    : 'Pick the structure and pace that should define your route. This changes how PathAI sequences your daily work.')}
-                  {step === 3 && 'A quick diagnostic lets us aim the right starting depth instead of dropping you into a generic beginner course.'}
-                  {step === 4 && 'We are building your first route right now, with the first mission ready as soon as generation finishes.'}
-                </p>
-              </div>
+	
+	              <div className="onboarding-step-header">
+	                <h2 className="font-display">{STEPS[step - 1]}</h2>
+	                <p>
+	                  {step === 1 && 'Type the real thing you want to learn. Examples are just quick starts, not a fixed menu.'}
+	                  {step === 2 && 'PathAI generated these questions from your goal to fill in the gaps without a long setup survey.'}
+	                  {step === 3 && 'Building the route, first mission, and starting difficulty from your answers.'}
+	                </p>
+	              </div>
 
               {error ? <div className="onboarding-error">{error}</div> : null}
 
               <AnimatePresence mode="wait" custom={direction}>
-                <motion.div
-                  key={`${step}-${questionIndex}-${loading}-${buildReady}`}
-                  custom={direction}
-                  initial={reduceMotion ? { opacity: 1 } : { opacity: 0, x: direction > 0 ? 40 : -40 }}
-                  animate={{ opacity: 1, x: 0 }}
+	                <motion.div
+	                  key={`${step}-${loading}-${buildReady}-${questionLoading}`}
+	                  custom={direction}
+	                  initial={reduceMotion ? { opacity: 1 } : { opacity: 0, x: direction > 0 ? 40 : -40 }}
+	                  animate={{ opacity: 1, x: 0 }}
                   exit={reduceMotion ? { opacity: 0 } : { opacity: 0, x: direction > 0 ? -34 : 34 }}
                   transition={{ duration: reduceMotion ? 0 : 0.3, ease: [0.22, 1, 0.36, 1] }}
-                >
-                  {step === 1 && (
-                    <>
-                      <div className="onboarding-goal-grid">
-                        {GOAL_OPTIONS.map((option) => (
-                          <GoalCard
-                            key={option.label}
-                            option={option}
-                            selected={presetGoal === option.label && !customGoal.trim()}
-                            onSelect={() => {
-                              setPresetGoal(option.label)
-                              setCustomGoal('')
-                            }}
-                          />
-                        ))}
-                      </div>
-
-                      <input
-                        value={customGoal}
-                        onChange={(event) => setCustomGoal(event.target.value)}
-                        placeholder="Or type your own goal..."
-                        className="onboarding-input"
-                      />
-
-                      <div className="onboarding-footer">
-                        <div style={{ color: 'rgba(240,240,240,0.44)', fontSize: 13 }}>Step 1 of 4</div>
-                        <button
-                          type="button"
-                          className="onboarding-primary interactive-cta"
-                          onClick={() => goToStep(2, 1)}
-                          disabled={!goal}
-                        >
-                          Continue
-                        </button>
-                      </div>
-                    </>
-                  )}
-
-                  {step === 2 && (
-                    <>
-                      <div className="onboarding-path-grid">
-                        {PATH_OPTIONS.map((option) => (
-                          <PathOption
-                            key={option.id}
-                            option={option}
-                            selected={pathStyle === option.id}
-                            onSelect={() => setPathStyle(option.id)}
-                          />
-                        ))}
-                      </div>
-
-                      <div style={{ marginTop: 24 }}>
-                        <div className="onboarding-rail-label">How fast do you want to move?</div>
-                        <div className="onboarding-pill-row">
-                          {PACE_OPTIONS.map((option) => (
-                            <button
-                              type="button"
-                              key={option.id}
-                              className={`onboarding-pill interactive-secondary ${pace === option.id ? 'active' : ''}`}
-                              onClick={() => setPace(option.id)}
-                            >
-                              {option.label}
-                            </button>
-                          ))}
+	                >
+	                  {step === 1 && (
+	                    <>
+	                      <div className="onboarding-goal-composer">
+	                        <label className="onboarding-input-label" htmlFor="pathai-onboarding-goal">What should PathAI help you do?</label>
+	                        <textarea
+	                          id="pathai-onboarding-goal"
+	                          value={customGoal}
+	                          onChange={(event) => {
+	                            setCustomGoal(event.target.value)
+	                            if (event.target.value.trim()) setPresetGoal('')
+	                          }}
+	                          placeholder="Example: I want to learn Python so I can build small automation tools."
+	                          className="onboarding-input onboarding-goal-input"
+	                          rows={3}
+	                        />
+	                        <div className="onboarding-example-label">Quick starts</div>
+	                        <div className="onboarding-suggestion-grid">
+	                          {GOAL_OPTIONS.map((option) => {
+	                            const selected = presetGoal === option.label && !customGoal.trim()
+	                            return (
+	                              <button
+	                                type="button"
+	                                key={option.label}
+	                                className={`onboarding-suggestion-chip interactive-secondary ${selected ? 'active' : ''}`}
+	                                onClick={() => {
+	                                  setPresetGoal(option.label)
+	                                  setCustomGoal('')
+	                                }}
+	                              >
+	                                <IconGlyph name={option.icon} size={16} strokeWidth={2.4} color={selected ? '#071015' : '#7fe7ff'} />
+	                                <span>{option.label}</span>
+	                              </button>
+	                            )
+	                          })}
+	                        </div>
+	                      </div>
+	
+	                      {domainClassification && domainGoalSnapshot === goal && !domainPickerVisible && confirmedDomain && (
+	                        <div className="onboarding-domain-confirmed">
+                          <IconGlyph name="check" size={14} strokeWidth={2.6} color="#00e5c7" />
+                          <span>{DOMAIN_METADATA[confirmedDomain]?.label || confirmedDomain} route selected</span>
                         </div>
-                      </div>
+                      )}
 
-                      <div className="onboarding-footer">
-                        <button
-                          type="button"
-                          className="onboarding-secondary interactive-secondary"
-                          onClick={() => {
-                            if (courseIntent) router.push('/courses')
-                            else goToStep(1, -1)
-                          }}
-                        >
-                          Back
-                        </button>
-                        <button type="button" className="onboarding-primary interactive-cta" onClick={() => goToStep(skipDiagnostic ? 4 : 3, 1)}>
-                          {skipDiagnostic ? 'Build course path' : 'Continue'}
-                        </button>
-                      </div>
-                    </>
-                  )}
-
-                  {step === 3 && currentQuestion && (
-                    <>
-                      <div className="onboarding-question-stage">
-                        <div className="onboarding-question-card">
-                          <div className="onboarding-question-count">
-                            Question {questionIndex + 1} of {questions.length}
+                      {domainPickerVisible && (
+                        <div className="onboarding-domain-panel">
+                          <div className="onboarding-domain-panel-top">
+                            <div>
+                              <div className="onboarding-rail-label">Confirm learning domain</div>
+                              <div className="onboarding-domain-panel-title">
+                                Pick the route engine PathAI should use.
+                              </div>
+                            </div>
+                            {domainClassification ? (
+                              <div className="onboarding-domain-confidence">
+                                {Math.round((domainClassification.confidence || 0) * 100)}% sure
+                              </div>
+                            ) : null}
                           </div>
-                          <div className="font-display onboarding-question-title">{currentQuestion.prompt}</div>
-
-                          <div className="onboarding-answer-list">
-                            {currentQuestion.options.map((option) => {
-                              const selected = answers[currentQuestion.id]?.label === option.label
-                              return (
-                                <button
-                                  type="button"
-                                  className="onboarding-answer interactive-card"
-                                  key={option.label}
-                                  onClick={() => handleAnswer(currentQuestion, option)}
-                                  style={{
-                                    borderColor: selected ? 'rgba(0,229,199,0.26)' : 'rgba(255,255,255,0.08)',
-                                    background: selected ? 'rgba(0,229,199,0.10)' : 'rgba(255,255,255,0.04)',
-                                  }}
-                                >
-                                  {option.label}
-                                </button>
-                              )
-                            })}
+                          <div className="onboarding-domain-grid">
+                            {LEARNING_DOMAINS.map((domain) => (
+                              <DomainOption
+                                key={domain}
+                                domain={domain}
+                                selected={confirmedDomain === domain}
+                                onSelect={() => {
+                                  setSelectedDomain(domain)
+                                  setStoredLearningDomain(domain)
+                                }}
+                              />
+                            ))}
                           </div>
                         </div>
-                      </div>
-
-                      <div className="onboarding-footer">
-                        <button
-                          type="button"
-                          className="onboarding-secondary interactive-secondary"
-                          onClick={() => {
-                            if (questionIndex > 0) {
-                              setQuestionIndex((value) => value - 1)
-                            } else {
-                              goToStep(2, -1)
-                            }
-                          }}
-                        >
-                          Back
-                        </button>
-                        <button
-                          type="button"
-                          className="onboarding-primary interactive-cta"
-                          onClick={() => goToStep(4, 1)}
-                          disabled={!allQuestionsAnswered}
-                        >
-                          Build my path
-                        </button>
-                      </div>
-                    </>
-                  )}
-
-                  {step === 4 && (
-                    <>
-                      <div className="onboarding-generation">
-                        <div className="onboarding-build-visual">
+                      )}
+	
+	                      <div className="onboarding-footer">
+	                        <div style={{ color: 'rgba(240,240,240,0.44)', fontSize: 13 }}>Step 1 of 3</div>
+	                        <button
+	                          type="button"
+	                          className="onboarding-primary interactive-cta"
+	                          onClick={handleGoalContinue}
+	                          disabled={!goal || domainDetecting || questionLoading || (domainPickerVisible && !confirmedDomain)}
+	                        >
+	                          {domainDetecting || questionLoading
+	                            ? 'Preparing questions...'
+	                            : domainPickerVisible
+	                              ? `Use ${DOMAIN_METADATA[confirmedDomain]?.label || 'this domain'}`
+	                              : 'Continue'}
+	                        </button>
+	                      </div>
+	                    </>
+	                  )}
+	
+	                  {step === 2 && (
+	                    <>
+	                      {questionLoading ? (
+	                        <div className="onboarding-loading-card">
+	                          <IconGlyph name="sparkles" size={22} strokeWidth={2.4} color="#7fe7ff" />
+	                          <div>
+	                            <strong>Writing questions for {getShortGoal(goal)}</strong>
+	                            <span>PathAI is using the goal to ask only what it cannot infer.</span>
+	                          </div>
+	                        </div>
+	                      ) : (
+	                        <>
+	                          <div className="onboarding-calibration-list">
+	                            {questions.map((question, index) => (
+	                              <div className="onboarding-question-card" key={question.id}>
+	                                <div className="onboarding-question-count">Question {index + 1}</div>
+	                                <div className="font-display onboarding-question-title">{question.prompt}</div>
+	                                {question.helper ? <p className="onboarding-question-helper">{question.helper}</p> : null}
+	                                <div className="onboarding-answer-list">
+	                                  {question.options.map((option) => {
+	                                    const selected = answers[question.id]?.label === option.label
+	                                    return (
+	                                      <button
+	                                        type="button"
+	                                        className={`onboarding-answer interactive-card ${selected ? 'active' : ''}`}
+	                                        key={option.label}
+	                                        onClick={() => handleAnswer(question, option)}
+	                                      >
+	                                        {option.label}
+	                                      </button>
+	                                    )
+	                                  })}
+	                                </div>
+	                              </div>
+	                            ))}
+	                          </div>
+	
+	                          <div className="onboarding-inferred-strip">
+	                            <div>
+	                              <span>Route engine</span>
+	                              <strong>{getDomainLabel(confirmedDomain, family)}</strong>
+	                            </div>
+	                            <div>
+	                              <span>Start depth</span>
+	                              <strong>{recommendedLevel}</strong>
+	                            </div>
+	                            <div>
+	                              <span>Pace</span>
+	                              <strong>{pace}</strong>
+	                            </div>
+	                          </div>
+	                        </>
+	                      )}
+	
+	                      <div className="onboarding-footer">
+	                        <button type="button" className="onboarding-secondary interactive-secondary" onClick={() => goToStep(1, -1)}>
+	                          Back
+	                        </button>
+	                        <button
+	                          type="button"
+	                          className="onboarding-primary interactive-cta"
+	                          onClick={() => goToStep(3, 1)}
+	                          disabled={questionLoading || !allQuestionsAnswered}
+	                        >
+	                          Build my path
+	                        </button>
+	                      </div>
+	                    </>
+	                  )}
+	
+	                  {step === 3 && (
+	                    <>
+	                      <div className="onboarding-generation">
+	                        <div className="onboarding-build-visual">
                           <div className="onboarding-core-orb" />
                           <div className="onboarding-node one" />
                           <div className="onboarding-node two" />
@@ -1486,7 +2038,7 @@ export default function OnboardingPage() {
                                 <IconGlyph name="check" size={14} strokeWidth={2.6} color="#00e5c7" />
                                 Your first mission is ready
                               </div>
-                              <div style={{ color: '#f0f0f0', fontSize: 34, fontWeight: 700, lineHeight: 1.04, letterSpacing: '-0.04em' }}>
+	                              <div style={{ color: '#f0f0f0', fontSize: 34, fontWeight: 700, lineHeight: 1.04, letterSpacing: 0 }}>
                                 Path calibrated. Launch when you are ready.
                               </div>
                               <div style={{ color: 'rgba(240,240,240,0.56)', fontSize: 15, lineHeight: 1.72 }}>
@@ -1498,23 +2050,23 @@ export default function OnboardingPage() {
                             </div>
                           ) : (
                             <>
-                              <div style={{ color: '#f0f0f0', fontSize: 32, fontWeight: 700, lineHeight: 1.04, letterSpacing: '-0.04em', marginBottom: 12 }}>
+	                              <div style={{ color: '#f0f0f0', fontSize: 32, fontWeight: 700, lineHeight: 1.04, letterSpacing: 0, marginBottom: 12 }}>
                                 Building your path...
                               </div>
-                              <div style={{ color: 'rgba(240,240,240,0.56)', fontSize: 15, lineHeight: 1.72, marginBottom: 20 }}>
-                                We are turning your goal, pace, and diagnostic into a first route that already feels pointed and personal.
-                              </div>
-                              <GenerationStepList steps={GENERATION_STEPS} activeIndex={genStep} accent={accent} />
-                            </>
+	                              <div style={{ color: 'rgba(240,240,240,0.56)', fontSize: 15, lineHeight: 1.72, marginBottom: 20 }}>
+	                                We are turning your goal and calibration into a first route that already feels pointed and personal.
+	                              </div>
+	                              <GenerationStepList steps={GENERATION_STEPS} activeIndex={genStep} accent={accent} />
+	                            </>
                           )}
                         </div>
                       </div>
 
-                      {!loading && !buildReady ? (
-                        <div className="onboarding-footer">
-                          <button type="button" className="onboarding-secondary interactive-secondary" onClick={() => goToStep(skipDiagnostic ? 2 : 3, -1)}>
-                            Back
-                          </button>
+	                      {!loading && !buildReady ? (
+	                        <div className="onboarding-footer">
+	                          <button type="button" className="onboarding-secondary interactive-secondary" onClick={() => goToStep(2, -1)}>
+	                            Back
+	                          </button>
                           <button type="button" className="onboarding-primary interactive-cta" onClick={startGeneration}>
                             Try again
                           </button>
@@ -1523,10 +2075,23 @@ export default function OnboardingPage() {
                     </>
                   )}
                 </motion.div>
-              </AnimatePresence>
-            </PremiumFrame>
-          </div>
-        </div>
+	              </AnimatePresence>
+	            </PremiumFrame>
+
+	            <PreviewRail
+	              preview={preview}
+	              cadence={cadence}
+	              pathStyle={pathStyle}
+	              pace={pace}
+	              recommendedLevel={recommendedLevel}
+	              accent={accent}
+	              goal={goal}
+	              family={family}
+	              domain={confirmedDomain}
+	              summary={calibration.summary}
+	            />
+	          </div>
+	        </div>
       </div>
     </>
   )

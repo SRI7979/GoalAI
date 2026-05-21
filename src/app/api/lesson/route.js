@@ -1,5 +1,5 @@
 import { generateLessonFromOpenAI } from '@/lib/lessonGenerator'
-import { normalizeConceptLessonDoc } from '@/lib/conceptLesson'
+import { narrowConceptTopic, normalizeConceptSlideshowLesson } from '@/lib/conceptSlideshow'
 
 const LESSON_META_BANNED_PHRASES = [
   'concepts are tools',
@@ -11,12 +11,22 @@ const LESSON_META_BANNED_PHRASES = [
   'this is your foundation',
   'building blocks',
   'learning journey',
+  'at the end of this lesson',
+  'this lesson will teach',
+  'you will explore',
+  'strong foundation',
+  'key concepts',
+  'variables and data types',
+  'introduction to',
+  'mental_model',
 ]
 
 function lessonNeedsRetry(lessonDoc = {}) {
   const haystack = JSON.stringify(lessonDoc || {}).toLowerCase()
   return LESSON_META_BANNED_PHRASES.some((phrase) => haystack.includes(phrase))
     || haystack.includes('[lesson generation incomplete')
+    || haystack.includes('let\'s look at')
+    || haystack.includes('here is a scenario where')
 }
 
 function wait(ms) {
@@ -29,7 +39,13 @@ export async function POST(request) {
   let lastError = null
   try {
     body = await request.json()
-    concept = body?.concept || concept
+    const requestedConcept = body?.concept || concept
+    const narrowed = narrowConceptTopic(requestedConcept, {
+      ...body,
+      domain: body?.domain,
+      domainConfig: body?.domainConfig,
+    })
+    concept = narrowed.topic
     const {
       taskTitle,
       goal,
@@ -103,8 +119,10 @@ export async function POST(request) {
       attempts: lastError ? 2 : 1,
     })
     return Response.json({
-      lessonDoc: normalizeConceptLessonDoc(lesson.lessonDoc, {
+      lessonDoc: normalizeConceptSlideshowLesson(lesson.lessonDoc, {
         ...body,
+        concept,
+        taskTitle: concept,
         learnerProfile,
         domain,
         domainConfig,

@@ -3,6 +3,7 @@ import { getOpenAIModel } from '@/lib/openaiModels'
 import { detectSkillType, getVerificationType } from '@/lib/skillTypes'
 import { buildProjectProofSummary, getProjectVerificationPlan } from '@/lib/projectProof'
 import { ensureProjectProgress, normalizeProjectSteps } from '@/lib/projectVerification'
+import { formatDomainForPrompt, normalizeDomain, parseDomainFromConstraints } from '@/lib/domainAdapter'
 
 function extractAccessToken(request) {
   const authHeader = request.headers.get('authorization') || request.headers.get('Authorization')
@@ -21,6 +22,11 @@ function generateVariantSeed(userId, goalId, dayNumber) {
     hash |= 0
   }
   return Math.abs(hash)
+}
+
+function buildDomainPrompt({ domain, knowledge } = {}) {
+  const resolvedDomain = normalizeDomain(domain || parseDomainFromConstraints([knowledge]), null)
+  return resolvedDomain ? `DOMAIN ADAPTER:\n${formatDomainForPrompt(resolvedDomain)}\n` : ''
 }
 
 // ─── SKILL-SPECIFIC VARIANT DOMAINS ───────────────────────────────────
@@ -505,7 +511,7 @@ function normalizeProjectPayload(parsed = {}, skillType, variant, mode, performa
 }
 
 // ─── PROMPT BUILDER ──────────────────────────────────────────────────
-function buildPrompt(skillType, { goal, concepts, difficulty, variant, isBuildMode, performanceProfile }) {
+function buildPrompt(skillType, { goal, concepts, difficulty, variant, isBuildMode, performanceProfile, domainPrompt = '' }) {
   const modeDesc = isBuildMode
     ? 'BUILD MODE — provide minimal step descriptions (1-2 sentences max), just goals and deliverables. The learner wants to figure it out themselves.'
     : 'GUIDED MODE — provide detailed step descriptions (3-5 sentences) with specific instructions.'
@@ -522,6 +528,7 @@ function buildPrompt(skillType, { goal, concepts, difficulty, variant, isBuildMo
     return `Generate a hands-on portfolio project for a learner.
 
 LEARNING GOAL: ${goal}
+${domainPrompt}
 CONCEPTS COVERED SO FAR: ${concepts || 'Fundamentals'}
 DIFFICULTY: ${difficulty || 'beginner'}
 ESTIMATED TIME: 45-90 minutes
@@ -580,6 +587,7 @@ RULES:
     return `Generate an immersive language practice project. The learner will practice ${targetLang} through realistic conversation scenarios.
 
 LEARNING GOAL: ${goal}
+${domainPrompt}
 CONCEPTS COVERED SO FAR: ${concepts || 'Basic greetings and vocabulary'}
 DIFFICULTY: ${difficulty || 'beginner'}
 ESTIMATED TIME: 45-90 minutes
@@ -636,6 +644,7 @@ RULES:
     return `Generate a real-world math problem-solving project. The learner will apply math concepts to a practical scenario.
 
 LEARNING GOAL: ${goal}
+${domainPrompt}
 CONCEPTS COVERED SO FAR: ${concepts || 'Basic arithmetic and algebra'}
 DIFFICULTY: ${difficulty || 'beginner'}
 ESTIMATED TIME: 45-90 minutes
@@ -693,6 +702,7 @@ RULES:
     return `Generate a structured practice session project for a ${instrument} learner.
 
 LEARNING GOAL: ${goal}
+${domainPrompt}
 CONCEPTS COVERED SO FAR: ${concepts || 'Basic technique and reading'}
 DIFFICULTY: ${difficulty || 'beginner'}
 ESTIMATED TIME: 45-90 minutes
@@ -749,6 +759,7 @@ RULES:
     return `Generate a design project following a real design process.
 
 LEARNING GOAL: ${goal}
+${domainPrompt}
 CONCEPTS COVERED SO FAR: ${concepts || 'Basic design principles'}
 DIFFICULTY: ${difficulty || 'beginner'}
 ESTIMATED TIME: 45-90 minutes
@@ -804,6 +815,7 @@ RULES:
     return `Generate a business analysis project based on a realistic scenario.
 
 LEARNING GOAL: ${goal}
+${domainPrompt}
 CONCEPTS COVERED SO FAR: ${concepts || 'Business fundamentals'}
 DIFFICULTY: ${difficulty || 'beginner'}
 ESTIMATED TIME: 45-90 minutes
@@ -861,6 +873,7 @@ RULES:
     return `Generate a hands-on hardware/electronics project.
 
 LEARNING GOAL: ${goal}
+${domainPrompt}
 CONCEPTS COVERED SO FAR: ${concepts || 'Basic electronics'}
 DIFFICULTY: ${difficulty || 'beginner'}
 ESTIMATED TIME: 45-90 minutes
@@ -916,6 +929,7 @@ RULES:
     return `Generate a structured writing project that produces a polished piece.
 
 LEARNING GOAL: ${goal}
+${domainPrompt}
 CONCEPTS COVERED SO FAR: ${concepts || 'Basic writing fundamentals'}
 DIFFICULTY: ${difficulty || 'beginner'}
 ESTIMATED TIME: 45-90 minutes
@@ -973,6 +987,7 @@ RULES:
     return `Generate a scientific investigation project applying the scientific method.
 
 LEARNING GOAL: ${goal}
+${domainPrompt}
 CONCEPTS COVERED SO FAR: ${concepts || 'Basic scientific principles'}
 DIFFICULTY: ${difficulty || 'beginner'}
 ESTIMATED TIME: 45-90 minutes
@@ -1027,6 +1042,7 @@ RULES:
   return `Generate a hands-on project for a learner.
 
 LEARNING GOAL: ${goal}
+${domainPrompt}
 CONCEPTS COVERED SO FAR: ${concepts || 'Fundamentals'}
 DIFFICULTY: ${difficulty || 'beginner'}
 ESTIMATED TIME: 45-90 minutes
@@ -1078,7 +1094,7 @@ RULES:
 export async function POST(request) {
   try {
     const body = await request.json()
-    const { goalId, goal, conceptsCovered, difficulty, dayNumber, mode } = body
+    const { goalId, goal, conceptsCovered, difficulty, dayNumber, mode, domain, knowledge } = body
     if (!goal) return Response.json({ error: 'Missing goal' }, { status: 400 })
 
     const accessToken = extractAccessToken(request) || body?.accessToken || null
@@ -1118,6 +1134,7 @@ export async function POST(request) {
 
     const isBuildMode = mode === 'build'
     const performanceProfile = buildPerformanceProfile(previousProjects || [], skillType)
+    const domainPrompt = buildDomainPrompt({ domain, knowledge })
 
     const prompt = buildPrompt(skillType, {
       goal,
@@ -1126,6 +1143,7 @@ export async function POST(request) {
       variant,
       isBuildMode,
       performanceProfile,
+      domainPrompt,
     })
 
     const fallbackProject = buildFallbackProjectPayload(skillType, {

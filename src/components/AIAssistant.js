@@ -4,7 +4,7 @@ import IconGlyph from '@/components/IconGlyph'
 
 const font = "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif"
 
-export default function AIAssistant({ concept, goal, context, mode = 'hint', onAsk }) {
+export default function AIAssistant({ concept, goal, context, mode = 'hint', domain = null, knowledge = '', onAsk }) {
   const [open, setOpen] = useState(false)
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
@@ -26,7 +26,7 @@ export default function AIAssistant({ concept, goal, context, mode = 'hint', onA
       const res = await fetch('/api/lesson-assistant', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: q, concept, goal, mode, slide: { title: context || concept, content: '' } }),
+        body: JSON.stringify({ question: q, concept, goal, mode, domain, knowledge, slide: { title: context || concept, content: '' } }),
       })
       const data = await res.json()
       setMessages(m => [...m, { role: 'assistant', text: data.answer || 'Sorry, I had trouble with that.', tips: data.tips }])
@@ -76,7 +76,7 @@ export default function AIAssistant({ concept, goal, context, mode = 'hint', onA
           <div style={{ flex: 1, overflowY: 'auto', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
             {messages.length === 0 && (
               <div style={{ textAlign: 'center', paddingTop: 20 }}>
-                <p style={{ fontSize: 12, color: '#636366', lineHeight: 1.6 }}>Hi! I'm here to help with <strong style={{ color: '#8e8e93' }}>{concept}</strong>. What would you like to know?</p>
+                <p style={{ fontSize: 12, color: '#636366', lineHeight: 1.6 }}>Hi! I am here to help with <strong style={{ color: '#8e8e93' }}>{concept}</strong>. What would you like to know?</p>
               </div>
             )}
             {messages.map((m, i) => (

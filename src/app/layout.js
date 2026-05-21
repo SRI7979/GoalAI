@@ -1,5 +1,6 @@
 import { DM_Sans, Geist_Mono } from 'next/font/google'
 import NetworkStatusBanner from '@/components/NetworkStatusBanner'
+import UIDevToolButton from '@/components/UIDevToolButton'
 import './globals.css'
 
 const bodyFont = DM_Sans({
@@ -39,6 +40,7 @@ export default function RootLayout({ children }) {
       >
         <NetworkStatusBanner />
         {children}
+        <UIDevToolButton />
       </body>
     </html>
   )

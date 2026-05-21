@@ -1,4 +1,5 @@
 import { getSupabaseServerClient } from '@/lib/supabaseServer'
+import { buildDailyRecap } from '@/lib/conceptLesson'
 import {
   generateNextTasksIfNeeded,
   generateNextExploreDay,
@@ -373,6 +374,9 @@ export async function POST(request) {
     const completionTimeSec = Number.isFinite(body?.completionTimeSec) ? body.completionTimeSec : lessonTimeSec
     const assistantUsageCount = Number.isFinite(body?.assistantUsageCount) ? body.assistantUsageCount : 0
     const confidenceLevel = body?.confidenceLevel || 'medium'
+    const proofSubmission = String(body?.proofSubmission || '').trim()
+    const proofResult = String(body?.proofResult || '').trim()
+    const takeaway = String(body?.takeaway || '').trim()
     const accessToken = extractAccessToken(request) || body?.accessToken || null
     supabase = getSupabaseServerClient({ accessToken })
 
@@ -420,6 +424,7 @@ export async function POST(request) {
     const examBestScore = Math.max(clamp(existingFinalMeta.bestScore, 0, 100, 0), examScore)
     const finalExamPassed = !isCourseFinalExam || alreadyCompleted || examScore >= examPassScore
     const finalExamFailedOut = Boolean(isCourseFinalExam && !alreadyCompleted && !finalExamPassed && examAttemptsUsed >= examMaxAttempts)
+    const completedAt = new Date().toISOString()
     const courseFinalMeta = isCourseFinalExam
       ? {
           ...existingFinalMeta,
@@ -429,7 +434,7 @@ export async function POST(request) {
           bestScore: examBestScore,
           lastScore: examScore,
           failedOut: finalExamFailedOut,
-          passedAt: finalExamPassed && !alreadyCompleted ? new Date().toISOString() : existingFinalMeta.passedAt || null,
+          passedAt: finalExamPassed && !alreadyCompleted ? completedAt : existingFinalMeta.passedAt || null,
         }
       : null
 
@@ -490,7 +495,7 @@ export async function POST(request) {
           _adaptive: {
             ...(entry._adaptive || {}),
             ...taskAdaptiveRecord,
-            completedAt: new Date().toISOString(),
+            completedAt,
           },
         }
       })
@@ -534,7 +539,7 @@ export async function POST(request) {
       adaptiveSnapshot = null
     }
 
-    const updatedTasks     = currentTasks.map((t) => {
+    let updatedTasks     = currentTasks.map((t) => {
       const shouldBeCompleted = completedTaskIdSet.has(normalizeTaskId(t.id)) || normalizeTaskId(t.id) === normalizeTaskId(taskId)
       if (!shouldBeCompleted && normalizeTaskId(t.id) !== normalizeTaskId(taskId)) return t
       if (normalizeTaskId(t.id) === normalizeTaskId(taskId)) {
@@ -545,7 +550,7 @@ export async function POST(request) {
           _adaptive: {
             ...(t._adaptive || {}),
             ...taskAdaptiveRecord,
-            completedAt: new Date().toISOString(),
+            completedAt,
           },
         }
       }
@@ -554,6 +559,31 @@ export async function POST(request) {
     const tasksCompleted   = updatedTasks.filter((t) => t.completed).length
     const completionStatus = tasksCompleted === updatedTasks.length ? 'completed' : 'in_progress'
     const missionJustCompleted = completionStatus === 'completed' && row.completion_status !== 'completed'
+    const dailyRecap = buildDailyRecap({
+      learningContract: targetTask?._learningContract || targetTask?.learningContract || null,
+      task: targetTask,
+      metrics: {
+        ...body,
+        takeaway,
+        proofSubmission,
+        proofResult,
+        confidenceLevel,
+        accuracy,
+        correctCount,
+        questionCount,
+        challengeScore,
+        reflectionQuality,
+        checkpointsPassed: body?.checkpointsPassed,
+        assistantUsageCount,
+      },
+      completedAt,
+      missionComplete: missionJustCompleted,
+    })
+    updatedTasks = updatedTasks.map((entry) => (
+      normalizeTaskId(entry.id) === normalizeTaskId(taskId)
+        ? { ...entry, _dailyRecap: dailyRecap }
+        : entry
+    ))
 
     if (isCourseFinalExam && !alreadyCompleted && !finalExamPassed) {
       const failedTasks = currentTasks.map((entry) => {
@@ -565,7 +595,7 @@ export async function POST(request) {
           _adaptive: {
             ...(entry._adaptive || {}),
             ...taskAdaptiveRecord,
-            completedAt: new Date().toISOString(),
+            completedAt,
           },
         }
       })
@@ -596,6 +626,7 @@ export async function POST(request) {
         tasksCompleted: failedTasksCompleted,
         completionStatus: failedCompletionStatus,
         updatedTasks: failedTasks,
+        dailyRecap: null,
         finalExam: {
           score: examScore,
           passScore: examPassScore,
@@ -1197,6 +1228,8 @@ export async function POST(request) {
       questUpdate,
       challengeUpdate,
       newBadges,
+      updatedTasks,
+      dailyRecap,
       nextResult,
       finalExamPassed: isCourseFinalExam ? finalExamPassed : null,
       finalExam: isCourseFinalExam ? {

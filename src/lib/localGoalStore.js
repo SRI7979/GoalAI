@@ -23,6 +23,8 @@ import { getStoredMaxHearts, setStoredMaxHearts } from '@/lib/shopStorage'
 import { GEM_AWARDS, GEM_SHOP_ITEMS, HEARTS_BASE, HEARTS_MAX_CAP } from '@/lib/tokens'
 import { XP_MISSION_BONUS, XP_STREAK_7_BONUS, getLevelProgress, xpForTask } from '@/lib/xp'
 import { getCanonicalTaskType, normalizeLearningTask, normalizeLearningTasks, normalizeTaskRows } from '@/lib/taskTaxonomy'
+import { buildDomainConfig, buildDomainKnowledgeLine, normalizeDomain } from '@/lib/domainAdapter'
+import { buildDailyRecap } from '@/lib/conceptLesson'
 
 const LOCAL_GOAL_BUNDLE_KEY = 'pathai-local-goal-bundle'
 const LOCAL_GOAL_BUNDLE_VERSION = 2
@@ -586,20 +588,29 @@ export function saveLocalGoalBundle(bundle) {
 export async function createLocalGoalBundle({
   user,
   goalText,
+  decomposition,
   mode = 'goal',
   days = 30,
   weekdayMins = 30,
   weekendMins = 45,
   knowledge = '',
-  recommendedLevel = 'Beginner',
-  diagnosticScore = 0,
-  pace = 'balanced',
-  pathStyle = 'goal',
+  learnerProfile = null,
+  domain = null,
+  domainConfig = null,
 } = {}) {
+  if (!decomposition) {
+    throw new Error('Missing goal decomposition')
+  }
+
   const normalizedGoal = normalizeGoalText(goalText)
   const userId = user?.id || 'pathai-local-user'
   const createdAt = new Date().toISOString()
   const goalId = getLocalGoalId(normalizedGoal)
+  const resolvedDomain = normalizeDomain(domain, null)
+  const resolvedDomainConfig = resolvedDomain
+    ? (domainConfig || buildDomainConfig(resolvedDomain))
+    : null
+  const domainConstraint = resolvedDomain ? buildDomainKnowledgeLine(resolvedDomain) : null
 
   let goal
   let rows
@@ -609,6 +620,7 @@ export async function createLocalGoalBundle({
     const firstDay = await buildExploreDayTask(normalizedGoal, firstConcept, weekdayMins, 1, {
       knowledge,
       openaiApiKey: null,
+      learnerProfile,
       generationPhase: 'initial_day',
     })
 
@@ -640,14 +652,19 @@ export async function createLocalGoalBundle({
       weekday_mins: weekdayMins,
       weekend_mins: weekendMins,
       constraints: [
-        `Recommended level: ${recommendedLevel}`,
-        `Diagnostic score: ${diagnosticScore}`,
-        `Pace: ${pace}`,
-        `Path style: ${pathStyle}`,
-        'Local fallback mode',
-      ],
+        domainConstraint,
+        `Learner profile JSON: ${JSON.stringify(learnerProfile || {})}`,
+      ].filter(Boolean),
       total_days: 0,
+      primary_mode: decomposition.primaryMode,
+      secondary_modes: decomposition.secondaryModes,
+      estimated_days: decomposition.estimatedDays,
+      decomposition,
+      decomposition_status: decomposition.decompositionStatus || 'ok',
+      decomposition_failure_reason: decomposition.failureReason || null,
       course_outline: null,
+      domain: resolvedDomain,
+      domain_config: resolvedDomainConfig,
     }
   } else {
     const averageMinutes = Math.round((((Number(weekdayMins) || 30) * 5) + ((Number(weekendMins) || 45) * 2)) / 7)
@@ -657,6 +674,7 @@ export async function createLocalGoalBundle({
       days,
       minutesPerDay: averageMinutes,
       status: 'ready',
+      learnerProfile,
     })
     const tracker = buildPathOutlineTracker({
       courseOutline,
@@ -674,6 +692,7 @@ export async function createLocalGoalBundle({
       item: firstItem,
       knowledge,
       openaiApiKey: null,
+      learnerProfile,
       adaptiveProfile: null,
       existingRows: [],
       generationPhase: 'initial_day',
@@ -707,14 +726,19 @@ export async function createLocalGoalBundle({
       weekday_mins: weekdayMins,
       weekend_mins: weekendMins,
       constraints: [
-        `Recommended level: ${recommendedLevel}`,
-        `Diagnostic score: ${diagnosticScore}`,
-        `Pace: ${pace}`,
-        `Path style: ${pathStyle}`,
-        'Local fallback mode',
-      ],
+        domainConstraint,
+        `Learner profile JSON: ${JSON.stringify(learnerProfile || {})}`,
+      ].filter(Boolean),
       total_days: tracker.plannedDayCount || Number(days) || 30,
+      primary_mode: decomposition.primaryMode,
+      secondary_modes: decomposition.secondaryModes,
+      estimated_days: decomposition.estimatedDays,
+      decomposition,
+      decomposition_status: decomposition.decompositionStatus || 'ok',
+      decomposition_failure_reason: decomposition.failureReason || null,
       course_outline: courseOutline,
+      domain: resolvedDomain,
+      domain_config: resolvedDomainConfig,
     })
   }
 
@@ -745,6 +769,14 @@ export async function completeLocalTask({
   accuracy = null,
   correctCount = null,
   questionCount = null,
+  proofSubmission = '',
+  proofResult = '',
+  takeaway = '',
+  confidenceLevel = '',
+  checkpointsPassed = 0,
+  challengeScore = 0,
+  reflectionQuality = 0,
+  assistantUsageCount = 0,
 } = {}) {
   return mutateBundle(userId, goalId, async (bundle) => {
     const rowIndex = bundle.rows.findIndex((row) => String(row.id) === String(taskRowId))
@@ -773,6 +805,7 @@ export async function completeLocalTask({
     const examBestScore = Math.max(clamp(existingFinalMeta.bestScore, 0, 100, 0), examScore)
     const finalExamPassed = !isCourseFinalExam || alreadyCompleted || examScore >= examPassScore
     const finalExamFailedOut = Boolean(isCourseFinalExam && !alreadyCompleted && !finalExamPassed && examAttemptsUsed >= examMaxAttempts)
+    const completedAt = new Date().toISOString()
 
     let updatedTasks = [...currentTasks]
     if (isCourseFinalExam) {
@@ -786,7 +819,7 @@ export async function completeLocalTask({
           bestScore: examBestScore,
           lastScore: examScore,
           failedOut: finalExamFailedOut,
-          passedAt: finalExamPassed && !alreadyCompleted ? new Date().toISOString() : existingFinalMeta.passedAt || null,
+          passedAt: finalExamPassed && !alreadyCompleted ? completedAt : existingFinalMeta.passedAt || null,
         },
         completed: finalExamPassed ? true : false,
       })
@@ -844,6 +877,7 @@ export async function completeLocalTask({
           failedOut: finalExamFailedOut,
         },
         updatedTasks,
+        dailyRecap: null,
         courseCompleted: false,
         courseCompletion: null,
         warnings: [],
@@ -851,6 +885,29 @@ export async function completeLocalTask({
     }
 
     const missionJustCompleted = completionStatus === 'completed' && row.completion_status !== 'completed'
+    const dailyRecap = buildDailyRecap({
+      learningContract: targetTask?._learningContract || targetTask?.learningContract || null,
+      task: targetTask,
+      metrics: {
+        accuracy,
+        correctCount,
+        questionCount,
+        proofSubmission,
+        proofResult,
+        takeaway,
+        confidenceLevel,
+        checkpointsPassed,
+        challengeScore,
+        reflectionQuality,
+        assistantUsageCount,
+      },
+      completedAt,
+      missionComplete: missionJustCompleted,
+    })
+    updatedTasks[taskIndex] = normalizeLearningTask({
+      ...updatedTasks[taskIndex],
+      _dailyRecap: dailyRecap,
+    })
     let xpEarned = alreadyCompleted ? 0 : xpForTask(targetTask)
     let missionBonusXp = 0
     let streakBonusXp = 0
@@ -1029,6 +1086,8 @@ export async function completeLocalTask({
       questUpdate,
       challengeUpdate: null,
       newBadges: [],
+      updatedTasks,
+      dailyRecap,
       nextResult,
       finalExamPassed: isCourseFinalExam ? finalExamPassed : null,
       finalExam: isCourseFinalExam ? {

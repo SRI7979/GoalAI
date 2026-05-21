@@ -1,5 +1,6 @@
 import { getOpenAIModel } from '@/lib/openaiModels'
 import { getSupabaseServerClient } from '@/lib/supabaseServer'
+import { formatDomainForPrompt, normalizeDomain, parseDomainFromConstraints } from '@/lib/domainAdapter'
 
 function extractAccessToken(request) {
   const authHeader = request.headers.get('authorization') || request.headers.get('Authorization')
@@ -9,8 +10,13 @@ function extractAccessToken(request) {
 }
 
 // Build AI evaluation prompt based on skill type
-function buildEvalPrompt(skillType, { projectTitle, stepTitle, stepDescription, responsePrompt, concepts, response, starterLanguage, minWords }) {
-  const base = `PROJECT: ${projectTitle}\nSTEP: ${stepTitle}\nTASK: ${responsePrompt || stepDescription}\nLEARNER'S RESPONSE: "${response}"\nCONCEPTS: ${(concepts || []).join(', ')}`
+function buildDomainPrompt({ domain, knowledge } = {}) {
+  const resolvedDomain = normalizeDomain(domain || parseDomainFromConstraints([knowledge]), null)
+  return resolvedDomain ? `DOMAIN ADAPTER:\n${formatDomainForPrompt(resolvedDomain)}\n` : ''
+}
+
+function buildEvalPrompt(skillType, { projectTitle, stepTitle, stepDescription, responsePrompt, concepts, response, starterLanguage, minWords, domain, knowledge }) {
+  const base = `PROJECT: ${projectTitle}\n${buildDomainPrompt({ domain, knowledge })}STEP: ${stepTitle}\nTASK: ${responsePrompt || stepDescription}\nLEARNER'S RESPONSE: "${response}"\nCONCEPTS: ${(concepts || []).join(', ')}`
 
   switch (skillType) {
     case 'language':
@@ -190,7 +196,7 @@ RULES:
 export async function POST(request) {
   try {
     const body = await request.json()
-    const { projectId, stepId, response } = body
+    const { projectId, stepId, response, domain, knowledge } = body
     if (!projectId || !stepId) return Response.json({ error: 'Missing projectId or stepId' }, { status: 400 })
     if (!response?.trim()) return Response.json({ error: 'No response provided' }, { status: 400 })
 
@@ -223,6 +229,8 @@ export async function POST(request) {
       response: response.slice(0, 3000),
       starterLanguage: project.starter_language,
       minWords: step.min_words,
+      domain,
+      knowledge,
     })
 
     const res = await fetch('https://api.openai.com/v1/chat/completions', {

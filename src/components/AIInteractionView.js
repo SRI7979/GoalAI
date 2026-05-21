@@ -1,15 +1,16 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { AI_INTERACTION_TYPES } from '@/lib/learningEngine'
 import ConfidenceSelector from './ConfidenceSelector'
+import DailyConceptCard, { DailyProofRecapCard } from './DailyConceptCard'
 import IconGlyph from '@/components/IconGlyph'
 
 const font = "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif"
 
-export default function AIInteractionView({ task, goal, knowledge, onClose, onComplete }) {
-  const [loading, setLoading] = useState(true)
-  const [selectedType, setSelectedType] = useState(null)
-  const [interaction, setInteraction] = useState(null)
+export default function AIInteractionView({ task, goal, knowledge, domain = null, presetInteraction = null, onClose, onComplete }) {
+  const [loading, setLoading] = useState(() => !presetInteraction)
+  const [selectedType, setSelectedType] = useState(() => presetInteraction?.type || null)
+  const [interaction, setInteraction] = useState(() => presetInteraction || null)
   const [response, setResponse] = useState('')
   const [evaluation, setEvaluation] = useState(null)
   const [evaluating, setEvaluating] = useState(false)
@@ -18,6 +19,7 @@ export default function AIInteractionView({ task, goal, knowledge, onClose, onCo
   const [predictAnswer, setPredictAnswer] = useState(null)
   const [predictRevealed, setPredictRevealed] = useState(false)
   const [confidenceLevel, setConfidenceLevel] = useState('')
+  const learningContract = task?._learningContract || task?.learningContract || task?.lessonSeed?.learningContract || null
 
   const types = Object.entries(AI_INTERACTION_TYPES)
 
@@ -35,9 +37,15 @@ export default function AIInteractionView({ task, goal, knowledge, onClose, onCo
         body: JSON.stringify({
           action: 'ai_interaction',
           concept: task._concept || task.title,
+          taskTitle: task.title,
           goal,
           interactionType: type,
           knowledge,
+          taskDescription: task.description,
+          taskAction: task.action,
+          taskOutcome: task.outcome,
+          learningContract,
+          domain,
         }),
       })
       const data = await res.json()
@@ -50,6 +58,17 @@ export default function AIInteractionView({ task, goal, knowledge, onClose, onCo
     if (!response.trim()) return
     setEvaluating(true)
 
+    if (presetInteraction?.staticPreview) {
+      setEvaluation({
+        score: 82,
+        passed: true,
+        feedback: 'Static preview feedback: this is where the actual AI coach would evaluate the teach-back.',
+        depth_score: 78,
+      })
+      setEvaluating(false)
+      return
+    }
+
     try {
       const res = await fetch('/api/practice-ai', {
         method: 'POST',
@@ -60,6 +79,9 @@ export default function AIInteractionView({ task, goal, knowledge, onClose, onCo
           interactionType: selectedType,
           studentResponse: response,
           originalPrompt: interaction?.prompt_to_student || interaction?.question || interaction?.scenario || '',
+          domain,
+          knowledge,
+          learningContract,
         }),
       })
       const data = await res.json()
@@ -85,6 +107,14 @@ export default function AIInteractionView({ task, goal, knowledge, onClose, onCo
       confidenceLevel,
       attempts: 1,
       accuracy: evaluation?.score || 70,
+      proofSubmission: response.trim() || (selectedType === 'predict'
+        ? `Selected answer ${predictAnswer != null ? ['A', 'B', 'C', 'D'][predictAnswer] : 'unknown'} for ${task?._concept || task?.title}.`
+        : `Completed ${AI_INTERACTION_TYPES[selectedType]?.label || 'AI interaction'} for ${task?._concept || task?.title}.`),
+      proofResult: evaluation
+        ? `${evaluation.score || 0}/100 score with depth ${evaluation.depth_score || 0}/100.`
+        : predictRevealed
+          ? `Prediction ${predictAnswer === interaction?.correct_index ? 'matched' : 'did not match'} the correct answer.`
+          : 'Interaction response captured.',
     })
   }
 
@@ -132,6 +162,14 @@ export default function AIInteractionView({ task, goal, knowledge, onClose, onCo
             {/* Type selection (if not yet chosen) */}
             {!selectedType && (
               <div style={{ animation: 'fadeIn 0.3s ease both' }}>
+                <DailyConceptCard
+                  learningContract={learningContract}
+                  concept={task?._concept || task?.title}
+                  goal={goal}
+                  accent="#818CF8"
+                  title="Today's concept"
+                />
+
                 <div style={{ textAlign: 'center', marginBottom: 28 }}>
                   <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
                     <div style={{ width: 64, height: 64, borderRadius: 20, background: 'rgba(129,140,248,0.10)', border: '1px solid rgba(129,140,248,0.22)', display: 'grid', placeItems: 'center' }}>
@@ -194,6 +232,14 @@ export default function AIInteractionView({ task, goal, knowledge, onClose, onCo
             {/* Interaction loaded */}
             {selectedType && !loading && interaction && (
               <div style={{ animation: 'fadeIn 0.3s ease both' }}>
+                <DailyConceptCard
+                  learningContract={learningContract}
+                  concept={task?._concept || task?.title}
+                  goal={goal}
+                  accent="#818CF8"
+                  title="Today's concept"
+                />
+
                 {/* Type badge */}
                 <div style={{
                   display: 'inline-flex', alignItems: 'center', gap: 6,
@@ -493,6 +539,17 @@ export default function AIInteractionView({ task, goal, knowledge, onClose, onCo
                       background="rgba(129,140,248,0.05)"
                       label="How confident are you in this kind of reasoning now?"
                     />
+
+                    <div style={{ marginTop: 16 }}>
+                      <DailyProofRecapCard
+                        learningContract={learningContract}
+                        concept={task?._concept || task?.title}
+                        goal={goal}
+                        accent="#818CF8"
+                        proofSubmission={response.trim() || `Completed ${interaction.typeConfig?.label || 'interaction'} for ${task?._concept || task?.title}.`}
+                        proofResult={evaluation ? `${evaluation.score || 0}/100 score with depth ${evaluation.depth_score || 0}/100.` : ''}
+                      />
+                    </div>
                   </div>
                 )}
               </div>
@@ -514,6 +571,17 @@ export default function AIInteractionView({ task, goal, knowledge, onClose, onCo
                 background="rgba(129,140,248,0.05)"
                 label="How confident are you in reading situations like this now?"
               />
+
+              <div style={{ marginTop: 16 }}>
+                <DailyProofRecapCard
+                  learningContract={learningContract}
+                  concept={task?._concept || task?.title}
+                  goal={goal}
+                  accent="#818CF8"
+                  proofSubmission={`Prediction task on ${task?._concept || task?.title}.`}
+                  proofResult={predictAnswer === interaction?.correct_index ? 'Prediction matched the correct answer.' : 'Prediction captured and checked against the correct answer.'}
+                />
+              </div>
             </div>
           </div>
         )}

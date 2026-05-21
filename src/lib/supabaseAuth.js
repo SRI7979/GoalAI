@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import { clearStoredSupabaseSession } from '@/lib/supabase'
+import { clearStoredSupabaseSession, persistSupabaseSession } from '@/lib/supabase'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -74,6 +74,9 @@ export async function consumeSupabaseAuthRedirect() {
         token_hash: searchParams.get('token_hash'),
         type: searchParams.get('type'),
       })
+      if (result.data?.session) {
+        persistSupabaseSession(result.data.session)
+      }
       clearOtpParamsFromUrl()
       return { handled: true, error: result.error || null }
     }
@@ -83,6 +86,10 @@ export async function consumeSupabaseAuthRedirect() {
       flowType: hasPkceCode ? 'pkce' : 'implicit',
     })
     const result = await authClient.auth.initialize()
+    const { data } = await authClient.auth.getSession()
+    if (data?.session) {
+      persistSupabaseSession(data.session)
+    }
     return { handled: true, error: result.error || null }
   } catch (error) {
     clearStoredSupabaseSession()

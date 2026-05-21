@@ -116,6 +116,237 @@ function AuthenticityBadge({ score, compact }) {
   )
 }
 
+function CodeIdePanel({
+  project,
+  step,
+  code,
+  setCode,
+  onPaste,
+  readOnly,
+  isLocked,
+  verification,
+  canValidateArtifact,
+  executionLoading,
+  validationLoading,
+  reviewLoading,
+  runCodeStep,
+  validateStepOutput,
+  reviewCodeStep,
+}) {
+  const [activeTab, setActiveTab] = useState('console')
+  const starterCode = useMemo(() => buildStarterShell(project, step), [project, step])
+  const currentCode = code ?? starterCode
+  const lineCount = Math.max(8, currentCode.split('\n').length)
+  const language = normalizeStarterLanguage(project?.starter_language)
+  const execution = verification?.execution_result
+  const validation = verification?.validation_result
+  const aiReview = verification?.ai_review
+  const runDisabled = readOnly || isLocked || executionLoading || !currentCode.trim()
+  const validateDisabled = readOnly || isLocked || validationLoading || !canValidateArtifact
+  const reviewDisabled = readOnly || isLocked || reviewLoading || !validation?.passed
+
+  const tabMeta = {
+    console: {
+      label: 'Console',
+      color: execution?.passed ? T.green : execution?.passed === false ? T.red : T.textMuted,
+    },
+    tests: {
+      label: 'Tests',
+      color: validation?.passed ? T.green : validation?.passed === false ? T.amber : T.textMuted,
+    },
+    review: {
+      label: 'Review',
+      color: aiReview?.passed ? T.gold : aiReview?.passed === false ? T.red : T.textMuted,
+    },
+  }
+
+  function handleResetShell(event) {
+    event.stopPropagation()
+    if (readOnly || isLocked) return
+    setCode(starterCode)
+    setActiveTab('console')
+  }
+
+  return (
+    <div className="project-code-ide" onClick={(event) => event.stopPropagation()}>
+      <div className="project-code-ide-grid">
+        <aside className="project-code-ide-brief">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14 }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: T.teal, fontSize: 11, fontWeight: 900, letterSpacing: '0.09em', textTransform: 'uppercase', marginBottom: 6 }}>
+                <IconGlyph name="code" size={14} strokeWidth={2.4} color={T.teal} />
+                Coding Workspace
+              </div>
+              <div style={{ color: T.text, fontSize: 18, lineHeight: 1.2, fontWeight: 900 }}>
+                {step.title}
+              </div>
+            </div>
+            <span style={{ padding: '5px 9px', borderRadius: 999, background: 'rgba(14,245,194,0.08)', border: `1px solid ${T.tealBorder}`, color: T.teal, fontSize: 10, fontWeight: 900, textTransform: 'uppercase' }}>
+              {language}
+            </span>
+          </div>
+
+          <div style={{ display: 'grid', gap: 12 }}>
+            <section style={{ padding: '13px 14px', borderRadius: 14, background: 'rgba(255,255,255,0.035)', border: `1px solid ${T.border}` }}>
+              <div style={{ fontSize: 10, fontWeight: 900, color: T.textMuted, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 7 }}>Prompt</div>
+              <div style={{ color: '#c8d6e5', fontSize: 13, lineHeight: 1.65 }}>{step.description}</div>
+            </section>
+
+            {step.required_output && (
+              <section style={{ padding: '13px 14px', borderRadius: 14, background: 'rgba(59,130,246,0.055)', border: '1px solid rgba(59,130,246,0.18)' }}>
+                <div style={{ fontSize: 10, fontWeight: 900, color: T.blue, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 7 }}>Expected output</div>
+                <div style={{ color: '#dbeafe', fontSize: 13, lineHeight: 1.65 }}>{step.required_output}</div>
+              </section>
+            )}
+
+            {step.verification_focus && (
+              <section style={{ padding: '13px 14px', borderRadius: 14, background: 'rgba(168,85,247,0.055)', border: '1px solid rgba(168,85,247,0.18)' }}>
+                <div style={{ fontSize: 10, fontWeight: 900, color: T.purple, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 7 }}>Checker looks for</div>
+                <div style={{ color: '#ddd6fe', fontSize: 13, lineHeight: 1.65 }}>{step.verification_focus}</div>
+              </section>
+            )}
+
+            {step.concepts?.length > 0 && (
+              <section style={{ padding: '13px 14px', borderRadius: 14, background: 'rgba(255,255,255,0.025)', border: `1px solid ${T.border}` }}>
+                <div style={{ fontSize: 10, fontWeight: 900, color: T.textMuted, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 9 }}>Concepts</div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {step.concepts.map((concept, index) => (
+                    <span key={`${concept}-${index}`} style={{ padding: '5px 8px', borderRadius: 999, background: 'rgba(255,255,255,0.055)', border: `1px solid ${T.border}`, color: '#d7e1ec', fontSize: 11, fontWeight: 700 }}>
+                      {concept}
+                    </span>
+                  ))}
+                </div>
+              </section>
+            )}
+          </div>
+        </aside>
+
+        <section className="project-code-ide-editor">
+          <div className="project-code-ide-toolbar">
+            <div style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
+              <div style={{ display: 'flex', gap: 6, marginRight: 12 }}>
+                <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#ff5f56' }} />
+                <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#ffbd2e' }} />
+                <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#27c93f' }} />
+              </div>
+              <div style={{ color: T.text, fontSize: 12, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                main.{language === 'python' ? 'py' : 'js'}
+              </div>
+            </div>
+
+            {!readOnly && (
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                <button type="button" onClick={handleResetShell} disabled={isLocked} className="project-code-button secondary">
+                  Reset shell
+                </button>
+                <button type="button" onClick={(event) => { event.stopPropagation(); runCodeStep(step.id); setActiveTab('console') }} disabled={runDisabled} className="project-code-button run">
+                  {executionLoading ? 'Running...' : 'Run'}
+                </button>
+                <button type="button" onClick={(event) => { event.stopPropagation(); validateStepOutput(step); setActiveTab('tests') }} disabled={validateDisabled} className="project-code-button check">
+                  {validationLoading ? 'Checking...' : 'Check'}
+                </button>
+                <button type="button" onClick={(event) => { event.stopPropagation(); reviewCodeStep(step.id); setActiveTab('review') }} disabled={reviewDisabled} className="project-code-button review">
+                  {reviewLoading ? 'Reviewing...' : 'Review'}
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="project-code-editor-shell">
+            <div className="project-code-lines" aria-hidden="true">
+              {Array.from({ length: lineCount }).map((_, index) => (
+                <div key={index}>{index + 1}</div>
+              ))}
+            </div>
+            <textarea
+              value={currentCode}
+              readOnly={readOnly}
+              spellCheck={false}
+              autoCapitalize="off"
+              autoCorrect="off"
+              onChange={(event) => setCode(event.target.value)}
+              onPaste={onPaste}
+              placeholder={starterCode}
+              className="project-code-textarea"
+            />
+          </div>
+
+          <div className="project-code-console">
+            <div className="project-code-console-tabs">
+              {Object.entries(tabMeta).map(([id, meta]) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={(event) => { event.stopPropagation(); setActiveTab(id) }}
+                  className={activeTab === id ? 'active' : ''}
+                  style={{ color: activeTab === id ? meta.color : T.textMuted, borderBottomColor: activeTab === id ? meta.color : 'transparent' }}
+                >
+                  {meta.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="project-code-console-body">
+              {activeTab === 'console' && (
+                execution ? (
+                  <div style={{ display: 'grid', gap: 10 }}>
+                    <div style={{ color: execution.passed ? T.green : T.red, fontSize: 12, fontWeight: 900 }}>
+                      {execution.passed ? `Accepted in ${execution.runtimeMs || 0}ms` : 'Runtime error'}
+                    </div>
+                    <pre className={execution.passed ? 'project-code-output' : 'project-code-output error'}>{execution.stdout || execution.stderr || '(no output yet)'}</pre>
+                  </div>
+                ) : (
+                  <div className="project-code-empty">
+                    Run the starter shell, then replace the TODO with your implementation.
+                  </div>
+                )
+              )}
+
+              {activeTab === 'tests' && (
+                validation ? (
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    <div style={{ color: validation.passed ? T.green : T.amber, fontSize: 12, fontWeight: 900 }}>
+                      {validation.passed ? 'Tests passed' : 'Tests need work'} - {validation.score || 0}%
+                    </div>
+                    {(validation.checks || []).map((check, index) => (
+                      <div key={check.id || check.name || index} style={{ display: 'grid', gridTemplateColumns: '18px 1fr', gap: 8, alignItems: 'start', color: '#c8d6e5', fontSize: 12, lineHeight: 1.55 }}>
+                        <span style={{ color: check.passed ? T.green : T.red, fontWeight: 900 }}>{check.passed ? '✓' : '!'}</span>
+                        <span>{check.message || check.name || 'Check complete'}</span>
+                      </div>
+                    ))}
+                    {validation.feedback && <div style={{ color: T.textMuted, fontSize: 12, lineHeight: 1.6 }}>{validation.feedback}</div>}
+                  </div>
+                ) : (
+                  <div className="project-code-empty">
+                    Run your code first, then use Check to validate the output.
+                  </div>
+                )
+              )}
+
+              {activeTab === 'review' && (
+                aiReview ? (
+                  <div style={{ display: 'grid', gap: 9 }}>
+                    <div style={{ color: aiReview.passed ? T.gold : T.red, fontSize: 12, fontWeight: 900 }}>
+                      {aiReview.passed ? 'Review passed' : 'Review flagged issues'}
+                    </div>
+                    <div style={{ color: '#c8d6e5', fontSize: 12, lineHeight: 1.65 }}>{aiReview.feedback}</div>
+                    {aiReview.strengths?.map((item, index) => <div key={`s-${index}`} style={{ color: T.green, fontSize: 11 }}>Pass - {item}</div>)}
+                    {aiReview.risks?.map((item, index) => <div key={`r-${index}`} style={{ color: T.amber, fontSize: 11 }}>Check - {item}</div>)}
+                  </div>
+                ) : (
+                  <div className="project-code-empty">
+                    After your tests pass, ask for a review to catch shallow or copied work.
+                  </div>
+                )
+              )}
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  )
+}
+
 function hydrateAuthenticity(progressAuthenticity, score) {
   if (progressAuthenticity) return progressAuthenticity
   if (score === null || score === undefined) return null
@@ -217,6 +448,50 @@ function buildArtifactPayload(step, responseValue, checklistSet, reflectionValue
   return String(responseValue || '').trim()
 }
 
+function normalizeStarterLanguage(language = '') {
+  const normalized = String(language || '').trim().toLowerCase()
+  if (['js', 'javascript', 'node', 'react', 'react native', 'jsx'].includes(normalized)) return 'javascript'
+  if (normalized.includes('python')) return 'python'
+  return normalized || 'javascript'
+}
+
+function buildStarterShell(project = {}, step = {}) {
+  const existing = String(step?.starter_code || project?.starter_code || '').trim()
+  if (existing) return existing
+
+  const language = normalizeStarterLanguage(project?.starter_language)
+  const title = String(step?.title || project?.title || 'Project step').replace(/\*\//g, '')
+  const goal = String(step?.required_output || step?.description || project?.final_deliverable || 'Implement the required behavior.').replace(/\*\//g, '')
+
+  if (language === 'python') {
+    return [
+      `# ${title}`,
+      `# Goal: ${goal}`,
+      '',
+      'def solve():',
+      '    # TODO: write your solution here',
+      '    return None',
+      '',
+      'if __name__ == "__main__":',
+      '    print(solve())',
+      '',
+    ].join('\n')
+  }
+
+  return [
+    `// ${title}`,
+    `// Goal: ${goal}`,
+    '',
+    'function solve() {',
+    '  // TODO: write your solution here',
+    '  return null',
+    '}',
+    '',
+    'console.log(solve())',
+    '',
+  ].join('\n')
+}
+
 async function readJsonResponse(res) {
   const raw = await res.text()
   if (!raw) return {}
@@ -283,7 +558,7 @@ function useDifficultyAdapter() {
 // ═══════════════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════════════════
-export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, onComplete, readOnly = false }) {
+export default function ProjectViewer({ task, goal, knowledge, goalId, domain = null, onClose, onComplete, readOnly = false, autoGenerateMode = null, presetProject = null }) {
   // Core state
   const [project, setProject] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -300,6 +575,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
   const [stepVerification, setStepVerification] = useState({})
   const [stepErrors, setStepErrors] = useState({})
   const calculateAuthenticityRef = useRef(null)
+  const autoGenerateStartedRef = useRef(false)
 
   // Mode toggle
   const [projectMode, setProjectMode] = useState('guided') // 'guided' | 'build'
@@ -382,9 +658,17 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
     setXpEarned(verifiedIds.size * XP_PER_STEP)
     setStepXpAwarded(verifiedIds)
 
-    setCodeInputs(() => Object.fromEntries(
-      Object.entries(codeSubmissions).map(([stepId, submission]) => [stepId, submission?.code || '']),
-    ))
+    setCodeInputs(() => {
+      const seededInputs = {}
+      normalizedProject.steps.forEach((step) => {
+        if (!step.requires_code) return
+        seededInputs[step.id] = codeSubmissions[step.id]?.code || buildStarterShell(normalizedProject, step)
+      })
+      Object.entries(codeSubmissions).forEach(([stepId, submission]) => {
+        seededInputs[stepId] = submission?.code || seededInputs[stepId] || ''
+      })
+      return seededInputs
+    })
     setResponseInputs(() => Object.fromEntries(
       Object.entries(responseSubmissions).map(([stepId, submission]) => [stepId, submission?.response || '']),
     ))
@@ -490,6 +774,13 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
 
   // ─── Load / Generate ───────────────────────────────────────────
   useEffect(() => {
+    if (presetProject) {
+      setError(null)
+      applyProjectRecord(presetProject)
+      setLoading(false)
+      return
+    }
+
     async function load() {
       try {
         const { user } = await getSafeSupabaseUser()
@@ -525,7 +816,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
       }
     }
     load()
-  }, [applyProjectRecord, task, goal, goalId, knowledge, readOnly])
+  }, [applyProjectRecord, task, goal, goalId, knowledge, readOnly, presetProject])
 
   // Generate project after mode is chosen
   const generateProject = useCallback(async (mode) => {
@@ -544,7 +835,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
       const res = await fetch('/api/project/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ goalId, goal, conceptsCovered, difficulty: 'beginner', dayNumber, mode }),
+        body: JSON.stringify({ goalId, goal, conceptsCovered, difficulty: 'beginner', dayNumber, mode, domain, knowledge }),
       })
       const data = await readJsonResponse(res)
       if (!res.ok) throw new Error(data?.error || 'Failed to generate project')
@@ -554,7 +845,16 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
     } finally {
       setLoading(false)
     }
-  }, [applyProjectRecord, task, goal, goalId])
+  }, [applyProjectRecord, task, goal, goalId, domain, knowledge])
+
+  useEffect(() => {
+    if (!autoGenerateMode || autoGenerateStartedRef.current || loading || project) return
+    const mode = autoGenerateMode === 'build' ? 'build' : 'guided'
+    autoGenerateStartedRef.current = true
+    setModeChosen(true)
+    setProjectMode(mode)
+    generateProject(mode)
+  }, [autoGenerateMode, generateProject, loading, project])
 
   // ─── AI Assistant ──────────────────────────────────────────────
   const askAI = useCallback(async (stepId, mode, customMessage) => {
@@ -567,7 +867,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
       const res = await fetch('/api/project/assistant', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ projectId: project.id, stepId, mode: mode || 'explain', userMessage: customMessage || null }),
+        body: JSON.stringify({ projectId: project.id, stepId, mode: mode || 'explain', userMessage: customMessage || null, domain, knowledge }),
       })
       const data = await readJsonResponse(res)
       if (data.reply) {
@@ -578,7 +878,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
       }
     } catch {}
     setAiLoading(prev => ({ ...prev, [stepId]: false }))
-  }, [aiLoading, project, adapter])
+  }, [aiLoading, project, adapter, domain, knowledge])
 
   const executeStepAction = useCallback(async (stepId, setLoadingMap, endpoint, body) => {
     if (!project?.id) return null
@@ -590,7 +890,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ projectId: project.id, stepId, accessToken: token, ...body }),
+        body: JSON.stringify({ projectId: project.id, stepId, accessToken: token, domain, knowledge, ...body }),
       })
       const data = await readJsonResponse(res)
       if (!res.ok) throw new Error(data?.error || 'Verification failed')
@@ -602,7 +902,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
     } finally {
       setLoadingMap((prev) => ({ ...prev, [stepId]: false }))
     }
-  }, [project?.id, refreshProject])
+  }, [project?.id, refreshProject, domain, knowledge])
 
   const handleVerificationRefresh = useCallback(async (stepId, refreshed) => {
     const nextRecord = refreshed || project
@@ -691,7 +991,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
       const res = await fetch('/api/project/checkpoint', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ projectId: project.id, stepId, action: 'generate' }),
+        body: JSON.stringify({ projectId: project.id, stepId, action: 'generate', domain, knowledge }),
       })
       const data = await readJsonResponse(res)
       if (data.questions) {
@@ -699,7 +999,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
       }
     } catch {}
     setCheckpointLoading(prev => ({ ...prev, [stepId]: false }))
-  }, [project])
+  }, [project, domain, knowledge])
 
   const evaluateCheckpoint = useCallback(async (stepId, questionId, question, answer, expectedKeywords) => {
     if (!project?.id) return
@@ -710,7 +1010,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
       const res = await fetch('/api/project/checkpoint', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ projectId: project.id, stepId, action: 'evaluate', question, answer, expectedKeywords }),
+        body: JSON.stringify({ projectId: project.id, stepId, action: 'evaluate', question, answer, expectedKeywords, domain, knowledge }),
       })
       const data = await readJsonResponse(res)
       setCheckpoints(prev => {
@@ -725,7 +1025,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
       }
     } catch {}
     setCheckpointLoading(prev => ({ ...prev, [`${stepId}-${questionId}`]: false }))
-  }, [project])
+  }, [project, domain, knowledge])
 
   // ─── Review ────────────────────────────────────────────────────
   const requestReview = useCallback(async () => {
@@ -737,7 +1037,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
       const res = await fetch('/api/project/review', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ projectId: project.id }),
+        body: JSON.stringify({ projectId: project.id, domain, knowledge }),
       })
       const data = await readJsonResponse(res)
       if (data.review) {
@@ -746,7 +1046,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
       }
     } catch {}
     setReviewing(false)
-  }, [project, refreshProject, reviewing])
+  }, [project, refreshProject, reviewing, domain, knowledge])
 
   // ─── Authenticity ──────────────────────────────────────────────
   const calculateAuthenticity = useCallback(async (projectId = project?.id) => {
@@ -830,6 +1130,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
     ? authenticityResult.verificationLayers
     : proofSummary.verificationLayers || []
   const criteriaCards = getProjectCriteriaCards(review, skillType)
+  const projectShellMaxWidth = skillType === 'coding' ? 1180 : 640
 
   const bonusXp = useMemo(() => {
     if (!isFullyComplete) return 0
@@ -863,6 +1164,158 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
     @keyframes confettiFloat { 0% { transform: translateY(0) rotate(0deg); opacity: 1; } 100% { transform: translateY(-120px) rotate(360deg); opacity: 0; } }
     @keyframes lastStepGlow { 0%,100% { box-shadow: 0 0 0 0 rgba(255,215,0,0.4); } 50% { box-shadow: 0 0 0 8px rgba(255,215,0,0); } }
     code { background: rgba(255,255,255,0.08); padding: 1px 5px; border-radius: 4px; font-family: ${mono}; font-size: 11px; }
+    .project-code-ide {
+      margin: 14px 0 14px 44px;
+      border-radius: 18px;
+      border: 1px solid rgba(255,255,255,0.10);
+      background: linear-gradient(180deg, rgba(12,16,28,0.98), rgba(5,7,13,0.98));
+      box-shadow: 0 22px 60px rgba(0,0,0,0.34), inset 0 1px 0 rgba(255,255,255,0.06);
+      overflow: hidden;
+    }
+    .project-code-ide-grid {
+      display: grid;
+      grid-template-columns: minmax(260px, 0.82fr) minmax(390px, 1.18fr);
+      min-height: 560px;
+    }
+    .project-code-ide-brief {
+      padding: 18px;
+      border-right: 1px solid rgba(255,255,255,0.08);
+      background: radial-gradient(circle at 20% 0%, rgba(14,245,194,0.10), transparent 34%), rgba(255,255,255,0.018);
+    }
+    .project-code-ide-editor {
+      display: grid;
+      grid-template-rows: auto minmax(300px, 1fr) minmax(170px, auto);
+      min-width: 0;
+    }
+    .project-code-ide-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 14px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.035);
+    }
+    .project-code-button {
+      height: 34px;
+      padding: 0 12px;
+      border-radius: 9px;
+      border: 1px solid rgba(255,255,255,0.10);
+      font-family: ${font};
+      font-size: 12px;
+      font-weight: 900;
+      cursor: pointer;
+      transition: transform 0.12s ease, filter 0.12s ease, opacity 0.12s ease;
+    }
+    .project-code-button:active:not(:disabled) {
+      transform: translateY(2px);
+      filter: brightness(0.82);
+    }
+    .project-code-button:disabled {
+      cursor: default;
+      opacity: 0.45;
+    }
+    .project-code-button.secondary { background: rgba(255,255,255,0.055); color: #c8d6e5; }
+    .project-code-button.run { background: #a855f7; color: #fff; border-color: rgba(168,85,247,0.45); }
+    .project-code-button.check { background: #0ef5c2; color: #04100d; border-color: rgba(14,245,194,0.55); }
+    .project-code-button.review { background: rgba(255,215,0,0.10); color: #ffd700; border-color: rgba(255,215,0,0.30); }
+    .project-code-editor-shell {
+      display: grid;
+      grid-template-columns: 48px minmax(0, 1fr);
+      background: #080b12;
+      min-height: 320px;
+      overflow: hidden;
+    }
+    .project-code-lines {
+      padding: 14px 10px;
+      color: rgba(200,214,229,0.34);
+      font-family: ${mono};
+      font-size: 12px;
+      line-height: 1.7;
+      text-align: right;
+      user-select: none;
+      border-right: 1px solid rgba(255,255,255,0.06);
+      background: rgba(255,255,255,0.025);
+    }
+    .project-code-textarea {
+      width: 100%;
+      height: 100%;
+      min-height: 320px;
+      padding: 14px 16px;
+      border: none;
+      outline: none;
+      resize: vertical;
+      box-sizing: border-box;
+      background: transparent;
+      color: #e6edf5;
+      caret-color: #0ef5c2;
+      font-family: ${mono};
+      font-size: 13px;
+      line-height: 1.7;
+      tab-size: 2;
+      white-space: pre;
+    }
+    .project-code-console {
+      border-top: 1px solid rgba(255,255,255,0.08);
+      background: rgba(0,0,0,0.26);
+    }
+    .project-code-console-tabs {
+      display: flex;
+      gap: 4px;
+      padding: 0 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.025);
+    }
+    .project-code-console-tabs button {
+      padding: 11px 10px 9px;
+      border: none;
+      border-bottom: 2px solid transparent;
+      background: transparent;
+      font-family: ${font};
+      font-size: 11px;
+      font-weight: 900;
+      cursor: pointer;
+    }
+    .project-code-console-body {
+      min-height: 146px;
+      max-height: 230px;
+      overflow: auto;
+      padding: 13px 14px;
+      font-family: ${font};
+    }
+    .project-code-output {
+      margin: 0;
+      padding: 12px;
+      border-radius: 12px;
+      background: rgba(14,245,194,0.045);
+      border: 1px solid rgba(14,245,194,0.16);
+      color: #c8d6e5;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: ${mono};
+      font-size: 12px;
+      line-height: 1.6;
+    }
+    .project-code-output.error {
+      background: rgba(255,69,58,0.07);
+      border-color: rgba(255,69,58,0.22);
+      color: #ffb4ae;
+    }
+    .project-code-empty {
+      height: 118px;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      color: rgba(200,214,229,0.52);
+      font-size: 12px;
+      line-height: 1.6;
+    }
+    @media (max-width: 980px) {
+      .project-code-ide { margin-left: 0; }
+      .project-code-ide-grid { grid-template-columns: 1fr; }
+      .project-code-ide-brief { border-right: none; border-bottom: 1px solid rgba(255,255,255,0.08); }
+      .project-code-ide-toolbar { align-items: flex-start; flex-direction: column; }
+    }
   `
   const OVERLAY = {
     position: 'fixed',
@@ -1037,7 +1490,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
 
       {/* ─── HEADER ──────────────────────────────────────────────── */}
       <div style={{ position: 'sticky', top: 0, zIndex: 10, background: 'rgba(6,6,15,0.88)', backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)', borderBottom: `1px solid ${T.border}`, padding: '12px 20px' }}>
-        <div style={{ maxWidth: 640, margin: '0 auto' }}>
+        <div style={{ maxWidth: projectShellMaxWidth, margin: '0 auto' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
             <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.06)', border: `1px solid ${T.border}`, color: T.text, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: font, padding: '6px 14px', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ fontSize: 16 }}>←</span> Back
@@ -1086,7 +1539,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
       </div>
 
       {/* ─── BODY ────────────────────────────────────────────────── */}
-      <div style={{ maxWidth: 640, margin: '0 auto', padding: '20px 20px 140px' }}>
+      <div style={{ maxWidth: projectShellMaxWidth, margin: '0 auto', padding: '20px 20px 140px' }}>
         {/* Concepts */}
         {project.concepts_tested?.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 20 }}>
@@ -1209,7 +1662,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
                       {isDone ? <IconGlyph name="check" size={13} strokeWidth={2.8} color="#000" /> : isLocked ? <IconGlyph name="lock" size={14} strokeWidth={2.3} color={T.textMuted}/> : i + 1}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: isDone ? 'rgba(255,255,255,0.6)' : T.text, textDecoration: isDone ? 'line-through' : 'none' }}>{step.title}</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: isDone ? 'rgba(255,255,255,0.6)' : T.text, textDecorationLine: isDone ? 'line-through' : 'none' }}>{step.title}</div>
                       {step.concepts?.length > 0 && (
                         <div style={{ display: 'flex', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
                           {step.concepts.map((concept, conceptIndex) => (
@@ -1324,112 +1777,23 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
                       )}
 
                       {requiresCode && (
-                        <div style={{ marginLeft: 44, marginBottom: 12 }}>
-                          <div style={{ borderRadius: 14, overflow: 'hidden', border: `1px solid ${T.border}`, background: 'rgba(0,0,0,0.28)' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', borderBottom: `1px solid ${T.border}`, background: 'rgba(255,255,255,0.03)' }}>
-                              <div>
-                                <div style={{ fontSize: 11, fontWeight: 800, color: T.purple }}>Execution Workbench</div>
-                                <div style={{ fontSize: 10, color: T.textMuted }}>Run, validate, review, then defend.</div>
-                              </div>
-                              <span style={{ padding: '3px 8px', borderRadius: 9999, fontSize: 9, fontWeight: 800, background: 'rgba(168,85,247,0.10)', border: '1px solid rgba(168,85,247,0.22)', color: T.purple }}>
-                                {project.starter_language || 'code'}
-                              </span>
-                            </div>
-
-                            <textarea
-                              value={codeInputs[step.id] || ''}
-                              readOnly={readOnly}
-                              onChange={(e) => setCodeInputs((prev) => ({ ...prev, [step.id]: e.target.value }))}
-                              onPaste={() => setPasteCounts((prev) => ({ ...prev, [step.id]: (prev[step.id] || 0) + 1 }))}
-                              onClick={(e) => e.stopPropagation()}
-                              placeholder={`Write your ${project.starter_language || 'code'} solution here...`}
-                              style={{ width: '100%', minHeight: 180, padding: '14px 16px', border: 'none', background: 'transparent', color: '#c8d6e5', fontSize: 12, fontFamily: mono, lineHeight: 1.6, resize: 'vertical', outline: 'none', boxSizing: 'border-box' }}
-                            />
-
-                            {!readOnly && (
-                              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', padding: '0 12px 12px' }}>
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); runCodeStep(step.id) }}
-                                  disabled={executionLoading[step.id] || !codeInputs[step.id]?.trim() || isLocked}
-                                  style={{ padding: '9px 14px', borderRadius: 10, border: 'none', background: T.purple, color: '#fff', fontSize: 12, fontWeight: 800, cursor: 'pointer', fontFamily: font, opacity: executionLoading[step.id] || isLocked ? 0.5 : 1 }}
-                                >
-                                  {executionLoading[step.id] ? 'Running...' : '▶ Run Code'}
-                                </button>
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); validateStepOutput(step) }}
-                                  disabled={validationLoading[step.id] || !canValidateArtifact || isLocked}
-                                  style={{ padding: '9px 14px', borderRadius: 10, border: 'none', background: T.teal, color: '#000', fontSize: 12, fontWeight: 800, cursor: 'pointer', fontFamily: font, opacity: validationLoading[step.id] || !canValidateArtifact || isLocked ? 0.5 : 1 }}
-                                >
-                                  {validationLoading[step.id] ? 'Checking...' : 'Validate Output'}
-                                </button>
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); reviewCodeStep(step.id) }}
-                                  disabled={reviewLoading[step.id] || !verification.validation_result?.passed || isLocked}
-                                  style={{ padding: '9px 14px', borderRadius: 10, border: '1px solid rgba(255,215,0,0.22)', background: 'rgba(255,215,0,0.08)', color: T.gold, fontSize: 12, fontWeight: 800, cursor: 'pointer', fontFamily: font, opacity: reviewLoading[step.id] || !verification.validation_result?.passed || isLocked ? 0.5 : 1 }}
-                                >
-                                  {reviewLoading[step.id] ? 'Reviewing...' : 'AI Review'}
-                                </button>
-                              </div>
-                            )}
-                          </div>
-
-                          {verification.execution_result && (
-                            <div style={{ marginTop: 10, padding: '12px', borderRadius: 12, background: verification.execution_result.passed ? 'rgba(52,211,153,0.06)' : 'rgba(255,69,58,0.06)', border: `1px solid ${verification.execution_result.passed ? 'rgba(52,211,153,0.2)' : 'rgba(255,69,58,0.2)'}` }}>
-                              <div style={{ fontSize: 12, fontWeight: 800, color: verification.execution_result.passed ? T.green : T.red, marginBottom: 8 }}>
-                                {verification.execution_result.passed ? 'Execution passed' : 'Execution failed'}
-                              </div>
-                              <div style={{ display: 'grid', gap: 8 }}>
-                                <div>
-                                  <div style={{ fontSize: 10, fontWeight: 800, color: T.textMuted, textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 4 }}>Output</div>
-                                  <pre style={{ margin: 0, padding: '10px 12px', borderRadius: 10, background: 'rgba(0,0,0,0.22)', fontFamily: mono, fontSize: 11, lineHeight: 1.6, whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: '#c8d6e5' }}>{verification.execution_result.stdout || '(no stdout)'}</pre>
-                                </div>
-                                {verification.execution_result.stderr && (
-                                  <div>
-                                    <div style={{ fontSize: 10, fontWeight: 800, color: T.red, textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 4 }}>Errors</div>
-                                    <pre style={{ margin: 0, padding: '10px 12px', borderRadius: 10, background: 'rgba(255,69,58,0.08)', fontFamily: mono, fontSize: 11, lineHeight: 1.6, whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: '#ffb4ae' }}>{verification.execution_result.stderr}</pre>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          )}
-
-                          {verification.validation_result && (
-                            <div style={{ marginTop: 10, padding: '12px', borderRadius: 12, background: verification.validation_result.passed ? 'rgba(52,211,153,0.06)' : 'rgba(245,158,11,0.06)', border: `1px solid ${verification.validation_result.passed ? 'rgba(52,211,153,0.2)' : 'rgba(245,158,11,0.2)'}` }}>
-                              <div style={{ fontSize: 12, fontWeight: 800, color: verification.validation_result.passed ? T.green : T.amber, marginBottom: 8 }}>
-                                {verification.validation_result.passed ? 'Validation passed' : 'Validation failed'} — {verification.validation_result.score || 0}%
-                              </div>
-                              {verification.validation_result.checks?.map((check, checkIndex) => (
-                                <div key={check.id || checkIndex} style={{ display: 'flex', gap: 6, alignItems: 'flex-start', fontSize: 11, color: '#b0b0b8', marginBottom: 4 }}>
-                                  <span style={{ color: check.passed ? T.green : T.red, flexShrink: 0 }}>{check.passed ? 'Pass' : 'Fail'}</span>
-                                  <span>{check.message}</span>
-                                </div>
-                              ))}
-                              {verification.validation_result.feedback && <div style={{ fontSize: 11, lineHeight: 1.6, color: T.textMuted, marginTop: 6 }}>{verification.validation_result.feedback}</div>}
-                            </div>
-                          )}
-
-                          {verification.ai_review && (
-                            <div style={{ marginTop: 10, padding: '12px', borderRadius: 12, background: verification.ai_review.passed ? 'rgba(255,215,0,0.08)' : 'rgba(255,69,58,0.06)', border: `1px solid ${verification.ai_review.passed ? 'rgba(255,215,0,0.22)' : 'rgba(255,69,58,0.2)'}` }}>
-                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
-                                <div style={{ fontSize: 12, fontWeight: 800, color: verification.ai_review.passed ? T.gold : T.red }}>
-                                  {verification.ai_review.passed ? 'AI review passed' : 'AI review flagged issues'}
-                                </div>
-                                <AuthenticityBadge score={verification.ai_review.authenticity_score} compact />
-                              </div>
-                              <div style={{ fontSize: 12, lineHeight: 1.6, color: '#b0b0b8' }}>{verification.ai_review.feedback}</div>
-                              {verification.ai_review.strengths?.length > 0 && (
-                                <div style={{ marginTop: 8 }}>
-                                  {verification.ai_review.strengths.map((item, itemIndex) => <div key={itemIndex} style={{ fontSize: 11, color: T.green, marginBottom: 2 }}>Pass • {item}</div>)}
-                                </div>
-                              )}
-                              {verification.ai_review.risks?.length > 0 && (
-                                <div style={{ marginTop: 6 }}>
-                                  {verification.ai_review.risks.map((item, itemIndex) => <div key={itemIndex} style={{ fontSize: 11, color: T.amber, marginBottom: 2 }}>→ {item}</div>)}
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
+                        <CodeIdePanel
+                          project={project}
+                          step={step}
+                          code={codeInputs[step.id]}
+                          setCode={(value) => setCodeInputs((prev) => ({ ...prev, [step.id]: value }))}
+                          onPaste={() => setPasteCounts((prev) => ({ ...prev, [step.id]: (prev[step.id] || 0) + 1 }))}
+                          readOnly={readOnly}
+                          isLocked={isLocked}
+                          verification={verification}
+                          canValidateArtifact={canValidateArtifact}
+                          executionLoading={Boolean(executionLoading[step.id])}
+                          validationLoading={Boolean(validationLoading[step.id])}
+                          reviewLoading={Boolean(reviewLoading[step.id])}
+                          runCodeStep={runCodeStep}
+                          validateStepOutput={validateStepOutput}
+                          reviewCodeStep={reviewCodeStep}
+                        />
                       )}
 
                       {(requiresResponse || requiresPractice) && (
@@ -1456,7 +1820,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
                                         <div style={{ width: 20, height: 20, borderRadius: 6, flexShrink: 0, border: `1.5px solid ${checked ? T.purple : 'rgba(255,255,255,0.15)'}`, background: checked ? T.purple : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                           {checked && <IconGlyph name="check" size={11} strokeWidth={2.8} color="#fff" />}
                                         </div>
-                                        <span style={{ fontSize: 12, color: checked ? 'rgba(255,255,255,0.65)' : T.text, textDecoration: checked ? 'line-through' : 'none' }}>{item}</span>
+                                        <span style={{ fontSize: 12, color: checked ? 'rgba(255,255,255,0.65)' : T.text, textDecorationLine: checked ? 'line-through' : 'none' }}>{item}</span>
                                       </div>
                                     )
                                   })}
@@ -1667,7 +2031,7 @@ export default function ProjectViewer({ task, goal, knowledge, goalId, onClose, 
                     <div style={{ width: 20, height: 20, borderRadius: 6, flexShrink: 0, marginTop: 1, border: `1.5px solid ${done ? T.teal : 'rgba(255,255,255,0.15)'}`, background: done ? T.teal : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }}>
                       {done && <IconGlyph name="check" size={12} strokeWidth={2.8} color="#000" />}
                     </div>
-                    <span style={{ fontSize: 13, lineHeight: 1.5, color: done ? 'rgba(255,255,255,0.55)' : T.text, textDecoration: done ? 'line-through' : 'none' }}>{d}</span>
+                    <span style={{ fontSize: 13, lineHeight: 1.5, color: done ? 'rgba(255,255,255,0.55)' : T.text, textDecorationLine: done ? 'line-through' : 'none' }}>{d}</span>
                   </div>
                 )
               })}

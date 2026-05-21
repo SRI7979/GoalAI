@@ -1,5 +1,6 @@
 import { getOpenAIModel } from '@/lib/openaiModels'
 import { getSupabaseServerClient } from '@/lib/supabaseServer'
+import { formatDomainForPrompt, normalizeDomain, parseDomainFromConstraints } from '@/lib/domainAdapter'
 
 function extractAccessToken(request) {
   const authHeader = request.headers.get('authorization') || request.headers.get('Authorization')
@@ -8,10 +9,15 @@ function extractAccessToken(request) {
   return authHeader.slice(7).trim() || null
 }
 
+function buildDomainPrompt({ domain, knowledge } = {}) {
+  const resolvedDomain = normalizeDomain(domain || parseDomainFromConstraints([knowledge]), null)
+  return resolvedDomain ? `DOMAIN ADAPTER:\n${formatDomainForPrompt(resolvedDomain)}\n` : ''
+}
+
 export async function POST(request) {
   try {
     const body = await request.json()
-    const { projectId, stepId, mode, userMessage } = body
+    const { projectId, stepId, mode, userMessage, domain, knowledge } = body
 
     if (!projectId || !stepId) {
       return Response.json({ error: 'Missing projectId or stepId' }, { status: 400 })
@@ -56,6 +62,7 @@ export async function POST(request) {
     const systemPrompt = `You are PathAI's project assistant — a friendly, encouraging coding mentor helping a learner work through a hands-on project.
 
 PROJECT: ${project.title}
+${buildDomainPrompt({ domain, knowledge })}
 DESCRIPTION: ${project.description}
 CONCEPTS: ${(project.concepts_tested || []).join(', ')}
 DIFFICULTY: ${project.difficulty}

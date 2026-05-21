@@ -1,6 +1,7 @@
 import { getSupabaseServerClient } from '@/lib/supabaseServer'
 import { getOpenAIModel } from '@/lib/openaiModels'
 import { getProjectReviewCriteria } from '@/lib/projectProof'
+import { formatDomainForPrompt, normalizeDomain, parseDomainFromConstraints } from '@/lib/domainAdapter'
 
 function extractAccessToken(request) {
   const authHeader = request.headers.get('authorization') || request.headers.get('Authorization')
@@ -9,10 +10,15 @@ function extractAccessToken(request) {
   return authHeader.slice(7).trim() || null
 }
 
+function buildDomainPrompt({ domain, knowledge } = {}) {
+  const resolvedDomain = normalizeDomain(domain || parseDomainFromConstraints([knowledge]), null)
+  return resolvedDomain ? `DOMAIN ADAPTER:\n${formatDomainForPrompt(resolvedDomain)}\n` : ''
+}
+
 export async function POST(request) {
   try {
     const body = await request.json()
-    const { projectId } = body
+    const { projectId, domain, knowledge } = body
     if (!projectId) return Response.json({ error: 'Missing projectId' }, { status: 400 })
 
     const accessToken = extractAccessToken(request) || body?.accessToken || null
@@ -65,6 +71,7 @@ export async function POST(request) {
     const prompt = `Review a learner's completed ${skillType} project and provide comprehensive, skill-appropriate feedback.
 
 PROJECT: ${project.title}
+${buildDomainPrompt({ domain, knowledge })}
 DESCRIPTION: ${project.description}
 SKILL TYPE: ${skillType}
 CONCEPTS TESTED: ${(project.concepts_tested || []).join(', ')}

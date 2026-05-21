@@ -94,6 +94,14 @@ function normalizeModules(courseOutline) {
             estimatedMinutes: clamp(day?.estimatedMinutes, 5, 240, 30),
             difficulty: clamp(day?.difficulty, 1, 5, 2),
             whyItMatters: String(day?.whyItMatters || day?.description || '').trim(),
+            explicitKnownConcepts: Array.isArray(day?.explicitKnownConcepts) ? day.explicitKnownConcepts : [],
+            knownBefore: Array.isArray(day?.knownBefore) ? day.knownBefore : [],
+            taughtBefore: Array.isArray(day?.taughtBefore) ? day.taughtBefore : [],
+            newConceptsToday: Array.isArray(day?.newConceptsToday) ? day.newConceptsToday : [title],
+            allowedAssessmentConcepts: Array.isArray(day?.allowedAssessmentConcepts) ? day.allowedAssessmentConcepts : [title],
+            notYetTaught: Array.isArray(day?.notYetTaught) ? day.notYetTaught : [],
+            prerequisitePolicy: day?.prerequisitePolicy || 'teach_before_assess',
+            coverageReport: day?.coverageReport || null,
           }
         })
 

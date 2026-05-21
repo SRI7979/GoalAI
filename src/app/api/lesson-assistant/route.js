@@ -1,4 +1,5 @@
 import { getOpenAIModel } from '@/lib/openaiModels'
+import { formatDomainForPrompt, normalizeDomain, parseDomainFromConstraints } from '@/lib/domainAdapter'
 
 const defaultLinks = [
   { title: 'Khan Academy', url: 'https://www.khanacademy.org/' },
@@ -6,10 +7,15 @@ const defaultLinks = [
   { title: 'Coursera', url: 'https://www.coursera.org/' },
 ]
 
+function buildDomainPrompt({ domain, knowledge } = {}) {
+  const resolvedDomain = normalizeDomain(domain || parseDomainFromConstraints([knowledge]), null)
+  return resolvedDomain ? `\nDOMAIN ADAPTER:\n${formatDomainForPrompt(resolvedDomain)}\n` : ''
+}
+
 export async function POST(request) {
   try {
     const body = await request.json()
-    const { question, concept, goal, slide, mode = 'hint' } = body || {}
+    const { question, concept, goal, slide, mode = 'hint', domain, knowledge } = body || {}
 
     if (!question || !concept || !goal) {
       return Response.json({ error: 'Missing question, concept, or goal' }, { status: 400 })
@@ -36,6 +42,7 @@ export async function POST(request) {
           content: `You are a concise learning assistant helping a student while they read a lesson slide.
 
 Lesson goal: ${goal}
+${buildDomainPrompt({ domain, knowledge })}
 Concept: ${concept}
 Current slide title: ${slide?.title || 'N/A'}
 Current slide content: ${slide?.content || 'N/A'}

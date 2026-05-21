@@ -136,6 +136,7 @@ export function buildFlowSequence(dayNumber, difficulty, options = {}) {
   // Review days: quiz weak concepts → reinforce → reflect
   if (isReviewDay) {
     return [
+      { type: 'concept', stage: 'understand', label: 'Refresh the Concept' },
       { type: 'recall', stage: 'recall', label: 'Recall Drill' },
       { type: 'guided_practice', stage: 'apply', label: 'Reinforce Weak Spots' },
       { type: 'quiz', stage: 'prove', label: 'Review Quiz' },
@@ -170,6 +171,7 @@ export function buildFlowSequence(dayNumber, difficulty, options = {}) {
   if (mastery !== null && mastery >= 90) {
     const sequence = [
       { type: 'concept', stage: 'understand', label: 'Learn the Concept' },
+      { type: 'guided_practice', stage: 'apply', label: 'Fast Practice' },
       { type: 'challenge', stage: 'struggle', label: 'Challenge' },
       { type: 'explain', stage: 'explain', label: 'Explain It' },
       { type: 'quiz', stage: 'prove', label: 'Check Understanding' },

@@ -5,7 +5,7 @@ import IconGlyph from '@/components/IconGlyph'
 
 const font = "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif"
 
-export default function DiscussionView({ task, goal, knowledge, onClose, onComplete }) {
+export default function DiscussionView({ task, goal, knowledge, domain = null, onClose, onComplete }) {
   const [loading, setLoading] = useState(true)
   const [prompts, setPrompts] = useState([])
   const [answers, setAnswers] = useState({})
@@ -14,7 +14,7 @@ export default function DiscussionView({ task, goal, knowledge, onClose, onCompl
 
   useEffect(() => {
     async function load() {
-      const cacheKey = `pathai.discussion.v1::${task.id || task.title}`
+      const cacheKey = `pathai.discussion.v2::${domain || 'domainless'}::${task.id || task.title}`
       try {
         const cached = localStorage.getItem(cacheKey)
         if (cached) {
@@ -26,7 +26,7 @@ export default function DiscussionView({ task, goal, knowledge, onClose, onCompl
         const res = await fetch('/api/discussion', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ concept: task._concept || task.title, taskTitle: task.title, goal, knowledge }),
+          body: JSON.stringify({ concept: task._concept || task.title, taskTitle: task.title, goal, knowledge, domain }),
         })
         const data = await res.json()
         if (data.prompts) {
@@ -37,7 +37,7 @@ export default function DiscussionView({ task, goal, knowledge, onClose, onCompl
       setLoading(false)
     }
     load()
-  }, [task.id, task.title, goal, knowledge, task._concept])
+  }, [task.id, task.title, goal, knowledge, task._concept, domain])
 
   const answeredCount = Object.values(answers).filter(a => a?.trim().length > 10).length
 
@@ -86,7 +86,7 @@ export default function DiscussionView({ task, goal, knowledge, onClose, onCompl
               <>
                 <p style={{ fontSize: 13, color: '#636366', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 8 }}>Reflection</p>
                 <h1 style={{ fontSize: 22, fontWeight: 900, color: '#f5f5f7', letterSpacing: '-0.4px', marginBottom: 28 }}>{task._concept || task.title}</h1>
-                <p style={{ fontSize: 14, color: '#8e8e93', marginBottom: 28, lineHeight: 1.6 }}>These questions don't have right or wrong answers — they're designed to deepen your thinking. Write at least a few sentences for each.</p>
+                <p style={{ fontSize: 14, color: '#8e8e93', marginBottom: 28, lineHeight: 1.6 }}>These questions do not have right or wrong answers — they are designed to deepen your thinking. Write at least a few sentences for each.</p>
 
                 {prompts.map((p, i) => (
                   <div key={i} style={{ marginBottom: 20, border: `1.5px solid ${expanded === i ? 'rgba(96,165,250,0.28)' : 'rgba(255,255,255,0.08)'}`, borderRadius: 18, overflow: 'hidden', transition: 'border 0.2s', animation: `fadeIn 0.3s ease ${i * 0.08}s both` }}>

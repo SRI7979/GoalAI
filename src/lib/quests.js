@@ -1,4 +1,5 @@
 import { getCanonicalTaskType } from '@/lib/taskTaxonomy'
+import { getDomainGamification, normalizeDomain } from '@/lib/domainAdapter'
 
 // ─── Daily Quest Generation ─────────────────────────────────────────────────
 // Generates 3 quests per day (1 easy, 1 medium, 1 hard) with deterministic
@@ -30,7 +31,45 @@ function seeded(s) {
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296
 }
 
-export function generateDailyQuests(dayNumber, taskCount = 4) {
+function domainQuestDescription(description, domain) {
+  const resolvedDomain = normalizeDomain(domain, null)
+  if (!resolvedDomain) return description
+  const questLabel = getDomainGamification(resolvedDomain).quests.toLowerCase()
+  const singularLabel = {
+    CS_CODING: 'mission',
+    MATHEMATICS: 'problem',
+    FOREIGN_LANGUAGE: 'conversation',
+    PHYSICS: 'experiment',
+    HISTORY: 'chronicle',
+    ECONOMICS: 'market analysis',
+    CHEMISTRY: 'reaction',
+    ENGINEERING: 'prototype',
+    TECHNOLOGY: 'workflow',
+    CYBERSECURITY: 'defense',
+    ML_AI: 'model check',
+    DATA_SCIENCE: 'dataset',
+    STATISTICS: 'sample',
+    FINANCE: 'plan',
+    BUSINESS: 'case',
+    PHILOSOPHY_LOGIC: 'argument',
+    WRITING: 'draft',
+    READING_COMPREHENSION: 'passage',
+    PSYCHOLOGY: 'case study',
+    GOVERNMENT_CIVICS: 'civic case',
+    BIOLOGY: 'experiment',
+    MEDICINE_HEALTH: 'case chart',
+    ENVIRONMENTAL_SCIENCE: 'system',
+    ART_DESIGN: 'studio task',
+    MUSIC: 'practice set',
+    COMMUNICATION: 'rehearsal',
+  }[resolvedDomain] || questLabel
+  return String(description || '')
+    .replace(/\btasks\b/gi, questLabel)
+    .replace(/\btask\b/gi, singularLabel)
+    .replace(/\bquiz\b/gi, resolvedDomain === 'FOREIGN_LANGUAGE' ? 'conversation check' : 'check')
+}
+
+export function generateDailyQuests(dayNumber, taskCount = 4, domain = null) {
   const s1 = seeded(dayNumber * 7 + 3)
   const s2 = seeded(dayNumber * 13 + 17)
   const s3 = seeded(dayNumber * 23 + 31)
@@ -49,7 +88,7 @@ export function generateDailyQuests(dayNumber, taskCount = 4) {
     return {
       id,
       type: tmpl.type,
-      description: tmpl.desc.replace('{t}', target),
+      description: domainQuestDescription(tmpl.desc.replace('{t}', target), domain),
       target,
       current: 0,
       reward: tmpl.reward,

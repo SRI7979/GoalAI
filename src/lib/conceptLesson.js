@@ -38,6 +38,154 @@ const BANNED_TAUGHT_POINT_PATTERNS = [
   'foundation for',
 ]
 
+const PROOF_TYPE_BY_DOMAIN = {
+  CS_CODING: 'code',
+  FOREIGN_LANGUAGE: 'translation',
+  MATHEMATICS: 'worked_solution',
+  PHYSICS: 'worked_solution',
+  ECONOMICS: 'worked_solution',
+  CHEMISTRY: 'worked_solution',
+  ENGINEERING: 'ordered_steps',
+  TECHNOLOGY: 'ordered_steps',
+  CYBERSECURITY: 'explanation',
+  ML_AI: 'worked_solution',
+  DATA_SCIENCE: 'worked_solution',
+  STATISTICS: 'worked_solution',
+  FINANCE: 'worked_solution',
+  BUSINESS: 'explanation',
+  HISTORY: 'explanation',
+  READING_COMPREHENSION: 'explanation',
+  PHILOSOPHY_LOGIC: 'explanation',
+  WRITING: 'short_answer',
+  PSYCHOLOGY: 'explanation',
+  GOVERNMENT_CIVICS: 'explanation',
+  BIOLOGY: 'explanation',
+  MEDICINE_HEALTH: 'explanation',
+  ENVIRONMENTAL_SCIENCE: 'explanation',
+  ART_DESIGN: 'explanation',
+  MUSIC: 'ordered_steps',
+  COMMUNICATION: 'short_answer',
+}
+
+function normalizeProofType(value = '') {
+  const normalized = cleanText(value).toLowerCase().replace(/[^a-z_]+/g, '_').replace(/^_+|_+$/g, '')
+  return ['code', 'short_answer', 'translation', 'worked_solution', 'ordered_steps', 'explanation'].includes(normalized)
+    ? normalized
+    : ''
+}
+
+function inferProofType({ proofType = '', domain = '', goal = '', conceptLabel = '' } = {}) {
+  const explicit = normalizeProofType(proofType)
+  if (explicit) return explicit
+
+  const domainKey = cleanText(domain).toUpperCase()
+  if (PROOF_TYPE_BY_DOMAIN[domainKey]) return PROOF_TYPE_BY_DOMAIN[domainKey]
+
+  const text = `${goal} ${conceptLabel}`.toLowerCase()
+  if (/\bpython\b|\bjavascript\b|\btypescript\b|\breact\b|\bsql\b|\bcode\b|\bcoding\b|\bprogramming\b|\bweb\b|\bhtml\b|\bcss\b/.test(text)) return 'code'
+  if (/\bspanish\b|\bfrench\b|\bgerman\b|\bjapanese\b|\bkorean\b|\blanguage\b|\brestaurant\b|\border\b/.test(text)) return 'translation'
+  if (/\bmath\b|\bmathematics\b|\balgebra\b|\bcalculus\b|\bphysics\b|\bchemistry\b|\beconomics\b/.test(text)) return 'worked_solution'
+  return 'short_answer'
+}
+
+function buildDefaultCanDoStatement({ conceptLabel = 'this concept', proofType = 'short_answer', dayType = 'concept_day' } = {}) {
+  if (dayType === 'integration_day') {
+    return `combine ${conceptLabel} with earlier ideas to solve one focused task`
+  }
+  if (dayType === 'review_day') {
+    return `recall ${conceptLabel} from memory and use it correctly in one short scenario`
+  }
+
+  switch (proofType) {
+    case 'code':
+      return `write or fix one small example that uses ${conceptLabel} correctly`
+    case 'translation':
+      return `say or write one useful response that uses ${conceptLabel} in context`
+    case 'worked_solution':
+      return `solve one short problem using ${conceptLabel} and show each key step`
+    case 'ordered_steps':
+      return `put the correct steps for ${conceptLabel} in the right order`
+    case 'explanation':
+      return `explain ${conceptLabel} clearly and support it with one concrete example`
+    default:
+      return `use ${conceptLabel} correctly in one concrete situation`
+  }
+}
+
+function buildDefaultProofPrompt({ conceptLabel = 'this concept', proofType = 'short_answer', dayType = 'concept_day' } = {}) {
+  if (dayType === 'integration_day') {
+    return `Show today's proof by combining ${conceptLabel} with earlier ideas in one concrete output.`
+  }
+  if (dayType === 'review_day') {
+    return `Show today's proof by recalling ${conceptLabel} from memory and applying it in one short example.`
+  }
+
+  switch (proofType) {
+    case 'code':
+      return `Show today's proof by writing or fixing a small code example that uses ${conceptLabel}.`
+    case 'translation':
+      return `Show today's proof by responding in the target language with ${conceptLabel} in context.`
+    case 'worked_solution':
+      return `Show today's proof by producing one worked solution that uses ${conceptLabel} correctly.`
+    case 'ordered_steps':
+      return `Show today's proof by putting the steps for ${conceptLabel} into the correct order.`
+    case 'explanation':
+      return `Show today's proof by explaining ${conceptLabel} and backing it up with one concrete example.`
+    default:
+      return `Show today's proof by using ${conceptLabel} in one short concrete answer.`
+  }
+}
+
+function buildDefaultSuccessCriteria({ conceptLabel = 'this concept', proofType = 'short_answer', canDoStatement = '' } = {}) {
+  const skillLine = cleanText(canDoStatement) || buildDefaultCanDoStatement({ conceptLabel, proofType })
+  const artifactLine = proofType === 'code'
+    ? `The proof includes code that visibly uses ${conceptLabel}`
+    : proofType === 'translation'
+      ? `The proof uses ${conceptLabel} in a realistic target-language response`
+      : proofType === 'worked_solution'
+        ? `The proof shows the steps and final result for ${conceptLabel}`
+        : proofType === 'ordered_steps'
+          ? `The proof puts the steps for ${conceptLabel} in a correct usable sequence`
+          : `The proof stays specific to ${conceptLabel} instead of talking in generalities`
+
+  return [
+    titleCase(skillLine),
+    artifactLine,
+    `It stays inside today's scope for ${conceptLabel}`,
+    `It avoids one common mistake involving ${conceptLabel}`,
+  ]
+}
+
+function buildProofResultSummary({ metrics = {}, proofType = 'short_answer', conceptLabel = 'this concept' } = {}) {
+  if (Number.isFinite(metrics?.accuracy)) {
+    return `${Math.round(Number(metrics.accuracy))}% accuracy on a ${conceptLabel} check.`
+  }
+  if (Number.isFinite(metrics?.correctCount) && Number.isFinite(metrics?.questionCount) && Number(metrics.questionCount) > 0) {
+    return `${Number(metrics.correctCount)}/${Number(metrics.questionCount)} checks correct for ${conceptLabel}.`
+  }
+  if (Number.isFinite(metrics?.challengeScore) && Number(metrics.challengeScore) > 0) {
+    return `Challenge evidence recorded for ${conceptLabel} with a strength score of ${Math.round(Number(metrics.challengeScore))}.`
+  }
+  if (Number.isFinite(metrics?.reflectionQuality) && Number(metrics.reflectionQuality) > 0) {
+    return `Reflection evidence recorded for ${conceptLabel} with a quality score of ${Math.round(Number(metrics.reflectionQuality))}.`
+  }
+  if (Number.isFinite(metrics?.checkpointsPassed) && Number(metrics.checkpointsPassed) > 0) {
+    return `${Number(metrics.checkpointsPassed)} understanding checks completed for ${conceptLabel}.`
+  }
+  if (proofType === 'code') return `A code-based proof was submitted for ${conceptLabel}.`
+  if (proofType === 'translation') return `A language response was submitted for ${conceptLabel}.`
+  if (proofType === 'worked_solution') return `A worked solution was submitted for ${conceptLabel}.`
+  if (proofType === 'ordered_steps') return `An ordered-step proof was submitted for ${conceptLabel}.`
+  if (proofType === 'explanation') return `An explanation-based proof was submitted for ${conceptLabel}.`
+  return `A proof of understanding was submitted for ${conceptLabel}.`
+}
+
+function trimPreview(value = '', maxLength = 320) {
+  const cleaned = cleanText(value)
+  if (!cleaned) return ''
+  return cleaned.length > maxLength ? `${cleaned.slice(0, maxLength - 1).trim()}...` : cleaned
+}
+
 function stripMetaLessonLanguage(value = '') {
   return META_LESSON_REWRITES.reduce(
     (text, rule) => text.replace(rule.pattern, rule.replacement),
@@ -452,12 +600,27 @@ function normalizeVisuals(visuals = {}, baseVisuals = {}) {
 }
 
 export function normalizeLearningContract(contract = {}, context = {}) {
-  const dayFocus = cleanText(contract?.dayFocus || context?.dayFocus || context?.concept || context?.taskTitle || 'Today\'s concept')
+  const dayFocus = cleanText(contract?.conceptLabel || contract?.dayFocus || context?.dayFocus || context?.concept || context?.taskTitle || 'Today\'s concept')
   const relatedConcepts = dedupeStrings(contract?.allowedConcepts || context?.allConcepts || [dayFocus])
   const learnerProfile = normalizeLearnerProfile(contract?.learnerProfile || context?.learnerProfile, context)
+  const dayType = normalizeChoice(contract?.dayType, context?.dayType || 'concept_day') || 'concept_day'
+  const proofType = inferProofType({
+    proofType: contract?.proofType,
+    domain: contract?.domain || context?.domain || learnerProfile?.domain,
+    goal: context?.goal,
+    conceptLabel: dayFocus,
+  })
   const depthPolicy = contract?.depthPolicy && typeof contract.depthPolicy === 'object'
     ? { ...deriveDepthPolicy(learnerProfile), ...contract.depthPolicy }
     : deriveDepthPolicy(learnerProfile, context?.depthOverride)
+  const canDoStatement = toSentence(
+    contract?.canDoStatement,
+    buildDefaultCanDoStatement({ conceptLabel: dayFocus, proofType, dayType }),
+  )
+  const proofPrompt = toSentence(
+    contract?.proofPrompt,
+    buildDefaultProofPrompt({ conceptLabel: dayFocus, proofType, dayType }),
+  )
   const taughtPoints = validateTaughtPoints(splitList(contract?.taughtPoints, [
     `Define ${dayFocus} clearly`,
     `Use ${dayFocus} in one realistic example`,
@@ -467,24 +630,52 @@ export function normalizeLearningContract(contract = {}, context = {}) {
 
   const requiredVocabulary = splitList(contract?.requiredVocabulary, buildVocabulary(dayFocus, relatedConcepts)).slice(0, 6)
   const practiceTarget = toSentence(contract?.practiceTarget, context?.taskAction || `Apply ${dayFocus} in one focused task.`)
-  const successCriteria = splitList(contract?.successCriteria, [
-    `Explain ${dayFocus} without copying the source`,
-    `Recognize one strong and one weak use of ${dayFocus}`,
-    `Use ${dayFocus} in the next task with intent`,
-  ]).slice(0, 5)
+  const successCriteria = splitList(contract?.successCriteria, buildDefaultSuccessCriteria({
+    conceptLabel: dayFocus,
+    proofType,
+    canDoStatement,
+  })).slice(0, 5)
+  const knownBefore = splitList(contract?.knownBefore || context?.knownBefore, [])
+  const taughtBefore = splitList(contract?.taughtBefore || context?.taughtBefore, [])
+  const newConceptsToday = splitList(contract?.newConceptsToday || context?.newConceptsToday, [dayFocus]).slice(0, 4)
+  const allowedAssessmentConcepts = splitList(
+    contract?.allowedAssessmentConcepts || context?.allowedAssessmentConcepts,
+    dedupeStrings([...knownBefore, ...taughtBefore, ...newConceptsToday, dayFocus]),
+  ).slice(0, 12)
+  const forbiddenUntilTaught = splitList(
+    contract?.forbiddenUntilTaught || contract?.notYetTaught || context?.forbiddenUntilTaught || context?.notYetTaught,
+    [],
+  ).slice(0, 12)
   const doNotIntroduceYet = splitList(contract?.doNotIntroduceYet, [
-    'Advanced edge cases that were not explained today',
-    'Unrelated tools, jargon, or framework details',
-    'Optimizations before the core mental model is clear',
-  ]).slice(0, 5)
+    'Any tool, editor, terminal, or runtime environment not explicitly introduced in this lesson',
+    'Syntax or commands the learner has not yet seen in the explanation section',
+    'Advanced patterns or optimizations before the core mechanic is clear',
+    'Concepts that belong in a later lesson — teach only what this lesson covers',
+    ...forbiddenUntilTaught.map((concept) => `${concept} until a lesson explicitly teaches it`),
+  ]).slice(0, 8)
 
   return {
     dayFocus,
+    conceptLabel: dayFocus,
+    dayType,
     allowedConcepts: relatedConcepts.length > 0 ? relatedConcepts : [dayFocus],
     taughtPoints,
     requiredVocabulary,
     practiceTarget,
+    canDoStatement,
+    proofPrompt,
+    proofType,
     successCriteria,
+    knownBefore,
+    taughtBefore,
+    newConceptsToday,
+    allowedAssessmentConcepts,
+    forbiddenUntilTaught,
+    coverageReport: contract?.coverageReport && typeof contract.coverageReport === 'object'
+      ? contract.coverageReport
+      : context?.coverageReport && typeof context.coverageReport === 'object'
+        ? context.coverageReport
+        : null,
     doNotIntroduceYet,
     learnerProfile,
     depthPolicy,
@@ -505,13 +696,49 @@ export function buildLearningContract({
   learnerProfile = null,
   depthOverride = null,
   visualPreference = null,
+  dayType = 'concept_day',
+  knownBefore = [],
+  taughtBefore = [],
+  newConceptsToday = [],
+  allowedAssessmentConcepts = [],
+  forbiddenUntilTaught = [],
+  coverageReport = null,
+  canDoStatement = '',
+  proofPrompt = '',
+  proofType = '',
+  successCriteria = [],
 } = {}) {
   const dayFocus = cleanText(taskTitle || concept || moduleTitle || 'Today\'s concept')
   const relatedConcepts = dedupeStrings([dayFocus, ...(Array.isArray(allConcepts) ? allConcepts : []), moduleTitle])
   const profile = normalizeLearnerProfile(learnerProfile, { goal })
   const depthPolicy = deriveDepthPolicy(profile, depthOverride)
+  const resolvedProofType = inferProofType({
+    proofType,
+    domain: profile?.domain,
+    goal,
+    conceptLabel: dayFocus,
+  })
+  const resolvedCanDoStatement = cleanText(canDoStatement) || buildDefaultCanDoStatement({
+    conceptLabel: dayFocus,
+    proofType: resolvedProofType,
+    dayType,
+  })
+  const resolvedProofPrompt = cleanText(proofPrompt) || buildDefaultProofPrompt({
+    conceptLabel: dayFocus,
+    proofType: resolvedProofType,
+    dayType,
+  })
+  const resolvedSuccessCriteria = Array.isArray(successCriteria) && successCriteria.length > 0
+    ? successCriteria
+    : buildDefaultSuccessCriteria({
+      conceptLabel: dayFocus,
+      proofType: resolvedProofType,
+      canDoStatement: resolvedCanDoStatement,
+    })
   return normalizeLearningContract({
+    conceptLabel: dayFocus,
     dayFocus,
+    dayType,
     allowedConcepts: relatedConcepts,
     taughtPoints: [
       `Define ${dayFocus} clearly`,
@@ -521,15 +748,24 @@ export function buildLearningContract({
     ],
     requiredVocabulary: buildVocabulary(dayFocus, relatedConcepts.slice(1)),
     practiceTarget: taskAction || `Apply ${dayFocus} once in a realistic situation.`,
-    successCriteria: [
-      taskOutcome || `Explain ${dayFocus} clearly and use it once.`,
-      `Stay inside the taught scope for ${dayFocus}`,
-      `Leave the concept task ready for guided practice, not just more reading`,
-    ],
+    canDoStatement: resolvedCanDoStatement,
+    proofPrompt: resolvedProofPrompt,
+    proofType: resolvedProofType,
+    successCriteria: resolvedSuccessCriteria,
+    knownBefore,
+    taughtBefore,
+    newConceptsToday: Array.isArray(newConceptsToday) && newConceptsToday.length > 0 ? newConceptsToday : [dayFocus],
+    allowedAssessmentConcepts: Array.isArray(allowedAssessmentConcepts) && allowedAssessmentConcepts.length > 0
+      ? allowedAssessmentConcepts
+      : dedupeStrings([...knownBefore, ...taughtBefore, dayFocus]),
+    forbiddenUntilTaught,
+    coverageReport,
     doNotIntroduceYet: [
-      `Advanced topics outside ${dayFocus}`,
-      'New abstractions that were not defined today',
-      'Extra tools that are not needed for the next practice step',
+      `Advanced topics outside ${dayFocus} — stay strictly within what this lesson covers`,
+      'Any tool, editor, terminal, or runtime environment not explicitly introduced in this lesson',
+      'Syntax or commands the learner has not yet seen explained step-by-step',
+      'Concepts from later lessons — do not preview or assume them',
+      ...(Array.isArray(forbiddenUntilTaught) ? forbiddenUntilTaught.map((concept) => `${concept} until taught`) : []),
     ],
     learnerProfile: profile,
     depthPolicy,
@@ -729,7 +965,7 @@ export function normalizeConceptLessonDoc(doc = {}, context = {}) {
     title: titleCase(displayFocus),
     learningObjectives: [
       `Define ${displayFocus}`,
-      `Use ${displayFocus} in one realistic example`,
+      cleanText(contract.canDoStatement) || `Use ${displayFocus} in one realistic example`,
       `Avoid one common mistake with ${displayFocus}`,
     ],
     hook: `Let's look at ${displayFocus} in a situation where it actually matters.`,
@@ -786,15 +1022,11 @@ export function normalizeConceptLessonDoc(doc = {}, context = {}) {
       `Give one example where ${displayFocus} matters`,
       `Spot one mistake involving ${displayFocus}`,
     ],
-    practiceBridge: `In the next task, use ${displayFocus} directly in one concrete situation.`,
+    practiceBridge: `In the next task, ${cleanText(contract.canDoStatement).toLowerCase() || `use ${displayFocus} directly in one concrete situation`}.`,
     completionCheck: {
-      prompt: `What would prove you can use ${displayFocus} correctly?`,
-      expectedSignals: [
-        `You can define ${displayFocus}`,
-        `You can use ${displayFocus} in a concrete example`,
-        `You can name one mistake to avoid with ${displayFocus}`,
-      ],
-      nextStep: `Move into practice and use ${displayFocus} directly.`,
+      prompt: contract.proofPrompt,
+      expectedSignals: contract.successCriteria,
+      nextStep: `Move into practice and show ${displayFocus} through one concrete output.`,
     },
     resource: null,
   }
@@ -845,6 +1077,14 @@ export function normalizeConceptLessonDoc(doc = {}, context = {}) {
       expectedSignals: sanitizeLessonList(doc?.completionCheck?.expectedSignals, context, 4),
       nextStep: sanitizeLessonCopy(doc?.completionCheck?.nextStep, context, 1),
     }, baseDoc.completionCheck),
+    dailyConcept: {
+      conceptLabel: contract.conceptLabel,
+      dayType: contract.dayType,
+      canDoStatement: contract.canDoStatement,
+      proofPrompt: contract.proofPrompt,
+      proofType: contract.proofType,
+      successCriteria: contract.successCriteria,
+    },
     resource: doc?.resource || baseDoc.resource || null,
     visuals: normalizeVisuals(doc?.visuals, baseVisuals),
     learningContract: contract,
@@ -857,15 +1097,70 @@ export function formatLearningContractForPrompt(contract = {}) {
   const normalized = normalizeLearningContract(contract)
   return [
     `DAY FOCUS: ${normalized.dayFocus}`,
+    `DAY TYPE: ${normalized.dayType}`,
+    `CONCEPT LABEL: ${normalized.conceptLabel}`,
+    `BY THE END OF TODAY, THE LEARNER CAN: ${normalized.canDoStatement}`,
+    `PROOF TYPE: ${normalized.proofType}`,
+    `PROOF PROMPT: ${normalized.proofPrompt}`,
     `LEARNER LEVEL: ${normalized.learnerProfile.level}`,
     `DEPTH POLICY: ${normalized.depthPolicy.level}; ${normalized.depthPolicy.exampleDifficulty}; ${normalized.depthPolicy.repetitionAllowance}`,
     `PREREQUISITE MODE: ${normalized.prerequisiteMode}`,
     `VISUAL PREFERENCE: ${normalized.visualPreference}`,
     `ALLOWED CONCEPTS: ${normalized.allowedConcepts.join(', ')}`,
+    `KNOWN BEFORE TODAY: ${normalized.knownBefore.length ? normalized.knownBefore.join(', ') : 'none explicitly confirmed'}`,
+    `TAUGHT IN COMPLETED LESSONS: ${normalized.taughtBefore.length ? normalized.taughtBefore.join(', ') : 'none yet'}`,
+    `NEW CONCEPTS TODAY: ${normalized.newConceptsToday.join(', ')}`,
+    `ASSESSMENT BOUNDARY: only ask about ${normalized.allowedAssessmentConcepts.join(', ')}`,
+    `FORBIDDEN UNTIL TAUGHT: ${normalized.forbiddenUntilTaught.length ? normalized.forbiddenUntilTaught.join(', ') : 'no listed future topics'}`,
     `TAUGHT POINTS: ${normalized.taughtPoints.join(' | ')}`,
     `REQUIRED VOCABULARY: ${normalized.requiredVocabulary.join(', ')}`,
     `PRACTICE TARGET: ${normalized.practiceTarget}`,
     `SUCCESS CRITERIA: ${normalized.successCriteria.join(' | ')}`,
     `DO NOT INTRODUCE YET: ${normalized.doNotIntroduceYet.join(' | ')}`,
   ].join('\n')
+}
+
+export function buildDailyRecap({
+  learningContract = null,
+  task = {},
+  metrics = {},
+  completedAt = null,
+  missionComplete = false,
+} = {}) {
+  const contract = normalizeLearningContract(learningContract || task?._learningContract || task?.learningContract || {}, {
+    concept: task?._concept || task?.title,
+    goal: task?.goal,
+    domain: task?.domain || learningContract?.domain,
+  })
+  const proofSubmission = trimPreview(
+    metrics?.proofSubmission
+      || metrics?.takeaway
+      || metrics?.response
+      || metrics?.artifact
+      || '',
+  )
+  const proofResult = trimPreview(
+    metrics?.proofResult
+      || buildProofResultSummary({
+        metrics,
+        proofType: contract.proofType,
+        conceptLabel: contract.conceptLabel,
+      }),
+  )
+
+  return {
+    conceptLabel: contract.conceptLabel,
+    canDoStatement: contract.canDoStatement,
+    proofPrompt: contract.proofPrompt,
+    proofType: contract.proofType,
+    successCriteria: contract.successCriteria.slice(0, 4),
+    proofSubmission,
+    proofResult,
+    taskId: task?.id || null,
+    taskTitle: task?.title || contract.conceptLabel,
+    taskType: task?.type || null,
+    dayType: contract.dayType,
+    missionComplete: Boolean(missionComplete),
+    completedAt: completedAt || new Date().toISOString(),
+  }
 }

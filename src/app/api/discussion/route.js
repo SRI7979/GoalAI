@@ -1,12 +1,29 @@
 import { getOpenAIModel } from '@/lib/openaiModels'
+import { formatLearningContractForPrompt } from '@/lib/conceptLesson'
+import { formatDomainForPrompt, normalizeDomain, parseDomainFromConstraints } from '@/lib/domainAdapter'
+
+function buildDomainPrompt({ domain, knowledge, learningContract } = {}) {
+  const resolvedDomain = normalizeDomain(
+    domain || learningContract?.domain || parseDomainFromConstraints([knowledge]),
+    null,
+  )
+  return resolvedDomain ? `\nDOMAIN ADAPTER:\n${formatDomainForPrompt(resolvedDomain)}\n` : ''
+}
 
 export async function POST(request) {
   try {
-    const { concept, taskTitle, goal, knowledge } = await request.json()
+    const { concept, taskTitle, goal, knowledge, taskDescription, taskAction, taskOutcome, learningContract, domain } = await request.json()
     if (!concept || !goal) return Response.json({ error: 'Missing concept or goal' }, { status: 400 })
 
     const prompt = `You are a Socratic mentor designing reflection exercises for a premium learning platform. Create thought-provoking prompts about "${taskTitle || concept}" for someone learning "${goal}".
+${buildDomainPrompt({ domain, knowledge, learningContract })}
 ${knowledge ? `The student already knows: ${knowledge}. Push them beyond basics into deeper thinking.` : ''}
+${taskDescription ? `DAY CONTEXT: ${taskDescription}` : ''}
+${taskAction ? `TASK ACTION: ${taskAction}` : ''}
+${taskOutcome ? `TARGET OUTCOME: ${taskOutcome}` : ''}
+
+LEARNING CONTRACT:
+${formatLearningContractForPrompt(learningContract)}
 
 Return ONLY valid JSON — no markdown, no backticks:
 {
@@ -28,6 +45,7 @@ REFLECTION QUALITY REQUIREMENTS:
 - NEVER use closed questions (yes/no). Every question should require explanation
 - Questions should make the student feel smart when they answer well, not inadequate
 - Use concrete scenarios grounded in real-world applications, not abstract theorizing
+- Stay inside the taught scope from the learning contract
 - The best questions are ones where there's no single "right" answer but some answers are more thoughtful than others`
 
     const res = await fetch('https://api.openai.com/v1/chat/completions', {

@@ -1,3 +1,5 @@
+import { normalizeCodeLanguage } from '@/lib/codeLanguages'
+
 export const STEP_VERIFICATION_STATES = {
   NOT_STARTED: 'NOT_STARTED',
   RUNNING: 'RUNNING',
@@ -6,10 +8,7 @@ export const STEP_VERIFICATION_STATES = {
 }
 
 export function normalizeExecutionLanguage(language) {
-  const normalized = String(language || 'python').trim().toLowerCase()
-  if (['python', 'py'].includes(normalized)) return 'python'
-  if (['javascript', 'js', 'node', 'nodejs', 'react', 'jsx', 'typescript', 'ts'].includes(normalized)) return 'javascript'
-  return normalized
+  return normalizeCodeLanguage(language, 'python')
 }
 
 export function buildDefaultDefensePrompt(step = {}, project = {}) {

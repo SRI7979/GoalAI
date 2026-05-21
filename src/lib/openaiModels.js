@@ -1,5 +1,5 @@
 const LIGHT_MODEL_FALLBACK = 'gpt-4o-mini'
-const COMPLEX_MODEL_FALLBACK = 'gpt-5-mini'
+const COMPLEX_MODEL_FALLBACK = 'gpt-4o'
 
 const MODEL_TIER_BY_PURPOSE = Object.freeze({
   addMoreTasks: 'light',
@@ -9,11 +9,14 @@ const MODEL_TIER_BY_PURPOSE = Object.freeze({
   courseOutline: 'complex',
   dailyTasks: 'complex',
   discussion: 'light',
+  domainClassifier: 'light',
   evaluateDefense: 'light',
   exploreConcepts: 'complex',
   flashcards: 'light',
+  goalDecomposer: 'light',
   lesson: 'complex',
   lessonAssistant: 'light',
+  onboardingQuestions: 'light',
   practiceAi: 'light',
   projectAssistant: 'light',
   projectCheckpoint: 'light',

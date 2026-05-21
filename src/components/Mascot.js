@@ -1,7 +1,25 @@
-// PathAI Mascot — teal compass/bolt character, 4 poses
+// PathAI Mascot — teal compass/bolt character, 4 poses + context-aware messages
 'use client'
 
 import { useState, useEffect } from 'react'
+
+// ── Message pools ──────────────────────────────────────────────────────────────
+const MESSAGE_POOLS = {
+  correct:        ['Nice!', 'Exactly right!', 'You knew that!', 'Nailed it!', 'Perfect!'],
+  wrong:          ['Not quite!', 'Try again!', 'Almost there!', 'Give it another shot!', 'Review and retry!'],
+  combo3:         ['On fire! 🔥', 'Three in a row!', 'Keep it up!', 'You\'re on a roll!'],
+  combo5:         ['UNSTOPPABLE!', 'Five in a row!! 🔥', 'Incredible streak!'],
+  halfway:        ['Halfway there!', 'Great start!', 'Keep going!', 'Almost done!'],
+  lessonComplete: ['You did it!', 'Lesson complete!', 'Excellent work!', 'Knowledge unlocked!', 'Brilliant!'],
+  stepDone:       ['Step done!', 'Progress made!', 'One step closer!', 'Moving forward!'],
+  timerLow:       ['Hurry!', 'Almost out of time!', 'Finish up!', 'Time is running out!'],
+  start:          ['Let\'s do this!', 'Ready to learn?', 'Here we go!', 'Let\'s go!'],
+}
+
+export function pickMessage(event) {
+  const pool = MESSAGE_POOLS[event] || MESSAGE_POOLS.correct
+  return pool[Math.floor(Math.random() * pool.length)]
+}
 
 // Mascot poses as SVG path data
 // All are 48x48 viewBox, teal-filled bolt/compass style character

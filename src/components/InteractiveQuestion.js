@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 
 const font = "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif"
 const mono = "'JetBrains Mono','Fira Code',monospace"
@@ -27,11 +27,6 @@ const IQ_CSS = `
     70%  { transform: scale(1.04); }
     100% { transform: scale(1);    opacity: 1; }
   }
-  @keyframes iqXpFloat {
-    0%   { opacity: 0; transform: translateY(8px) scale(0.92); }
-    20%  { opacity: 1; transform: translateY(0) scale(1); }
-    100% { opacity: 0; transform: translateY(-28px) scale(0.94); }
-  }
   @media (prefers-reduced-motion: reduce) {
     @keyframes iqShake        { from { transform: none; } to { transform: none; } }
     @keyframes iqCorrectPulse { from { box-shadow: none; } to { box-shadow: none; } }
@@ -39,52 +34,51 @@ const IQ_CSS = `
   }
 `
 
+function stableShuffle(items = []) {
+  const arr = [...items]
+  let seed = arr.reduce((sum, item, index) => {
+    const text = JSON.stringify(item) || ''
+    let hash = index + 1
+    for (let i = 0; i < text.length; i += 1) hash = ((hash * 31) + text.charCodeAt(i)) >>> 0
+    return (sum + hash) >>> 0
+  }, 2166136261)
+
+  for (let i = arr.length - 1; i > 0; i -= 1) {
+    seed = ((seed * 1664525) + 1013904223) >>> 0
+    const j = seed % (i + 1)
+    ;[arr[i], arr[j]] = [arr[j], arr[i]]
+  }
+  return arr
+}
+
 // ── Shared sub-components ─────────────────────────────────────────────────────
 
 function Explanation({ text, isCorrect }) {
   if (!text) return null
   return (
-    <div style={{ position: 'relative' }}>
-      {isCorrect && (
-        <div
-          style={{
-            position: 'absolute',
-            right: 10,
-            top: -18,
-            color: '#34D399',
-            fontSize: 12,
-            fontWeight: 900,
-            animation: 'iqXpFloat 1s ease both',
-            pointerEvents: 'none',
-          }}
-        >
-          +5 XP
-        </div>
-      )}
+    <div
+      style={{
+        marginTop: 14,
+        padding: '12px 16px',
+        borderRadius: 14,
+        background: isCorrect ? 'rgba(52,211,153,0.07)' : 'rgba(255,69,58,0.07)',
+        border: `1px solid ${isCorrect ? 'rgba(52,211,153,0.22)' : 'rgba(255,69,58,0.22)'}`,
+        animation: 'iqFadeIn 0.3s ease',
+      }}
+    >
       <div
         style={{
-          marginTop: 14,
-          padding: '12px 16px',
-          borderRadius: 14,
-          background: isCorrect ? 'rgba(52,211,153,0.07)' : 'rgba(255,69,58,0.07)',
-          border: `1px solid ${isCorrect ? 'rgba(52,211,153,0.22)' : 'rgba(255,69,58,0.22)'}`,
-          animation: 'iqFadeIn 0.3s ease',
+          fontSize: 11,
+          fontWeight: 800,
+          color: isCorrect ? '#34D399' : '#FF453A',
+          letterSpacing: '0.08em',
+          textTransform: 'uppercase',
+          marginBottom: 5,
         }}
       >
-        <div
-          style={{
-            fontSize: 11,
-            fontWeight: 800,
-            color: isCorrect ? '#34D399' : '#FF453A',
-            letterSpacing: '0.08em',
-            textTransform: 'uppercase',
-            marginBottom: 5,
-          }}
-        >
-          {isCorrect ? 'Correct' : 'Incorrect'}
-        </div>
-        <p style={{ margin: 0, color: '#c8d6e5', fontSize: 14, lineHeight: 1.6 }}>{text}</p>
+        {isCorrect ? 'Correct' : 'Incorrect'}
       </div>
+      <p style={{ margin: 0, color: '#c8d6e5', fontSize: 14, lineHeight: 1.6 }}>{text}</p>
     </div>
   )
 }
@@ -112,13 +106,6 @@ function LetterCircle({ letter, bg, color }) {
   )
 }
 
-function deterministicScramble(items = []) {
-  if (items.length <= 2) return [...items].reverse()
-  const evens = items.filter((_, index) => index % 2 === 0)
-  const odds = items.filter((_, index) => index % 2 === 1)
-  return [...odds.reverse(), ...evens]
-}
-
 // ── Multiple Choice ───────────────────────────────────────────────────────────
 
 function MultipleChoice({ question, options = [], correctIndex = 0, explanation, onResult }) {
@@ -143,7 +130,7 @@ function MultipleChoice({ question, options = [], correctIndex = 0, explanation,
     // +400ms: call onResult
     timerRef.current = setTimeout(() => {
       setPhase('done')
-      onResult?.(correct, { selectedIndex: idx, type: 'multiple_choice' })
+      onResult?.(correct)
     }, 400)
   }
 
@@ -254,7 +241,7 @@ function FillBlank({ question, sentence, answer, explanation, onResult }) {
     setTimeout(() => setShowExpl(true), 300)
     timerRef.current = setTimeout(() => {
       setPhase('done')
-      onResult?.(correct, { answer: value.trim(), type: 'fill_blank' })
+      onResult?.(correct)
     }, 400)
   }
 
@@ -375,7 +362,7 @@ function TrueFalse({ question, statement, correct, explanation, onResult }) {
     setTimeout(() => setShowExpl(true), 300)
     timerRef.current = setTimeout(() => {
       setPhase('done')
-      onResult?.(isCorrect, { selected: val, type: 'true_false' })
+      onResult?.(isCorrect)
     }, 400)
   }
 
@@ -450,9 +437,9 @@ function TrueFalse({ question, statement, correct, explanation, onResult }) {
 
 function OrderSteps({ question, steps = [], explanation, onResult }) {
   // Scramble steps on mount
+  const [correctOrder] = useState(() => steps)
   const [order, setOrder] = useState(() => {
-    const arr = [...steps.map((s, i) => ({ text: s, originalIdx: i }))]
-    return deterministicScramble(arr)
+    return stableShuffle(steps.map((s, i) => ({ text: s, originalIdx: i })))
   })
   const [dragIdx, setDragIdx] = useState(null)
   const [phase, setPhase] = useState('idle') // idle | checked | done
@@ -489,7 +476,7 @@ function OrderSteps({ question, steps = [], explanation, onResult }) {
     setTimeout(() => setShowExpl(true), 300)
     timerRef.current = setTimeout(() => {
       setPhase('done')
-      onResult?.(allCorrect, { order: order.map((item) => item.text), type: 'order_steps' })
+      onResult?.(allCorrect)
     }, 400)
   }
 
@@ -601,10 +588,8 @@ function MatchPairs({ question, pairs = [], explanation, onResult }) {
   const [showExpl, setShowExpl] = useState(false)
   const timerRef = useRef(null)
 
-  const [scrambledDefs] = useState(() => {
-    const arr = pairs.map((p, i) => ({ def: p.definition, originalIdx: i }))
-    return deterministicScramble(arr)
-  })
+  // Scramble definitions once
+  const [scrambledDefs] = useState(() => stableShuffle(pairs.map((p, i) => ({ def: p.definition, originalIdx: i }))))
 
   function handleTermClick(idx) {
     if (matched.has(idx) || phase === 'done') return
@@ -624,7 +609,7 @@ function MatchPairs({ question, pairs = [], explanation, onResult }) {
         setTimeout(() => setShowExpl(true), 300)
         timerRef.current = setTimeout(() => {
           setPhase('done')
-          onResult?.(true, { matches: pairs.length, type: 'match_pairs' })
+          onResult?.(true)
         }, 400)
       }
     } else {

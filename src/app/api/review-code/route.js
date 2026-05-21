@@ -9,6 +9,7 @@ import {
   mergeStepVerification,
   normalizeProjectStep,
 } from '@/lib/projectVerification'
+import { formatDomainForPrompt, normalizeDomain, parseDomainFromConstraints } from '@/lib/domainAdapter'
 
 function extractAccessToken(request) {
   const authHeader = request.headers.get('authorization') || request.headers.get('Authorization')
@@ -17,10 +18,16 @@ function extractAccessToken(request) {
   return authHeader.slice(7).trim() || null
 }
 
-function buildReviewPrompt(project, step, code, verification) {
+function buildDomainPrompt({ domain, knowledge } = {}) {
+  const resolvedDomain = normalizeDomain(domain || parseDomainFromConstraints([knowledge]), null)
+  return resolvedDomain ? `DOMAIN ADAPTER:\n${formatDomainForPrompt(resolvedDomain)}\n` : ''
+}
+
+function buildReviewPrompt(project, step, code, verification, { domain, knowledge } = {}) {
   return `You are reviewing a learner's code for a verified project step.
 
 PROJECT: ${project.title}
+${buildDomainPrompt({ domain, knowledge })}
 PROJECT DESCRIPTION: ${project.description}
 STEP: ${step.title}
 STEP DESCRIPTION: ${step.description}
@@ -56,7 +63,7 @@ RULES:
 export async function POST(request) {
   try {
     const body = await request.json()
-    const { projectId, stepId } = body || {}
+    const { projectId, stepId, domain, knowledge } = body || {}
     if (!projectId || !stepId) return Response.json({ error: 'Missing projectId or stepId' }, { status: 400 })
 
     const accessToken = extractAccessToken(request) || body?.accessToken || null
@@ -86,7 +93,7 @@ export async function POST(request) {
     if (!verification.execution_result?.passed) return Response.json({ error: 'Code must execute successfully before review' }, { status: 400 })
     if (!verification.validation_result?.passed) return Response.json({ error: 'Output validation must pass before code review' }, { status: 400 })
 
-    const prompt = buildReviewPrompt(project, step, submission.code.slice(0, 12000), verification)
+    const prompt = buildReviewPrompt(project, step, submission.code.slice(0, 12000), verification, { domain, knowledge })
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {

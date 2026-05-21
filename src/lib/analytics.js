@@ -51,6 +51,7 @@ export const EVENTS = {
   // Notifications
   NOTIFICATION_OPENED:     'notification_opened',
   // Path
+  GOAL_DECOMPOSED:         'goal_decomposed',
   PATH_GENERATED:          'path_generated',
   PATH_COMPLETED:          'path_completed',
 }

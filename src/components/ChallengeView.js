@@ -2,8 +2,8 @@
 import { useState, useEffect, useRef } from 'react'
 import AIAssistant from './AIAssistant'
 import ConfidenceSelector from './ConfidenceSelector'
+import DailyConceptCard, { DailyProofRecapCard } from './DailyConceptCard'
 import IconGlyph from '@/components/IconGlyph'
-import InteractiveQuestion from '@/components/InteractiveQuestion'
 
 const font = "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif"
 
@@ -13,14 +13,13 @@ function formatTime(seconds) {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
-export default function ChallengeView({ task, goal, knowledge, onClose, onComplete }) {
+export default function ChallengeView({ task, goal, knowledge, domain = null, onClose, onComplete }) {
   const [loading, setLoading] = useState(true)
   const [challenge, setChallenge] = useState(null)
   const [started, setStarted] = useState(false)
   const [timeLeft, setTimeLeft] = useState(0)
   const [hintIndex, setHintIndex] = useState(-1)
   const [showSolution, setShowSolution] = useState(false)
-  const [checkpointAnswered, setCheckpointAnswered] = useState(false)
   const [timeUp, setTimeUp] = useState(false)
   const [completing, setCompleting] = useState(false)
   const [assistantUsageCount, setAssistantUsageCount] = useState(0)
@@ -30,7 +29,7 @@ export default function ChallengeView({ task, goal, knowledge, onClose, onComple
 
   useEffect(() => {
     async function load() {
-      const cacheKey = `pathai.challenge.v1::${task.id || task.title}`
+      const cacheKey = `pathai.challenge.v2::${domain || 'domainless'}::${task.id || task.title}`
       try {
         const cached = localStorage.getItem(cacheKey)
         if (cached) {
@@ -54,6 +53,7 @@ export default function ChallengeView({ task, goal, knowledge, onClose, onComple
             resourceTitle: task.resourceTitle,
             difficulty: task._difficulty || task.difficultyLevel || 2,
             learningContract,
+            domain,
           }),
         })
         const data = await res.json()
@@ -65,7 +65,7 @@ export default function ChallengeView({ task, goal, knowledge, onClose, onComple
       setLoading(false)
     }
     load()
-  }, [task.id, task.title, goal, knowledge, task._concept, task.description, task.action, task.outcome, task.resourceUrl, task.resourceTitle, task._difficulty, task.difficultyLevel, learningContract])
+  }, [task.id, task.title, goal, knowledge, task._concept, task.description, task.action, task.outcome, task.resourceUrl, task.resourceTitle, task._difficulty, task.difficultyLevel, learningContract, domain])
 
   useEffect(() => {
     if (!started || timeUp) return
@@ -106,6 +106,10 @@ export default function ChallengeView({ task, goal, knowledge, onClose, onComple
       completionTimeSec: elapsedSec || totalTime,
       attempts: Math.max(1, (showSolution ? 2 : 1) + (timeUp ? 1 : 0)),
       challengeScore: estimatedChallengeScore,
+      proofSubmission: challenge?.prompt || task?._concept || task?.title,
+      proofResult: showSolution
+        ? `Challenge review captured after ${formatTime(elapsedSec || totalTime)} with ${Math.max(0, hintIndex + 1)} hints used.`
+        : `Challenge attempt captured in ${formatTime(elapsedSec || totalTime)} with ${Math.max(0, hintIndex + 1)} hints used.`,
     })
   }
 
@@ -157,6 +161,14 @@ export default function ChallengeView({ task, goal, knowledge, onClose, onComple
             ) : !started ? (
               /* Pre-start screen */
               <div style={{ textAlign: 'center', paddingTop: 40, animation: 'fadeIn 0.3s ease both' }}>
+                <DailyConceptCard
+                  learningContract={learningContract}
+                  concept={task?._concept || task?.title}
+                  goal={goal}
+                  accent="#F59E0B"
+                  title="Today's concept"
+                />
+
                 <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 20 }}>
                   <div style={{ width: 72, height: 72, borderRadius: 22, background: 'rgba(245,158,11,0.10)', border: '1px solid rgba(245,158,11,0.24)', display: 'grid', placeItems: 'center' }}>
                     <IconGlyph name="timer" size={32} strokeWidth={2.2} color="#F59E0B" />
@@ -176,6 +188,14 @@ export default function ChallengeView({ task, goal, knowledge, onClose, onComple
             ) : (
               /* Challenge in progress / done */
               <div style={{ animation: 'fadeIn 0.3s ease both' }}>
+                <DailyConceptCard
+                  learningContract={learningContract}
+                  concept={task?._concept || task?.title}
+                  goal={goal}
+                  accent="#F59E0B"
+                  title="Today's concept"
+                />
+
                 <h2 style={{ fontSize: 22, fontWeight: 900, color: '#f5f5f7', marginBottom: 20, letterSpacing: '-0.4px' }}>{challenge.title}</h2>
 
                 {/* Prompt */}
@@ -201,26 +221,6 @@ export default function ChallengeView({ task, goal, knowledge, onClose, onComple
                   )}
                 </div>
 
-                {challenge.checkpointQuestion && !showSolution && (
-                  <div style={{ marginBottom: 20, padding: '16px 18px', background: 'rgba(245,158,11,0.04)', border: '1px solid rgba(245,158,11,0.16)', borderRadius: 18 }}>
-                    <div style={{ fontSize: 11, fontWeight: 800, color: '#F59E0B', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: 12 }}>
-                      Strategy check
-                    </div>
-                    <InteractiveQuestion
-                      {...challenge.checkpointQuestion}
-                      correctIndex={Number.isFinite(challenge.checkpointQuestion.correctIndex)
-                        ? challenge.checkpointQuestion.correctIndex
-                        : Number(challenge.checkpointQuestion.correct_index) || 0}
-                      onResult={() => setCheckpointAnswered(true)}
-                    />
-                    {checkpointAnswered && (
-                      <p style={{ margin: '12px 0 0', color: '#8e8e93', fontSize: 12, lineHeight: 1.5 }}>
-                        Good. Now solve the challenge with that strategy in mind.
-                      </p>
-                    )}
-                  </div>
-                )}
-
                 <ConfidenceSelector
                   value={confidenceLevel}
                   onChange={setConfidenceLevel}
@@ -229,6 +229,19 @@ export default function ChallengeView({ task, goal, knowledge, onClose, onComple
                   background="rgba(245,158,11,0.05)"
                   label="How confident do you feel about handling a similar challenge?"
                 />
+
+                <div style={{ marginTop: 16 }}>
+                  <DailyProofRecapCard
+                    learningContract={learningContract}
+                    concept={task?._concept || task?.title}
+                    goal={goal}
+                    accent="#F59E0B"
+                    proofSubmission={challenge?.prompt || task?._concept || task?.title}
+                    proofResult={showSolution
+                      ? `Challenge review captured after ${formatTime(elapsedSec || totalTime)} with ${Math.max(0, hintIndex + 1)} hints used.`
+                      : `Challenge attempt captured in ${formatTime(elapsedSec || totalTime)} with ${Math.max(0, hintIndex + 1)} hints used.`}
+                  />
+                </div>
 
                 {/* Solution (after time up or requested) */}
                 {showSolution && (
@@ -280,6 +293,8 @@ export default function ChallengeView({ task, goal, knowledge, onClose, onComple
           concept={task._concept || task.title}
           goal={goal}
           mode={task._aiMode || 'challenge'}
+          domain={domain}
+          knowledge={knowledge}
           onAsk={() => setAssistantUsageCount((count) => count + 1)}
           context={`Challenge: ${challenge?.title}`}
         />

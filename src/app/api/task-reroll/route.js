@@ -2,6 +2,7 @@ import { getOpenAIModel } from '@/lib/openaiModels'
 import { buildInventoryCountsFromTransactions, getTrackedInventoryReasons } from '@/lib/shopInventory'
 import { getSupabaseServerClient } from '@/lib/supabaseServer'
 import { getCanonicalTaskType, normalizeLearningTask, normalizeLearningTasks } from '@/lib/taskTaxonomy'
+import { formatDomainForPrompt, normalizeDomain, parseDomainFromConstraints } from '@/lib/domainAdapter'
 
 const INELIGIBLE_TYPES = new Set(['project', 'boss', 'quiz', 'final_exam'])
 
@@ -69,7 +70,12 @@ function buildFallbackTask(originalTask = {}, concept = '', goalText = '') {
   }, originalTask, concept)
 }
 
-async function generateRerolledTask({ originalTask, concept, goalText, openaiApiKey }) {
+function buildDomainPrompt({ domain, knowledge } = {}) {
+  const resolvedDomain = normalizeDomain(domain || parseDomainFromConstraints([knowledge]), null)
+  return resolvedDomain ? `\nDOMAIN ADAPTER:\n${formatDomainForPrompt(resolvedDomain)}\n` : ''
+}
+
+async function generateRerolledTask({ originalTask, concept, goalText, knowledge, domain, openaiApiKey }) {
   if (!openaiApiKey) return buildFallbackTask(originalTask, concept, goalText)
 
   const normalizedOriginalTask = normalizeLearningTask(originalTask)
@@ -77,6 +83,7 @@ async function generateRerolledTask({ originalTask, concept, goalText, openaiApi
   const prompt = `Create one replacement learning task for a student.
 
 GOAL: ${goalText}
+${buildDomainPrompt({ domain, knowledge })}
 CONCEPT: ${concept}
 CURRENT TASK TYPE: ${normalizedOriginalTask.type}
 CURRENT TASK TITLE: ${normalizedOriginalTask.title}
@@ -168,7 +175,7 @@ export async function POST(request) {
         .single(),
       supabase
         .from('goals')
-        .select('goal_text')
+        .select('goal_text,constraints,domain')
         .eq('id', goalId)
         .eq('user_id', user.id)
         .single(),
@@ -188,10 +195,13 @@ export async function POST(request) {
     }
 
     const concept = targetTask._concept || row.covered_topics?.[0] || targetTask.title
+    const knowledge = Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')
     const replacementTask = await generateRerolledTask({
       originalTask: targetTask,
       concept,
       goalText: goal.goal_text || '',
+      knowledge,
+      domain: goal.domain,
       openaiApiKey: process.env.OPENAI_API_KEY,
     })
 

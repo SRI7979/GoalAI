@@ -18,14 +18,17 @@ import MultiQuizView from '@/components/MultiQuizView'
 import FlashcardView from '@/components/FlashcardView'
 import ChallengeView from '@/components/ChallengeView'
 import ProjectViewer from '@/components/ProjectViewer'
+import DomainTaskBase from '@/components/domainTasks'
 import GuidedPracticeView from '@/components/GuidedPracticeView'
 import ReflectionView from '@/components/ReflectionView'
 import BossChallengeView from '@/components/BossChallengeView'
 import AIInteractionView from '@/components/AIInteractionView'
+import PracticeRound from '@/components/PracticeRound'
 import HeartBar from '@/components/HeartBar'
 import NoHeartsOverlay from '@/components/NoHeartsOverlay'
 import GemShop from '@/components/GemShop'
 import TreasureChest from '@/components/TreasureChest'
+import ConceptHeatMap from '@/components/ConceptHeatMap'
 import IconGlyph from '@/components/IconGlyph'
 import Skeleton from '@/components/Skeleton'
 import { BADGES, RARITY_COLORS } from '@/lib/badges'
@@ -63,6 +66,16 @@ import {
   normalizeTaskRows,
 } from '@/lib/taskTaxonomy'
 import { isBrokenTaskRow } from '@/lib/taskQuality'
+import {
+  CODE_DOMAIN_TASK_TYPES,
+  buildDomainConfig,
+  getDomainAssignmentType,
+  getDomainGamification,
+  getDomainTaskLabel,
+  resolvePracticeDomainForGoal,
+  resolveGoalDomain,
+  setStoredLearningDomain,
+} from '@/lib/domainAdapter'
 
 // ─── Design tokens ─────────────────────────────────────────────────────────────
 const T = {
@@ -146,6 +159,227 @@ const KEYFRAMES = `
   @property --chal-angle{syntax:'<angle>';initial-value:0deg;inherits:false}
   @keyframes chalBorderSpin{to{--chal-angle:360deg}}
   @keyframes questShimmer{0%{background-position:200% center}100%{background-position:-200% center}}
+  @keyframes pathSlideUp{from{opacity:0;transform:translateY(100%)}to{opacity:1;transform:translateY(0)}}
+  @keyframes pathSlideDown{from{opacity:1;transform:translateY(0)}to{opacity:0;transform:translateY(100%)}}
+  @keyframes nodeFloat{0%,100%{transform:translateY(0px)}50%{transform:translateY(-5px)}}
+  @keyframes nodeGlow{0%,100%{box-shadow:0 0 0 0 rgba(14,245,194,0.0),0 8px 24px rgba(0,0,0,0.55),inset 0 1px 0 rgba(255,255,255,0.18)}
+                      50%{box-shadow:0 0 0 12px rgba(14,245,194,0.12),0 8px 24px rgba(0,0,0,0.55),inset 0 1px 0 rgba(255,255,255,0.18)}}
+  @keyframes discSpin{0%{transform:rotateY(0deg)}100%{transform:rotateY(360deg)}}
+  @keyframes sheetUp{from{opacity:0;transform:translateY(40px) scale(0.96)}to{opacity:1;transform:translateY(0) scale(1)}}
+  @keyframes pathNodeIn{from{opacity:0;transform:scale(0.5) translateY(20px)}to{opacity:1;transform:scale(1) translateY(0)}}
+  @keyframes pathLineDraw{from{height:0}to{height:100%}}
+  @keyframes pathTogglePop{0%{transform:scale(0.8);opacity:0}70%{transform:scale(1.08)}100%{transform:scale(1);opacity:1}}
+  @keyframes shimmerSlide{0%{background-position:-200% 0}100%{background-position:200% 0}}
+  @keyframes popIn{0%{transform:scale(0.5);opacity:0}70%{transform:scale(1.2)}100%{transform:scale(1);opacity:1}}
+  @keyframes badgeSlideIn{from{opacity:0;transform:translateY(-16px) scale(0.92)}to{opacity:1;transform:translateY(0) scale(1)}}
+  .dashboard-top-inner{
+    width:min(1320px,calc(100vw - 32px));
+    margin:0 auto;
+  }
+  .dashboard-main-shell{
+    width:min(1360px,calc(100vw - 32px));
+    margin:0 auto;
+    padding:18px 0 34px;
+    display:grid;
+    grid-template-columns:236px minmax(0,1fr);
+    gap:24px;
+    align-items:start;
+  }
+  .dashboard-main-content{
+    min-width:0;
+    width:100%;
+  }
+  .dashboard-left-rail{
+    position:sticky;
+    top:78px;
+    display:grid;
+    gap:12px;
+    min-width:0;
+  }
+  .dashboard-rail-card{
+    border:1px solid var(--theme-border);
+    background:linear-gradient(145deg,rgba(255,255,255,0.075),rgba(255,255,255,0.028));
+    border-radius:22px;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,0.07),0 18px 44px rgba(0,0,0,0.18);
+    backdrop-filter:blur(24px);
+    -webkit-backdrop-filter:blur(24px);
+  }
+  .dashboard-rail-kicker{
+    font-size:10px;
+    font-weight:900;
+    color:var(--theme-text-muted);
+    letter-spacing:.14em;
+    text-transform:uppercase;
+  }
+  .dashboard-rail-nav{
+    display:grid;
+    gap:6px;
+    padding:8px;
+  }
+  .dashboard-rail-nav-button{
+    width:100%;
+    min-height:44px;
+    border:1px solid transparent;
+    border-radius:14px;
+    background:transparent;
+    color:var(--theme-text-sec);
+    font-family:inherit;
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    gap:10px;
+    padding:9px 10px;
+    text-align:left;
+    transition:background .18s ease,border-color .18s ease,color .18s ease,transform .18s ease;
+  }
+  .dashboard-rail-nav-button:hover{
+    background:rgba(255,255,255,0.055);
+    border-color:var(--theme-border-alt);
+    color:var(--theme-text);
+    transform:translateX(1px);
+  }
+  .dashboard-rail-nav-button.is-active{
+    background:linear-gradient(135deg,var(--theme-primary-dim),rgba(0,212,255,0.07));
+    border-color:var(--theme-primary-border);
+    color:var(--theme-primary);
+  }
+  .dashboard-command-trigger{
+    flex:1;
+    min-width:210px;
+    max-width:390px;
+    min-height:42px;
+    border:1px solid var(--theme-border);
+    border-radius:14px;
+    background:rgba(255,255,255,0.045);
+    color:var(--theme-text-sec);
+    display:flex;
+    align-items:center;
+    gap:10px;
+    padding:0 12px;
+    font-family:inherit;
+    cursor:pointer;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,0.06);
+    transition:background .18s ease,border-color .18s ease,color .18s ease;
+  }
+  .dashboard-command-trigger:hover{
+    background:rgba(255,255,255,0.075);
+    border-color:var(--theme-primary-border);
+    color:var(--theme-text);
+  }
+  .dashboard-command-overlay{
+    position:fixed;
+    inset:0;
+    z-index:9998;
+    background:rgba(3,5,9,0.66);
+    backdrop-filter:blur(18px);
+    -webkit-backdrop-filter:blur(18px);
+    display:flex;
+    align-items:flex-start;
+    justify-content:center;
+    padding:82px 18px 24px;
+    animation:fadeInBg .16s ease both;
+  }
+  .dashboard-command-panel{
+    width:min(680px,100%);
+    max-height:min(72vh,720px);
+    overflow:hidden;
+    border-radius:24px;
+    border:1px solid rgba(255,255,255,0.13);
+    background:linear-gradient(180deg,rgba(20,22,32,0.98),rgba(8,10,17,0.98));
+    box-shadow:0 34px 90px rgba(0,0,0,0.42),inset 0 1px 0 rgba(255,255,255,0.10);
+  }
+  .dashboard-command-search{
+    width:100%;
+    min-height:64px;
+    border:0;
+    border-bottom:1px solid rgba(255,255,255,0.08);
+    background:transparent;
+    color:var(--theme-text);
+    font:800 17px/1 var(--theme-font, 'Plus Jakarta Sans', system-ui, sans-serif);
+    padding:0 22px;
+    outline:none;
+  }
+  .dashboard-command-search::placeholder{color:var(--theme-text-muted)}
+  .dashboard-command-list{
+    max-height:calc(72vh - 64px);
+    overflow:auto;
+    padding:10px;
+  }
+  .dashboard-command-group{padding:6px 0 8px}
+  .dashboard-command-group-title{
+    padding:7px 10px;
+    font-size:10px;
+    font-weight:900;
+    color:var(--theme-text-muted);
+    text-transform:uppercase;
+    letter-spacing:.13em;
+  }
+  .dashboard-command-item{
+    width:100%;
+    min-height:54px;
+    border:1px solid transparent;
+    border-radius:15px;
+    background:transparent;
+    color:var(--theme-text);
+    font-family:inherit;
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    gap:12px;
+    padding:9px 10px;
+    text-align:left;
+  }
+  .dashboard-command-item.is-selected,.dashboard-command-item:hover{
+    background:rgba(255,255,255,0.07);
+    border-color:rgba(255,255,255,0.10);
+  }
+  .dashboard-command-icon{
+    width:34px;
+    height:34px;
+    border-radius:12px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    flex-shrink:0;
+    background:rgba(255,255,255,0.055);
+    border:1px solid rgba(255,255,255,0.08);
+  }
+  .dashboard-command-meta{font-size:12px;color:var(--theme-text-muted);line-height:1.35;margin-top:2px}
+  .dashboard-command-pill{
+    margin-left:auto;
+    flex-shrink:0;
+    font-size:10px;
+    font-weight:900;
+    color:var(--theme-primary);
+    padding:4px 8px;
+    border-radius:9999px;
+    background:var(--theme-primary-dim);
+    border:1px solid var(--theme-primary-border);
+  }
+  .dashboard-command-empty{
+    padding:34px 14px 38px;
+    text-align:center;
+    color:var(--theme-text-muted);
+    font-size:14px;
+  }
+  .dashboard-quick-actions{display:none!important}
+  .dashboard-bottom-nav{display:none}
+  @media (max-width:1120px){
+    .dashboard-main-shell{
+      display:block;
+      width:100%;
+      padding:0 0 90px;
+    }
+    .dashboard-left-rail{display:none}
+    .dashboard-command-trigger{display:none}
+    .dashboard-top-inner{width:100%;max-width:600px}
+    .dashboard-quick-actions{display:flex!important}
+    .dashboard-bottom-nav{display:block}
+  }
+  @media (max-width:760px){
+    .dashboard-command-overlay{padding-top:68px}
+    .dashboard-command-panel{border-radius:20px}
+  }
   @media (prefers-reduced-motion:reduce){
     @keyframes fadeUp    {from{opacity:0}to{opacity:1}}
     @keyframes xpRise    {to{opacity:0}}
@@ -218,26 +452,6 @@ function getFilteredTasks(tasks, energy) {
   return tasks
 }
 
-const FREE_COURSE_DAY_LIMIT = 3
-
-function isPrebuiltCourseGoal(goal) {
-  const constraints = Array.isArray(goal?.constraints)
-    ? goal.constraints.join(' ')
-    : String(goal?.constraints || '')
-  return /(?:^|\s)(?:Course|Prebuilt course):/i.test(constraints)
-}
-
-function isFreeTierGoal(goal) {
-  const tier = String(goal?.access_tier || goal?.plan_tier || goal?.subscription_tier || '').toLowerCase()
-  return ['free', 'starter'].includes(tier)
-}
-
-function isCourseDayPaywalled(goal, row) {
-  return isPrebuiltCourseGoal(goal)
-    && isFreeTierGoal(goal)
-    && Number(row?.day_number || 1) > FREE_COURSE_DAY_LIMIT
-}
-
 // ─── SVG icons ─────────────────────────────────────────────────────────────────
 const BoltIcon     = ({sz=13}) => <svg width={sz} height={sz} viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
 const ArrowRight   = ({sz=14}) => <svg width={sz} height={sz} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
@@ -249,7 +463,6 @@ const StatsIcon    = () => <svg width="22" height="22" viewBox="0 0 24 24" fill=
 const SettingsIcon = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
 const ShopIcon     = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2L3 7v13a2 2 0 002 2h14a2 2 0 002-2V7l-3-5H6z"/><line x1="3" y1="7" x2="21" y2="7"/><path d="M16 11a4 4 0 01-8 0"/></svg>
 const BadgesIcon   = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89L17 22l-5-3-5 3 1.523-9.11"/></svg>
-const CoursesIcon  = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="7" height="7" rx="1.6"/><rect x="14" y="4" width="7" height="7" rx="1.6"/><rect x="3" y="15" width="7" height="5" rx="1.6"/><rect x="14" y="15" width="7" height="5" rx="1.6"/></svg>
 const PathBoltLogo = ({ size = 28 }) => (
   <div style={{
     width:size,height:size,borderRadius:'28%',
@@ -482,40 +695,60 @@ function MissionConfettiBurst({ active }) {
 // ─── XP Level Bar ──────────────────────────────────────────────────────────────
 function XPLevelBar({ level, title, xpInLevel, xpForLevel, pct, animating }) {
   return (
-    <div style={{maxWidth:600,margin:'0 auto',padding:'0 20px'}}>
+    <div style={{maxWidth:600,margin:'0 auto',padding:'12px 20px 0'}}>
       <div style={{
-        background:'linear-gradient(145deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02))',
-        border:`1px solid ${T.border}`, borderRadius:18,
-        padding:'12px 14px', backdropFilter:'blur(20px)', WebkitBackdropFilter:'blur(20px)',
-        display:'flex', alignItems:'center', gap:12,
+        background:'linear-gradient(145deg, rgba(129,140,248,0.14), rgba(255,255,255,0.04))',
+        border:'1px solid rgba(129,140,248,0.20)', borderRadius:24,
+        padding:'15px 18px', backdropFilter:'blur(20px)', WebkitBackdropFilter:'blur(20px)',
+        display:'flex', alignItems:'center', gap:14,
+        boxShadow:'inset 0 1px 0 rgba(255,255,255,0.08), 0 12px 34px rgba(0,0,0,0.22)',
       }}>
-        <MiniProgressRing
-          size={34}
-          value={xpInLevel}
-          total={xpForLevel}
-          stroke="var(--theme-mastery)"
-          track="rgba(129,140,248,0.12)"
-          label={level}
-          labelColor="#fff"
-          textSize={11}
-        />
+        <div style={{
+          width:48, height:48, borderRadius:16, flexShrink:0,
+          display:'flex', alignItems:'center', justifyContent:'center',
+          background:'rgba(129,140,248,0.14)', border:'1px solid rgba(129,140,248,0.26)',
+          position:'relative',
+        }}>
+          <MiniProgressRing
+            size={48}
+            value={xpInLevel}
+            total={xpForLevel}
+            stroke="var(--theme-mastery)"
+            track="rgba(129,140,248,0.10)"
+            label={level}
+            labelColor="#fff"
+            textSize={13}
+          />
+        </div>
         <div style={{ flex:1, minWidth:0 }}>
-          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,marginBottom:7}}>
-            <div style={{minWidth:0}}>
-              <div style={{fontSize:13,fontWeight:800,color:T.text,lineHeight:1.1}}>Level {level} · {title}</div>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,marginBottom:8}}>
+            <div style={{fontSize:15,fontWeight:900,color:T.text,lineHeight:1.1}}>
+              Level {level}
+              <span style={{fontSize:13,fontWeight:700,color:T.textSec,marginLeft:8}}>{title}</span>
             </div>
-            <span style={{fontSize:11,color:T.textMuted,fontWeight:700,whiteSpace:'nowrap'}}>
-              {xpInLevel} / {xpForLevel} XP
+            <span style={{
+              fontSize:12,color:'#C7D2FE',fontWeight:900,whiteSpace:'nowrap',
+              background:'rgba(129,140,248,0.14)',padding:'4px 10px',borderRadius:9999,
+            }}>
+              {xpInLevel.toLocaleString()} XP
             </span>
           </div>
-          <div className="progress-track" style={{height:6,background:'rgba(255,255,255,0.06)',borderRadius:9999,overflow:'hidden'}}>
+          <div className="progress-track" style={{height:8,background:'rgba(255,255,255,0.08)',borderRadius:9999,overflow:'hidden'}}>
             <div className="progress-fill" style={{
               height:'100%', width:`${Math.round(pct*100)}%`,
               background:T.masteryGradientSoft, borderRadius:9999,
-              transition: animating ? 'width 0.55s cubic-bezier(0.16,1,0.3,1)' : 'none',
-              boxShadow: animating ? '0 0 14px rgba(129,140,248,0.55)' : '0 0 8px rgba(129,140,248,0.22)',
+              transition: animating ? 'width 0.65s cubic-bezier(0.16,1,0.3,1)' : 'none',
+              boxShadow: animating ? '0 0 16px rgba(129,140,248,0.60)' : '0 0 8px rgba(129,140,248,0.22)',
               animation: animating ? 'xpBarGlow 1.2s ease' : 'none',
-            }}/>
+              position:'relative', overflow:'hidden',
+            }}>
+              <div style={{
+                position:'absolute', inset:0,
+                background:'linear-gradient(90deg,transparent 0%,rgba(255,255,255,0.24) 50%,transparent 100%)',
+                backgroundSize:'200% 100%',
+                animation:'shimmerSlide 2s ease-in-out infinite',
+              }}/>
+            </div>
           </div>
         </div>
       </div>
@@ -539,91 +772,132 @@ function MissionHeroCard({ todayRow, tasks, dayNumber }) {
       <div style={{
         position:'relative',
         background: allDone
-          ? 'linear-gradient(145deg,rgba(14,245,194,0.10) 0%,rgba(0,212,255,0.06) 100%)'
-          : 'linear-gradient(145deg,rgba(255,255,255,0.08) 0%,rgba(255,255,255,0.03) 100%)',
-        border:`1px solid ${allDone ? T.tealBorder : 'rgba(255,255,255,0.10)'}`,
-        borderRadius:24, padding:'22px 20px 20px',
-        backdropFilter:'blur(24px)', WebkitBackdropFilter:'blur(24px)',
+          ? 'linear-gradient(145deg,rgba(14,245,194,0.18) 0%,rgba(0,212,255,0.10) 100%)'
+          : 'linear-gradient(145deg,rgba(255,255,255,0.11) 0%,rgba(255,255,255,0.03) 100%)',
+        border:`1px solid ${allDone ? 'rgba(14,245,194,0.34)' : 'rgba(255,255,255,0.12)'}`,
+        borderRadius:28, padding:'26px 24px 24px',
+        backdropFilter:'blur(28px)', WebkitBackdropFilter:'blur(28px)',
         boxShadow: allDone
-          ? 'inset 0 1px 0 rgba(14,245,194,0.22),0 0 40px rgba(14,245,194,0.08)'
-          : 'inset 0 1px 0 rgba(255,255,255,0.10),0 16px 38px rgba(0,0,0,0.24)',
+          ? 'inset 0 1px 0 rgba(14,245,194,0.25),0 0 50px rgba(14,245,194,0.10)'
+          : 'inset 0 1px 0 rgba(255,255,255,0.12),0 24px 56px rgba(0,0,0,0.30)',
         overflow:'hidden',
       }}>
+        {/* Rotating gradient border */}
         <div style={{
-          position:'absolute', inset:-1, borderRadius:24, padding:1,
-          background:'conic-gradient(from 0deg, rgba(14,245,194,0.00), rgba(14,245,194,0.36), rgba(0,212,255,0.28), rgba(14,245,194,0.00))',
-          animation:'missionBorderSpin 12s linear infinite',
+          position:'absolute', inset:-1, borderRadius:28, padding:1,
+          background:'conic-gradient(from 0deg, rgba(14,245,194,0.00), rgba(14,245,194,0.40), rgba(0,212,255,0.30), rgba(14,245,194,0.00))',
+          animation:'missionBorderSpin 10s linear infinite',
           pointerEvents:'none',
-          opacity:allDone ? 0.35 : 0.75,
+          opacity:allDone ? 0.3 : 0.65,
         }}>
-          <div style={{ width:'100%', height:'100%', borderRadius:23, background:'transparent' }}/>
+          <div style={{ width:'100%', height:'100%', borderRadius:27, background:'transparent' }}/>
         </div>
+
+        {/* Subtle radial glow */}
         <div style={{
-          position:'absolute', inset:1, borderRadius:23,
-          background:'linear-gradient(180deg, rgba(255,255,255,0.02), transparent 60%)',
+          position:'absolute', top:-40, right:-40,
+          width:200, height:200, borderRadius:'50%',
+          background: allDone ? 'radial-gradient(circle,rgba(14,245,194,0.12),transparent 70%)' : 'radial-gradient(circle,rgba(14,245,194,0.06),transparent 70%)',
           pointerEvents:'none',
         }}/>
-        {/* Label */}
-        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:14,marginBottom:12,position:'relative'}}>
-          <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
-            <span style={{fontSize:10,fontWeight:800,letterSpacing:'1.8px',
-            color:allDone?T.teal:T.textMuted,textTransform:'uppercase'}}>
-              Day {dayNumber} Mission
-            </span>
-            {allDone && (
-              <span style={{fontSize:10,fontWeight:700,color:T.ink,
-                background:T.teal,padding:'2px 8px',borderRadius:9999}}>Complete</span>
-            )}
+
+        {/* Top row: label + ring */}
+        <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:14,position:'relative'}}>
+          <div>
+            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
+              <span style={{
+                fontSize:11,fontWeight:900,letterSpacing:'2px',
+                color:allDone?T.teal:T.textSec,textTransform:'uppercase',
+              }}>
+                Day {dayNumber} · Mission
+              </span>
+              {allDone && (
+                <span style={{
+                  fontSize:11,fontWeight:900,color:T.ink,
+                  background:T.teal,padding:'4px 12px',borderRadius:9999,
+                  letterSpacing:'0.5px',
+                }}>Complete ✓</span>
+              )}
+            </div>
+            <h1 style={{
+              fontSize:28,fontWeight:900,color:T.text,
+              letterSpacing:'-0.7px',lineHeight:1.08,margin:0,
+              position:'relative',
+            }}>
+              {concept}
+            </h1>
           </div>
           <MiniProgressRing
-            size={40}
+            size={56}
             value={completed}
             total={Math.max(total, 1)}
             stroke="var(--theme-primary)"
-            track="rgba(255,255,255,0.08)"
+            track="rgba(255,255,255,0.07)"
             label={`${completed}/${total}`}
             labelColor={allDone ? T.teal : T.textSec}
-            textSize={10}
+            textSize={12}
           />
         </div>
 
-        {/* Title */}
-        <h1 style={{fontSize:18,fontWeight:800,color:T.text,
-          letterSpacing:'-0.3px',lineHeight:1.25,marginBottom:14,position:'relative'}}>
-          {concept}
-        </h1>
-
-        {/* Meta */}
-        <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:14,flexWrap:'wrap',position:'relative'}}>
+        {/* Meta pills */}
+        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:18,position:'relative',flexWrap:'wrap'}}>
           {totalMin > 0 && (
-            <span style={{display:'flex',alignItems:'center',gap:4,
-              fontSize:12,color:T.textMuted,fontWeight:600}}>
+            <span style={{
+              display:'flex',alignItems:'center',gap:4,
+              fontSize:13,color:T.textSec,fontWeight:800,
+              background:'rgba(255,255,255,0.07)',border:'1px solid rgba(255,255,255,0.10)',
+              borderRadius:9999,padding:'6px 12px',
+            }}>
               <ClockIcon />~{totalMin} min
             </span>
           )}
-          <span style={{display:'flex',alignItems:'center',gap:4,
-            fontSize:12,color:'#FCD34D',fontWeight:800}}>
+          <span style={{
+            display:'flex',alignItems:'center',gap:4,
+            fontSize:13,color:'#FBBF24',fontWeight:900,
+            background:'rgba(251,191,36,0.08)',border:'1px solid rgba(251,191,36,0.18)',
+            borderRadius:9999,padding:'6px 12px',
+          }}>
             <BoltIcon />+{reward} XP
           </span>
-          <span style={{fontSize:12,color:T.textMuted,fontWeight:600}}>
+          <span style={{
+            display:'flex',alignItems:'center',gap:4,
+            fontSize:13,color:T.textSec,fontWeight:800,
+            background:'rgba(255,255,255,0.07)',border:'1px solid rgba(255,255,255,0.10)',
+            borderRadius:9999,padding:'6px 12px',
+          }}>
             {total} tasks
           </span>
         </div>
 
         {/* Progress bar */}
-        <div style={{display:'flex',alignItems:'center',gap:10,position:'relative'}}>
-          <div className="progress-track" style={{flex:1,height:6,background:'rgba(255,255,255,0.06)',
-            borderRadius:9999,overflow:'hidden'}}>
+        <div style={{position:'relative'}}>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:7}}>
+            <span style={{fontSize:12,fontWeight:800,color:T.textSec}}>
+              {allDone ? 'All done!' : `${completed} of ${total} complete`}
+            </span>
+            <span style={{fontSize:13,fontWeight:900,color:allDone?T.teal:T.text}}>
+              {Math.round(pct*100)}%
+            </span>
+          </div>
+          <div className="progress-track" style={{height:10,background:'rgba(255,255,255,0.06)',borderRadius:9999,overflow:'hidden'}}>
             <div className="progress-fill" style={{
               height:'100%', width:`${Math.round(pct*100)}%`,
-              background:T.primaryGradientSoft, borderRadius:9999,
-              transition:'width 0.50s cubic-bezier(0.16,1,0.3,1)',
-              boxShadow: pct>0 ? '0 0 10px rgba(14,245,194,0.45)' : 'none',
-            }}/>
+              background:allDone?'linear-gradient(90deg,#0ef5c2,#00d4ff)':T.primaryGradientSoft,
+              borderRadius:9999,
+              transition:'width 0.60s cubic-bezier(0.16,1,0.3,1)',
+              boxShadow: pct>0 ? '0 0 14px rgba(14,245,194,0.55)' : 'none',
+              position:'relative', overflow:'hidden',
+            }}>
+              {pct > 0 && pct < 1 && (
+                <div style={{
+                  position:'absolute', inset:0,
+                  background:'linear-gradient(90deg,transparent 0%,rgba(255,255,255,0.32) 50%,transparent 100%)',
+                  backgroundSize:'200% 100%',
+                  animation:'shimmerSlide 1.5s ease-in-out infinite',
+                }}/>
+              )}
+            </div>
           </div>
-          <span style={{fontSize:12,fontWeight:700,color:allDone?T.teal:T.textSec,flexShrink:0}}>
-            {completed}/{total}
-          </span>
         </div>
       </div>
     </div>
@@ -1181,7 +1455,7 @@ function PathModuleCard({ module, expanded, onToggle, expandedUnits, onToggleUni
 function EnergySelector({ value, onChange }) {
   return (
     <div style={{maxWidth:600,margin:'0 auto',padding:'10px 20px 0'}}>
-      <div style={{fontSize:11,fontWeight:700,color:T.textMuted,
+      <div style={{fontSize:13,fontWeight:900,color:T.textSec,
         textTransform:'uppercase',letterSpacing:'1.2px',marginBottom:12}}>
         Energy today
       </div>
@@ -1190,17 +1464,17 @@ function EnergySelector({ value, onChange }) {
           const active = value === opt.key
           return (
             <button key={opt.key} onClick={() => onChange(opt.key)} className="interactive-secondary" style={{
-              flexShrink:0, padding:'7px 14px',
+              flexShrink:0, padding:'10px 16px',
               background: active
                 ? 'linear-gradient(135deg,rgba(14,245,194,0.16),rgba(0,212,255,0.10))'
                 : T.surface,
               border:`1px solid ${active ? T.tealBorder : T.border}`,
-              borderRadius:10, color:active?T.teal:T.textSec,
-              fontSize:13, fontWeight:active?700:500,
+              borderRadius:14, color:active?T.teal:T.text,
+              fontSize:14, fontWeight:active?800:700,
               cursor:'pointer', fontFamily:T.font,
               display:'flex', alignItems:'center', gap:5,
               transition:'all 0.18s cubic-bezier(0.16,1,0.3,1)',
-              boxShadow:active?'inset 0 1px 0 rgba(14,245,194,0.20)':'none',
+              boxShadow:active?'inset 0 1px 0 rgba(14,245,194,0.20), 0 10px 24px rgba(0,0,0,0.16)':'none',
               whiteSpace:'nowrap',
             }}>
               <IconGlyph name={opt.icon} size={14} strokeWidth={2.4}/>
@@ -1224,73 +1498,83 @@ function TaskPreview({ task, onClose, onStart, onComplete, onReroll, rerollCount
   const ts   = taskStyle(normalizedTask)
   const xp   = xpForTask(normalizedTask)
   const info = getTaskDisplayConfig(normalizedTask)
+  const chipLabel = normalizedTask.domainTaskLabel || normalizedTask.domainTaskType || info.chipLabel
   const me   = isCompleting === task.id
   const anyCompleting = Boolean(isCompleting)
   const isLocked = Boolean(normalizedTask._locked)
-  const requiresLessonCompletion = normalizedTask.type === 'concept'
+  const requiresLessonCompletion = normalizedTask.type === 'concept' && !TEMPORARILY_ENABLE_DEV_COMPLETE_BUTTON
   const canUseReroll = canRerollTask(task) && rerollCount > 0 && !anyCompleting && rerollingTaskId !== task.id && !isLocked
   const label = info.actionLabel || 'Start'
 
   return (
     <div onClick={onClose} style={{
       position:'fixed', inset:0, zIndex:150,
-      background:'rgba(0,0,0,0.65)', backdropFilter:'blur(12px)', WebkitBackdropFilter:'blur(12px)',
+      background:'rgba(0,0,0,0.70)', backdropFilter:'blur(14px)', WebkitBackdropFilter:'blur(14px)',
       display:'flex', alignItems:'flex-end', justifyContent:'center',
       animation:'fadeInBg 0.2s ease both',
     }}>
       <div onClick={e => e.stopPropagation()} style={{
         width:'100%', maxWidth:520,
-        background:'linear-gradient(180deg,#0d0d1a 0%,#080814 100%)',
-        borderRadius:'24px 24px 0 0',
+        background:'linear-gradient(180deg,#0e0e1c 0%,#08080f 100%)',
+        borderRadius:'28px 28px 0 0',
         border:'1px solid rgba(255,255,255,0.10)',
         borderBottom:'none',
-        padding:'20px 22px 34px',
         fontFamily:T.font,
         animation:'slideUpPreview 0.28s cubic-bezier(0.16,1,0.3,1) both',
-        maxHeight:'85vh', overflowY:'auto',
+        maxHeight:'88vh', overflowY:'auto',
+        boxShadow:'0 -20px 60px rgba(0,0,0,0.55)',
       }}>
         {/* Drag handle */}
-        <div style={{width:36,height:4,borderRadius:9999,background:'rgba(255,255,255,0.15)',margin:'0 auto 18px'}}/>
+        <div style={{width:40,height:4,borderRadius:9999,background:'rgba(255,255,255,0.14)',margin:'14px auto 0'}}/>
 
-        {/* Type badge row */}
-        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:14}}>
-          <div style={{
-            width: 32,
-            height: 32,
-            borderRadius: 10,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            background: ts.bg,
-            color: ts.color,
-            border: `1px solid ${ts.border}`,
-            flexShrink: 0,
-          }}>
-            <IconGlyph name={info.icon} size={16} strokeWidth={2.3}/>
+        {/* Colored header band */}
+        <div style={{
+          padding:'18px 22px 20px',
+          borderBottom:`1px solid rgba(255,255,255,0.06)`,
+          background:`linear-gradient(145deg,${ts.color}0a 0%,transparent 100%)`,
+        }}>
+          {/* Type + meta row */}
+          <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:14}}>
+            <div style={{
+              width:36, height:36, borderRadius:12,
+              display:'flex', alignItems:'center', justifyContent:'center',
+              background:ts.bg, color:ts.color, border:`1px solid ${ts.border}`, flexShrink:0,
+            }}>
+              <IconGlyph name={info.icon} size={17} strokeWidth={2.3}/>
+            </div>
+            <span style={{
+              padding:'4px 12px', background:ts.bg, border:`1px solid ${ts.border}`,
+              borderRadius:9999, fontSize:11, fontWeight:800, color:ts.color, letterSpacing:'0.8px',
+            }}>{chipLabel}</span>
+            <div style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:8}}>
+              <span style={{
+                fontSize:12,color:T.textMuted,fontWeight:600,
+                display:'flex',alignItems:'center',gap:4,
+                background:'rgba(255,255,255,0.05)',padding:'4px 8px',borderRadius:8,
+              }}>
+                <ClockIcon sz={12}/>{normalizedTask.estimatedTimeMin || normalizedTask.durationMin || 0}m
+              </span>
+              <span style={{
+                fontSize:12,fontWeight:800,color:'#FBBF24',
+                display:'flex',alignItems:'center',gap:3,
+                background:'rgba(251,191,36,0.09)',padding:'4px 8px',borderRadius:8,
+              }}>
+                <BoltIcon sz={12}/>+{xp} XP
+              </span>
+            </div>
           </div>
-          <span style={{
-            padding:'4px 11px', background:ts.bg, border:`1px solid ${ts.border}`,
-            borderRadius:9999, fontSize:11, fontWeight:800, color:ts.color, letterSpacing:'0.8px',
-          }}>{info.chipLabel}</span>
-          <div style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:10}}>
-            <span style={{fontSize:12,color:T.textMuted,fontWeight:600,display:'flex',alignItems:'center',gap:4}}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-              {normalizedTask.estimatedTimeMin || normalizedTask.durationMin || 0} min
-            </span>
-            <span style={{fontSize:12,fontWeight:700,color:'#FBBF24',display:'flex',alignItems:'center',gap:3}}>
-              <BoltIcon sz={12}/>+{xp} XP
-            </span>
-          </div>
+
+          {/* Title */}
+          <h2 style={{fontSize:22,fontWeight:900,color:T.text,lineHeight:1.25,margin:0,letterSpacing:'-0.4px'}}>
+            {normalizedTask.title}
+          </h2>
         </div>
 
-        {/* Title */}
-        <h2 style={{fontSize:20,fontWeight:800,color:T.text,lineHeight:1.3,marginBottom:10,letterSpacing:'-0.3px'}}>
-          {normalizedTask.title}
-        </h2>
-
+        {/* Body */}
+        <div style={{padding:'18px 22px 34px'}}>
         {/* Description */}
         {normalizedTask.description && (
-          <p style={{fontSize:14,color:T.textSec,lineHeight:1.65,marginBottom:16}}>
+          <p style={{fontSize:14,color:T.textSec,lineHeight:1.7,marginBottom:16}}>
             {normalizedTask.description}
           </p>
         )}
@@ -1331,7 +1615,7 @@ function TaskPreview({ task, onClose, onStart, onComplete, onReroll, rerollCount
           <a href={normalizedTask.resourceUrl} target="_blank" rel="noopener noreferrer" style={{
             display:'inline-flex', alignItems:'center', gap:5,
             fontSize:13, color:T.blue, fontWeight:600,
-            textDecoration:'none', marginBottom:16,
+            textDecorationLine:'none', marginBottom:16,
           }}>
             {normalizedTask.resourceTitle || 'Open resource'} <ArrowRight sz={12}/>
           </a>
@@ -1406,20 +1690,24 @@ function TaskPreview({ task, onClose, onStart, onComplete, onReroll, rerollCount
                 onComplete(task, e)
               }}
               style={{
-                flex:'none', padding:'14px 20px',
-                background: anyCompleting || isLocked || requiresLessonCompletion ? 'rgba(255,255,255,0.04)' : T.primaryGradient,
+                flex: me ? 'none' : 'none',
+                width: me ? 48 : undefined,
+                height: me ? 48 : undefined,
+                padding: me ? 0 : '14px 20px',
+                background: me ? '#0ef5c2' : anyCompleting || isLocked || requiresLessonCompletion ? 'rgba(255,255,255,0.04)' : T.primaryGradient,
                 border: anyCompleting || isLocked || requiresLessonCompletion ? `1px solid ${T.border}` : 'none',
-                borderRadius:14, color: anyCompleting || isLocked || requiresLessonCompletion ? T.textMuted : T.ink,
+                borderRadius: me ? '50%' : 14,
+                color: me ? '#040a0f' : anyCompleting || isLocked || requiresLessonCompletion ? T.textMuted : T.ink,
                 fontSize:14, fontWeight:800,
                 cursor: anyCompleting || isLocked || requiresLessonCompletion ? 'default' : 'pointer', fontFamily:T.font,
-                boxShadow: anyCompleting ? 'none' : '0 0 24px rgba(14,245,194,0.28)',
+                boxShadow: me ? '0 0 20px rgba(14,245,194,0.55)' : anyCompleting ? 'none' : '0 0 24px rgba(14,245,194,0.28)',
                 display:'flex', alignItems:'center', justifyContent:'center', gap:6,
                 opacity: (anyCompleting && !me) || isLocked || requiresLessonCompletion ? 0.5 : 1,
-                transition:'all 0.20s',
+                transition:'all 0.20s cubic-bezier(0.34,1.56,0.64,1)',
               }}
             >
               {me
-                ? <><div style={{width:13,height:13,border:'2px solid rgba(255,255,255,0.06)',borderTopColor:T.teal,borderRadius:'50%',animation:'spin 0.65s linear infinite'}}/>Saving…</>
+                ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#040a0f" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{animation:'popIn 0.25s cubic-bezier(0.34,1.56,0.64,1)'}}><polyline points="20 6 9 17 4 12"/></svg>
                 : anyCompleting ? 'Wait…' : <><BoltIcon sz={13}/>Complete</>}
             </button>
             </div>
@@ -1430,6 +1718,7 @@ function TaskPreview({ task, onClose, onStart, onComplete, onReroll, rerollCount
             )}
           </div>
         )}
+        </div>{/* /body */}
       </div>
     </div>
   )
@@ -1441,104 +1730,608 @@ function TaskItem({ task, onPreview, index }) {
   const ts      = taskStyle(normalizedTask)
   const xp      = xpForTask(normalizedTask)
   const info    = getTaskDisplayConfig(normalizedTask)
+  const chipLabel = normalizedTask.domainTaskLabel || normalizedTask.domainTaskType || info.chipLabel
   const isLocked = Boolean(normalizedTask._locked)
   const isCourseFinalTask = isCourseFinalExamTask(task)
   const finalExamMeta = task?._courseFinal || {}
   const finalExamAttemptsRemaining = Math.max(0, (Number(finalExamMeta.maxAttempts) || 3) - (Number(finalExamMeta.attemptsUsed) || 0))
+  const mins = normalizedTask.estimatedTimeMin || normalizedTask.durationMin || 0
 
   return (
     <div
       onClick={() => onPreview(task)}
       className="interactive-card"
       style={{
-        background: task.completed ? 'rgba(14,245,194,0.03)' : T.surface,
-        border:`1px solid ${task.completed?'rgba(14,245,194,0.14)':T.border}`,
-        borderRadius:18, padding:'14px 16px',
-        backdropFilter:'blur(16px)', WebkitBackdropFilter:'blur(16px)',
+        background: task.completed
+          ? 'rgba(14,245,194,0.035)'
+          : 'linear-gradient(145deg,rgba(255,255,255,0.085) 0%,rgba(255,255,255,0.03) 100%)',
+        border:`1px solid ${task.completed ? 'rgba(14,245,194,0.16)' : 'rgba(255,255,255,0.12)'}`,
+        borderRadius:20,
+        overflow:'hidden',
+        backdropFilter:'blur(20px)', WebkitBackdropFilter:'blur(20px)',
         boxShadow: task.completed
-          ? 'inset 0 1px 0 rgba(14,245,194,0.10)'
-          : 'inset 0 1px 0 rgba(255,255,255,0.06)',
+          ? 'none'
+          : isLocked
+            ? 'none'
+            : 'inset 0 1px 0 rgba(255,255,255,0.07), 0 4px 20px rgba(0,0,0,0.18)',
         transition:'all 0.22s cubic-bezier(0.16,1,0.3,1)',
-        animation:`fadeUp 0.35s ${index*0.04}s both`,
-        opacity: task.completed ? 0.68 : isLocked ? 0.82 : 1,
+        animation:`fadeUp 0.35s ${index*0.045}s both`,
+        opacity: task.completed ? 0.6 : isLocked ? 0.75 : 1,
         cursor:'pointer',
+        display:'flex',
       }}
-      onMouseEnter={e=>{if(!task.completed)e.currentTarget.style.borderColor=isLocked ? 'rgba(251,191,36,0.18)' : 'rgba(255,255,255,0.16)'}}
-      onMouseLeave={e=>{e.currentTarget.style.borderColor=task.completed?'rgba(14,245,194,0.14)':T.border}}
+      onMouseEnter={e=>{if(!task.completed && !isLocked){e.currentTarget.style.transform='translateY(-1px)';e.currentTarget.style.boxShadow='inset 0 1px 0 rgba(255,255,255,0.10), 0 8px 28px rgba(0,0,0,0.22)'}}}
+      onMouseLeave={e=>{e.currentTarget.style.transform='';e.currentTarget.style.boxShadow=task.completed?'none':isLocked?'none':'inset 0 1px 0 rgba(255,255,255,0.07), 0 4px 20px rgba(0,0,0,0.18)'}}
     >
-      {/* Type badge + duration + xp status */}
-      <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
-        <span style={{
-          padding:'3px 9px', background:ts.bg, border:`1px solid ${ts.border}`,
-          borderRadius:9999, fontSize:10, fontWeight:800, color:ts.color, letterSpacing:'0.8px',
-        }}>{info.chipLabel}</span>
-        <span style={{fontSize:11,color:T.textMuted,fontWeight:600}}>
-          {normalizedTask.estimatedTimeMin || normalizedTask.durationMin || 0} min
-        </span>
-        {isLocked && !task.completed && (
-          <span style={{fontSize:10,fontWeight:800,color:'#FBBF24',letterSpacing:'0.08em',textTransform:'uppercase'}}>
-            Locked
-          </span>
-        )}
-        <span style={{
-          marginLeft:'auto', fontSize:11, fontWeight:700,
-          color: task.completed ? T.teal : '#FBBF24',
-          display:'flex', alignItems:'center', gap:3,
-        }}>
-          {task.completed
-            ? <span style={{display:'inline-flex',alignItems:'center',gap:4,animation:'checkPop 0.3s cubic-bezier(0.34,1.56,0.64,1)'}}><IconGlyph name="check" size={12} strokeWidth={2.7} color={T.teal}/>Done</span>
-            : <><BoltIcon />+{xp} XP</>}
-        </span>
-      </div>
-
-      {/* Title */}
+      {/* Left color accent bar */}
       <div style={{
-        fontSize:15, fontWeight:700,
-        color: task.completed ? T.textMuted : T.text,
-        lineHeight:1.35, marginBottom: normalizedTask.description ? 6 : 0,
-        textDecoration: task.completed ? `line-through ${T.textDead}` : 'none',
+        width: 4, flexShrink:0,
+        background: task.completed ? 'rgba(14,245,194,0.35)' : isLocked ? 'rgba(251,191,36,0.45)' : ts.color,
+        opacity: task.completed ? 0.5 : 1,
+      }}/>
+
+      {/* Main content */}
+      <div style={{flex:1, padding:'14px 16px', minWidth:0}}>
+        {/* Top row: icon + badge + meta */}
+        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10}}>
+          <div style={{
+            width:38, height:38, borderRadius:12, flexShrink:0,
+            display:'flex', alignItems:'center', justifyContent:'center',
+            background: task.completed ? 'rgba(14,245,194,0.08)' : ts.bg,
+            border:`1px solid ${task.completed ? 'rgba(14,245,194,0.18)' : ts.border}`,
+            color: task.completed ? T.teal : ts.color,
+          }}>
+            {task.completed
+              ? <IconGlyph name="check" size={14} strokeWidth={2.8} color={T.teal}/>
+              : isLocked
+                ? <IconGlyph name="lock" size={13} strokeWidth={2.4} color="#FBBF24"/>
+                : <IconGlyph name={info.icon} size={14} strokeWidth={2.3} color={ts.color}/>
+            }
+          </div>
+          <span style={{
+            padding:'3px 9px', background:ts.bg, border:`1px solid ${ts.border}`,
+            borderRadius:9999, fontSize:11, fontWeight:900, color:ts.color, letterSpacing:'0.8px',
+          }}>{chipLabel}</span>
+          <div style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
+            {mins > 0 && (
+              <span style={{display:'flex',alignItems:'center',gap:4,fontSize:12,color:T.textSec,fontWeight:700}}>
+                <ClockIcon/>{mins}m
+              </span>
+            )}
+            <span style={{
+              fontSize:12, fontWeight:900,
+              color: task.completed ? T.teal : '#FBBF24',
+              display:'flex', alignItems:'center', gap:3,
+            }}>
+              {task.completed
+                ? <span style={{animation:'checkPop 0.3s cubic-bezier(0.34,1.56,0.64,1)',display:'inline-flex',alignItems:'center',gap:3,color:T.teal}}>Done</span>
+                : <><BoltIcon />+{xp} XP</>}
+            </span>
+          </div>
+        </div>
+
+        {/* Title */}
+        <div style={{
+          fontSize:17, fontWeight:800,
+          color: task.completed ? T.textMuted : T.text,
+          lineHeight:1.3, marginBottom: (normalizedTask.description && !task.completed) ? 7 : 0,
+          textDecorationLine: task.completed ? 'line-through' : 'none',
+          textDecorationColor: 'rgba(255,255,255,0.18)',
+        }}>
+          {normalizedTask.title}
+        </div>
+
+        {/* Description */}
+        {normalizedTask.description && !task.completed && (
+          <p style={{fontSize:14,color:T.textSec,lineHeight:1.6,margin:0,marginBottom:10}}>
+            {normalizedTask.description.length > 95 ? `${normalizedTask.description.slice(0, 95)}…` : normalizedTask.description}
+          </p>
+        )}
+
+        {isCourseFinalTask && !task.completed && (
+          <div style={{
+            marginTop:8, padding:'8px 12px', borderRadius:12,
+            background:'rgba(251,191,36,0.07)', border:'1px solid rgba(251,191,36,0.16)',
+            display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, flexWrap:'wrap',
+          }}>
+            <span style={{fontSize:11,fontWeight:800,color:'#FBBF24'}}>Pass {finalExamMeta.passScore || 80}%</span>
+            <span style={{fontSize:11,color:T.textSec}}>{finalExamAttemptsRemaining} attempt{finalExamAttemptsRemaining===1?'':'s'} left</span>
+          </div>
+        )}
+
+        {/* Bottom cta row */}
+        {!task.completed && (
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:8}}>
+            <span style={{
+              fontSize:12, fontWeight:700,
+              color: isLocked ? '#FBBF24' : T.textSec,
+              display:'flex', alignItems:'center', gap:4,
+            }}>
+              {isLocked && <IconGlyph name="lock" size={10} strokeWidth={2.4} color="#FBBF24"/>}
+              {isLocked ? (normalizedTask._lockedReason || 'Finish earlier task first') : 'Tap to begin'}
+            </span>
+            <div style={{
+              display:'flex', alignItems:'center', justifyContent:'center',
+              width:30, height:30, borderRadius:'50%',
+              background: isLocked ? 'rgba(251,191,36,0.08)' : 'rgba(14,245,194,0.08)',
+              color: isLocked ? '#FBBF24' : T.teal,
+            }}>
+              <ArrowRight sz={11}/>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── Path View Overlay — Brilliant.org faithful recreation ───────────────────
+//
+// Visual reference: Brilliant's course path uses Rive animations. From the
+// screenshots: dark #0a0a0f bg, center-column layout, large 3D puck nodes,
+// active node has a purple glowing aura halo on the "floor" beneath it plus a
+// 3D icon/gem figure sitting on top, locked nodes are matte gray flat ellipses
+// that shrink slightly as they go down, label text to the RIGHT of node,
+// section header is a rounded-rect with purple border, "LEVEL N / Title".
+// Bottom popup: dark card, bold title, large solid purple rounded "Start" btn.
+
+const MOCK_SECTIONS = [
+  {
+    level: 1,
+    title: 'Complexity Fundamentals',
+    nodes: [
+      { id:'n1', label:'Complexity Fundamentals', state:'done'   },
+      { id:'n2', label:'Complexity Symptoms',     state:'active' },
+      { id:'n3', label:'Strategic Programming',   state:'locked' },
+      { id:'n4', label:'Section Review',          state:'locked', isReview: true },
+    ],
+  },
+  {
+    level: 2,
+    title: 'Module Design',
+    nodes: [
+      { id:'n5', label:'Deep Modules',            state:'locked' },
+      { id:'n6', label:'General-Purpose Modules', state:'locked' },
+      { id:'n7', label:'Different Abstractions',  state:'locked' },
+      { id:'n8', label:'Module Review',           state:'locked', isReview: true },
+    ],
+  },
+]
+
+// The 3D "gem" icon that sits ON TOP of the active disc (like Brilliant's character)
+function ActiveGem({ size = 52 }) {
+  return (
+    <div style={{
+      position:'absolute',
+      bottom:'62%',
+      left:'50%',
+      transform:'translateX(-50%)',
+      width:size,
+      height:size,
+      zIndex:3,
+      animation:'nodeFloat 2.6s ease-in-out infinite',
+      filter:'drop-shadow(0 8px 16px rgba(109,40,217,0.70))',
+      pointerEvents:'none',
+    }}>
+      <svg width={size} height={size} viewBox="0 0 52 52" fill="none">
+        {/* Gem body — octagonal faceted shape */}
+        <polygon points="26,4 40,14 44,28 36,44 16,44 8,28 12,14" fill="#7c3aed"/>
+        <polygon points="26,4 40,14 26,10"     fill="#a78bfa" opacity="0.9"/>
+        <polygon points="26,4 12,14 26,10"     fill="#c4b5fd" opacity="0.7"/>
+        <polygon points="40,14 44,28 36,20"    fill="#6d28d9" opacity="0.8"/>
+        <polygon points="12,14 8,28 16,20"     fill="#8b5cf6" opacity="0.7"/>
+        <polygon points="26,10 40,14 36,20 26,18 16,20 12,14" fill="#9333ea" opacity="0.6"/>
+        {/* Inner sparkle */}
+        <circle cx="22" cy="17" r="2.5" fill="white" opacity="0.55"/>
+        <circle cx="20" cy="15" r="1.2" fill="white" opacity="0.35"/>
+      </svg>
+    </div>
+  )
+}
+
+// The glow halo that appears on the "floor" under the active disc — Brilliant's
+// signature effect: a soft radial bloom of purple/violet light spilling outward
+function ActiveHalo({ W }) {
+  return (
+    <div style={{
+      position:'absolute',
+      bottom: -28,
+      left:'50%',
+      transform:'translateX(-50%)',
+      width: W * 2.4,
+      height: 60,
+      borderRadius:'50%',
+      background:'radial-gradient(ellipse at center, rgba(139,92,246,0.55) 0%, rgba(109,40,217,0.28) 35%, transparent 72%)',
+      filter:'blur(8px)',
+      animation:'nodeGlow 2.6s ease-in-out infinite',
+      pointerEvents:'none',
+      zIndex:0,
+    }}/>
+  )
+}
+
+function BrilliantDiscNode({ node, index, sectionIndex, onTap }) {
+  const { state, label, isReview } = node
+  const isActive = state === 'active'
+  const isDone   = state === 'done'
+  const isLocked = state === 'locked'
+
+  // Brilliant: nodes get slightly smaller as they go deeper into locked state
+  const lockScale = isLocked ? Math.max(0.78, 1 - (index * 0.05)) : 1
+
+  // Disc dimensions (wide flat ellipse, wider than tall — ~1.9:1 ratio)
+  const baseW = isReview ? 108 : 96
+  const baseH = isReview ? 50  : 48
+  const W = Math.round(baseW * lockScale)
+  const H = Math.round(baseH * lockScale)
+
+  // Colors
+  const topFace = isActive
+    ? 'radial-gradient(ellipse at 42% 30%, #c4b5fd 0%, #7c3aed 48%, #3b0764 100%)'
+    : isDone
+    ? 'radial-gradient(ellipse at 42% 30%, #a7f3d0 0%, #059669 50%, #064e3b 100%)'
+    : isReview
+    ? 'radial-gradient(ellipse at 42% 30%, #e2e8f0 0%, #94a3b8 50%, #475569 100%)'
+    : 'radial-gradient(ellipse at 42% 30%, #cbd5e1 0%, #64748b 52%, #1e293b 100%)'
+
+  // Stacked depth rings below the top face — creates the "thick puck" illusion
+  // Brilliant appears to have 3-4 rings, each offset downward and darkened
+  const depthLayers = isActive
+    ? ['#5b21b6','#4c1d95','#3b0764']
+    : isDone
+    ? ['#047857','#065f46','#064e3b']
+    : isReview
+    ? ['#64748b','#475569','#334155']
+    : ['#475569','#334155','#1e293b']
+
+  // Floor glow beneath entire node group (only active)
+  // Label side: Brilliant always puts label to the RIGHT, centered vertically
+  const delayS = (sectionIndex * 0.15) + (index * 0.10)
+
+  return (
+    <div
+      style={{
+        display:'flex',
+        flexDirection:'row',
+        alignItems:'center',
+        justifyContent:'center',
+        gap:28,
+        width:'100%',
+        animation:`pathNodeIn 0.55s ${delayS}s cubic-bezier(0.34,1.3,0.64,1) both`,
+        cursor: isLocked ? 'default' : 'pointer',
+        userSelect:'none',
+      }}
+      onClick={() => !isLocked && onTap(node)}
+    >
+      {/* ── Disc assembly ── */}
+      <div style={{
+        position:'relative',
+        // Extra height so gem + halo have room
+        width: W + 20,
+        height: H + (isActive ? 80 : 24),
+        flexShrink:0,
+        display:'flex',
+        alignItems:'flex-end',
+        justifyContent:'center',
       }}>
-        {normalizedTask.title}
+        {/* Floor halo (active only) */}
+        {isActive && <ActiveHalo W={W}/>}
+
+        {/* Depth rings — rendered bottom-up so top face sits above */}
+        {depthLayers.map((col, di) => {
+          const ringW = W - di * 3
+          const ringH = H - di * 1
+          const bottom = di * 5
+          return (
+            <div key={di} style={{
+              position:'absolute',
+              bottom,
+              left:'50%',
+              transform:'translateX(-50%)',
+              width: ringW,
+              height: ringH,
+              borderRadius:'50%',
+              background: col,
+              zIndex: di + 1,
+            }}/>
+          )
+        })}
+
+        {/* Top face */}
+        <div
+          style={{
+            position:'absolute',
+            bottom: depthLayers.length * 5,
+            left:'50%',
+            transform:'translateX(-50%)',
+            width: W,
+            height: H,
+            borderRadius:'50%',
+            background: topFace,
+            zIndex: depthLayers.length + 1,
+            boxShadow: isActive
+              ? '0 0 0 2px rgba(167,139,250,0.40), 0 0 24px rgba(139,92,246,0.50)'
+              : isDone
+              ? '0 0 0 2px rgba(52,211,153,0.30)'
+              : 'none',
+            display:'flex',
+            alignItems:'center',
+            justifyContent:'center',
+            transition:'transform 0.22s cubic-bezier(0.16,1,0.3,1)',
+            overflow:'hidden',
+          }}
+          onMouseEnter={e => { if (!isLocked) e.currentTarget.style.transform = 'translateX(-50%) scale(1.06)' }}
+          onMouseLeave={e => { e.currentTarget.style.transform = 'translateX(-50%) scale(1)' }}
+        >
+          {/* Rim highlight — bright arc at top-left of face */}
+          <div style={{
+            position:'absolute',
+            top:5, left:'50%',
+            transform:'translateX(-50%)',
+            width: W * 0.50,
+            height:9,
+            borderRadius:'50%',
+            background: 'radial-gradient(ellipse, rgba(255,255,255,0.52) 0%, transparent 75%)',
+            pointerEvents:'none',
+          }}/>
+
+          {/* Icon inside disc (only for done + locked) */}
+          {isDone && (
+            <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.90)" strokeWidth="3" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+          )}
+          {isLocked && (
+            <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.32)" strokeWidth="2.5" strokeLinecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          )}
+        </div>
+
+        {/* Gem figure sitting on top of active disc */}
+        {isActive && <ActiveGem size={46}/>}
       </div>
 
-      {/* Description (hidden once done) */}
-      {normalizedTask.description && !task.completed && (
-        <p style={{fontSize:13,color:T.textMuted,lineHeight:1.6,
-          marginBottom:0}}>
-          {normalizedTask.description.length > 110 ? `${normalizedTask.description.slice(0, 110)}…` : normalizedTask.description}
-        </p>
-      )}
-
-      {isCourseFinalTask && !task.completed && (
+      {/* ── Label ── */}
+      <div style={{ width:140, flexShrink:0 }}>
         <div style={{
-          marginTop:10,
-          padding:'10px 12px',
-          borderRadius:14,
-          background:'rgba(251,191,36,0.08)',
-          border:'1px solid rgba(251,191,36,0.18)',
-          display:'flex',
-          alignItems:'center',
-          justifyContent:'space-between',
-          gap:10,
-          flexWrap:'wrap',
+          fontSize: isActive ? 16 : 15,
+          fontWeight: isActive ? 800 : isDone ? 600 : 500,
+          color: isActive
+            ? '#ffffff'
+            : isDone
+            ? 'rgba(255,255,255,0.80)'
+            : 'rgba(255,255,255,0.28)',
+          lineHeight:1.3,
+          letterSpacing: isActive ? '-0.2px' : '0px',
+          marginBottom: (isActive || isDone) ? 4 : 0,
         }}>
-          <span style={{fontSize:11,fontWeight:800,color:'#FBBF24'}}>
-            Pass score {finalExamMeta.passScore || 80}%
-          </span>
-          <span style={{fontSize:11,color:T.textSec}}>
-            {finalExamAttemptsRemaining} attempt{finalExamAttemptsRemaining === 1 ? '' : 's'} remaining
-          </span>
+          {label}
         </div>
-      )}
+        {isDone && (
+          <div style={{ fontSize:11, color:'#34d399', fontWeight:700 }}>Completed</div>
+        )}
+        {isActive && (
+          <div style={{ fontSize:11, color:'#a78bfa', fontWeight:700, letterSpacing:'0.2px' }}>
+            Up next
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 
-      {/* Tap to preview hint */}
-      {!task.completed && (
-        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:10}}>
-          <span style={{fontSize:11,color:T.textMuted,fontWeight:500}}>
-            {isLocked ? (normalizedTask._lockedReason || 'Complete the earlier task first') : 'Tap to preview'}
-          </span>
-          <ArrowRight sz={12}/>
+function PathViewOverlay({ onClose }) {
+  const [selected, setSelected] = useState(null)
+  const [closing,  setClosing]  = useState(false)
+
+  function handleClose() {
+    setClosing(true)
+    setTimeout(onClose, 320)
+  }
+
+  // Count totals across all sections
+  const allNodes   = MOCK_SECTIONS.flatMap(s => s.nodes)
+  const doneCount  = allNodes.filter(n => n.state === 'done').length
+  const totalCount = allNodes.length
+
+  return (
+    <div style={{
+      position:'fixed', inset:0, zIndex:500,
+      background:'#0a0a0f',
+      display:'flex', flexDirection:'column',
+      fontFamily:T.font,
+      animation: closing
+        ? 'pathSlideDown 0.32s cubic-bezier(0.4,0,1,1) both'
+        : 'pathSlideUp 0.36s cubic-bezier(0.16,1,0.3,1) both',
+    }}>
+
+      {/* ── Top bar (mirrors Brilliant's nav) ── */}
+      <div style={{
+        padding:'16px 20px',
+        display:'flex',
+        alignItems:'center',
+        gap:16,
+        borderBottom:'1px solid rgba(255,255,255,0.06)',
+        flexShrink:0,
+      }}>
+        <button
+          onClick={handleClose}
+          style={{
+            width:38, height:38, borderRadius:'50%',
+            background:'rgba(255,255,255,0.07)',
+            border:'1px solid rgba(255,255,255,0.09)',
+            color:'rgba(255,255,255,0.55)', fontSize:20,
+            cursor:'pointer', display:'flex',
+            alignItems:'center', justifyContent:'center',
+            fontFamily:T.font, flexShrink:0,
+          }}
+        >
+          <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+        </button>
+
+        <div style={{ flex:1, minWidth:0 }}>
+          <div style={{
+            fontSize:16, fontWeight:800, color:'#fff',
+            letterSpacing:'-0.2px',
+            overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap',
+          }}>
+            A Philosophy of Software Design
+          </div>
+          <div style={{ fontSize:12, color:'rgba(255,255,255,0.35)', marginTop:1 }}>
+            {doneCount} / {totalCount} complete
+          </div>
         </div>
+
+        {/* XP pill (Brilliant has gems + streak in top right) */}
+        <div style={{
+          display:'flex', alignItems:'center', gap:6,
+          background:'rgba(139,92,246,0.14)',
+          border:'1px solid rgba(139,92,246,0.30)',
+          borderRadius:9999, padding:'6px 12px',
+          flexShrink:0,
+        }}>
+          <svg width={14} height={14} viewBox="0 0 24 24" fill="#a78bfa"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+          <span style={{ fontSize:13, fontWeight:800, color:'#a78bfa' }}>0</span>
+        </div>
+      </div>
+
+      {/* ── Scrollable content ── */}
+      <div style={{ flex:1, overflowY:'auto' }}>
+        {MOCK_SECTIONS.map((section, si) => (
+          <div key={section.level} style={{ paddingBottom:32 }}>
+
+            {/* Section header pill — Brilliant's bordered rounded-rect */}
+            <div style={{
+              margin: si === 0 ? '28px 24px 36px' : '12px 24px 36px',
+              border:'1.5px solid rgba(139,92,246,0.50)',
+              borderRadius:16,
+              padding:'14px 20px',
+              textAlign:'center',
+              background:'rgba(109,40,217,0.06)',
+              animation:`pathNodeIn 0.45s ${si * 0.12}s ease both`,
+            }}>
+              <div style={{
+                fontSize:10, fontWeight:800,
+                letterSpacing:'1.6px',
+                color:'#a78bfa',
+                textTransform:'uppercase',
+                marginBottom:5,
+              }}>
+                Level {section.level}
+              </div>
+              <div style={{
+                fontSize:18, fontWeight:800,
+                color:'#fff',
+                letterSpacing:'-0.2px',
+              }}>
+                {section.title}
+              </div>
+            </div>
+
+            {/* Nodes */}
+            <div style={{
+              display:'flex', flexDirection:'column',
+              gap:56,
+              paddingLeft:0,
+            }}>
+              {section.nodes.map((node, ni) => (
+                <BrilliantDiscNode
+                  key={node.id}
+                  node={node}
+                  index={ni}
+                  sectionIndex={si}
+                  onTap={n => setSelected(n)}
+                />
+              ))}
+            </div>
+          </div>
+        ))}
+
+        <div style={{ height:120 }}/>
+      </div>
+
+      {/* ── Bottom sheet on node tap ── */}
+      {selected && (
+        <>
+          {/* Backdrop */}
+          <div
+            onClick={() => setSelected(null)}
+            style={{
+              position:'absolute', inset:0, zIndex:20,
+              background:'rgba(0,0,0,0.60)',
+              backdropFilter:'blur(8px)',
+              WebkitBackdropFilter:'blur(8px)',
+            }}
+          />
+          {/* Card — matches Brilliant's popup */}
+          <div style={{
+            position:'absolute',
+            bottom:0, left:0, right:0,
+            zIndex:21,
+            background:'#12121a',
+            borderRadius:'24px 24px 0 0',
+            border:'1px solid rgba(255,255,255,0.08)',
+            borderBottom:'none',
+            padding:'16px 24px 52px',
+            animation:'sheetUp 0.28s cubic-bezier(0.34,1.2,0.64,1) both',
+            boxShadow:'0 -32px 80px rgba(0,0,0,0.70)',
+          }}>
+            {/* Drag pill */}
+            <div style={{
+              width:40, height:4, borderRadius:9999,
+              background:'rgba(255,255,255,0.14)',
+              margin:'0 auto 24px',
+            }}/>
+
+            {/* The active disc mini preview */}
+            <div style={{
+              display:'flex', justifyContent:'center',
+              marginBottom:20,
+            }}>
+              <div style={{
+                width:80, height:46, borderRadius:'50%',
+                background:'radial-gradient(ellipse at 42% 30%, #c4b5fd 0%, #7c3aed 48%, #3b0764 100%)',
+                boxShadow:'0 0 32px rgba(139,92,246,0.55)',
+                display:'flex', alignItems:'center', justifyContent:'center',
+              }}>
+                <svg width={16} height={16} viewBox="0 0 24 24" fill="#fff"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              </div>
+            </div>
+
+            {/* Title */}
+            <div style={{
+              fontSize:22, fontWeight:900,
+              color:'#fff',
+              textAlign:'center',
+              letterSpacing:'-0.4px',
+              lineHeight:1.2,
+              marginBottom:28,
+            }}>
+              {selected.label}
+            </div>
+
+            {/* Start button — Brilliant's solid purple pill */}
+            <button
+              onClick={() => setSelected(null)}
+              style={{
+                width:'100%',
+                padding:'18px',
+                background:'#7c3aed',
+                border:'none',
+                borderRadius:14,
+                color:'#fff',
+                fontSize:17,
+                fontWeight:800,
+                cursor:'pointer',
+                fontFamily:T.font,
+                letterSpacing:'0.2px',
+                boxShadow:'0 8px 32px rgba(109,40,217,0.50), inset 0 1px 0 rgba(255,255,255,0.18)',
+                transition:'background 0.18s, transform 0.14s',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background='#6d28d9'; e.currentTarget.style.transform='scale(1.015)' }}
+              onMouseLeave={e => { e.currentTarget.style.background='#7c3aed'; e.currentTarget.style.transform='scale(1)' }}
+            >
+              Start
+            </button>
+          </div>
+        </>
       )}
     </div>
   )
@@ -1566,6 +2359,238 @@ function TomorrowPreview({ tomorrowRow }) {
         <ArrowRight/>
       </div>
     </div>
+  )
+}
+
+const DASHBOARD_NAV_ITEMS = [
+  { key:'home',     label:'Today', icon:'rocket',        meta:'Mission hub' },
+  { key:'path',     label:'Path',  icon:'map',           meta:'Curriculum' },
+  { key:'badges',   label:'Cards', icon:'badge',         meta:'Wins' },
+  { key:'shop',     label:'Shop',  icon:'gem',           meta:'Upgrades' },
+  { key:'stats',    label:'Stats', icon:'bar_chart',     meta:'Progress' },
+  { key:'settings', label:'More',  icon:'wrench',        meta:'Settings' },
+]
+
+function DashboardCommandMenu({ open, query, onQueryChange, actions, onClose }) {
+  const inputRef = useRef(null)
+  const [selectedIndex, setSelectedIndex] = useState(0)
+
+  const filteredActions = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+    if (!needle) return actions
+    return actions.filter((action) => {
+      const haystack = [
+        action.label,
+        action.meta,
+        action.group,
+        ...(action.keywords || []),
+      ].filter(Boolean).join(' ').toLowerCase()
+      return haystack.includes(needle)
+    })
+  }, [actions, query])
+
+  const groupedActions = useMemo(() => {
+    const groups = []
+    filteredActions.forEach((action) => {
+      let group = groups.find((entry) => entry.name === action.group)
+      if (!group) {
+        group = { name: action.group, items: [] }
+        groups.push(group)
+      }
+      group.items.push(action)
+    })
+    return groups
+  }, [filteredActions])
+
+  useEffect(() => {
+    if (!open) return
+    const focusTimer = setTimeout(() => inputRef.current?.focus(), 0)
+    return () => clearTimeout(focusTimer)
+  }, [open])
+
+  if (!open) return null
+
+  const boundedSelectedIndex = Math.min(selectedIndex, Math.max(0, filteredActions.length - 1))
+
+  const runAction = (action) => {
+    if (!action?.run) return
+    action.run()
+    onQueryChange('')
+    onClose()
+  }
+
+  const handleKeyDown = (event) => {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      onClose()
+      return
+    }
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      setSelectedIndex((index) => Math.min(index + 1, Math.max(0, filteredActions.length - 1)))
+      return
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      setSelectedIndex((index) => Math.max(0, index - 1))
+      return
+    }
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      runAction(filteredActions[boundedSelectedIndex])
+    }
+  }
+
+  let actionIndex = -1
+
+  return (
+    <div
+      className="dashboard-command-overlay"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose()
+      }}
+      role="presentation"
+    >
+      <div className="dashboard-command-panel" role="dialog" aria-modal="true" aria-label="Command center">
+        <input
+          ref={inputRef}
+          className="dashboard-command-search"
+          value={query}
+          onChange={(event) => {
+            setSelectedIndex(0)
+            onQueryChange(event.target.value)
+          }}
+          onKeyDown={handleKeyDown}
+          placeholder="Find anything in PathAI"
+          autoComplete="off"
+          spellCheck={false}
+        />
+        <div className="dashboard-command-list">
+          {filteredActions.length === 0 ? (
+            <div className="dashboard-command-empty">No matching action.</div>
+          ) : groupedActions.map((group) => (
+            <div key={group.name} className="dashboard-command-group">
+              <div className="dashboard-command-group-title">{group.name}</div>
+              {group.items.map((action) => {
+                actionIndex += 1
+                const currentIndex = actionIndex
+                const selected = currentIndex === boundedSelectedIndex
+                return (
+                  <button
+                    key={action.id}
+                    type="button"
+                    className={`dashboard-command-item${selected ? ' is-selected' : ''}`}
+                    onMouseEnter={() => setSelectedIndex(currentIndex)}
+                    onClick={() => runAction(action)}
+                  >
+                    <span className="dashboard-command-icon">
+                      <IconGlyph name={action.icon || 'sparkles'} size={17} strokeWidth={2.3} color={action.accent || T.teal}/>
+                    </span>
+                    <span style={{minWidth:0,flex:1}}>
+                      <span style={{display:'block',fontSize:14,fontWeight:850,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
+                        {action.label}
+                      </span>
+                      {action.meta && <span className="dashboard-command-meta">{action.meta}</span>}
+                    </span>
+                    {action.pill && <span className="dashboard-command-pill">{action.pill}</span>}
+                  </button>
+                )
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function DashboardDesktopNav({ activeTab, onSelect, onOpenCommand, goalText, dayNumber, focusProgress }) {
+  return (
+    <aside className="dashboard-left-rail" aria-label="Dashboard navigation">
+      <div className="dashboard-rail-card" style={{padding:16}}>
+        <div style={{display:'flex',alignItems:'center',gap:11,marginBottom:14}}>
+          <PathBoltLogo size={34}/>
+          <div style={{minWidth:0}}>
+            <div className="dashboard-rail-kicker">PathAI</div>
+            <div style={{
+              fontSize:15,fontWeight:900,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',
+            }}>
+              {goalText}
+            </div>
+          </div>
+        </div>
+        <div style={{
+          borderRadius:16,
+          border:`1px solid ${T.borderAlt}`,
+          background:'rgba(255,255,255,0.035)',
+          padding:12,
+          display:'flex',
+          alignItems:'center',
+          justifyContent:'space-between',
+          gap:12,
+        }}>
+          <div>
+            <div className="dashboard-rail-kicker">Today</div>
+            <div style={{fontSize:18,fontWeight:900,color:T.text,marginTop:3}}>Day {dayNumber}</div>
+          </div>
+          <MiniProgressRing
+            size={44}
+            value={focusProgress.completed}
+            total={Math.max(focusProgress.total, 1)}
+            stroke="var(--theme-primary)"
+            track="rgba(255,255,255,0.08)"
+            label={`${Math.round(focusProgress.ratio * 100)}%`}
+            labelColor={focusProgress.ratio >= 1 ? T.teal : T.textSec}
+            textSize={10}
+          />
+        </div>
+      </div>
+
+      <div className="dashboard-rail-card dashboard-rail-nav">
+        {DASHBOARD_NAV_ITEMS.map((item) => {
+          const active = activeTab === item.key
+          return (
+            <button
+              key={item.key}
+              type="button"
+              onClick={() => onSelect(item.key)}
+              className={`dashboard-rail-nav-button${active ? ' is-active' : ''}`}
+            >
+              <IconGlyph name={item.icon} size={18} strokeWidth={2.35} color={active ? T.teal : T.textMuted}/>
+              <span style={{minWidth:0}}>
+                <span style={{display:'block',fontSize:14,fontWeight:850,color:'currentColor'}}>{item.label}</span>
+                <span style={{display:'block',fontSize:11,color:active ? T.teal : T.textMuted,marginTop:1}}>{item.meta}</span>
+              </span>
+            </button>
+          )
+        })}
+      </div>
+
+      <button
+        type="button"
+        onClick={onOpenCommand}
+        className="dashboard-rail-card interactive-secondary"
+        style={{
+          width:'100%',
+          minHeight:58,
+          borderRadius:18,
+          cursor:'pointer',
+          color:T.textSec,
+          fontFamily:T.font,
+          padding:'0 14px',
+          display:'flex',
+          alignItems:'center',
+          gap:10,
+          textAlign:'left',
+        }}
+      >
+        <IconGlyph name="compass" size={18} strokeWidth={2.35} color={T.teal}/>
+        <span>
+          <span style={{display:'block',fontSize:13,fontWeight:900,color:T.text}}>Command center</span>
+          <span style={{display:'block',fontSize:11,color:T.textMuted,marginTop:2}}>Jump, search, act</span>
+        </span>
+      </button>
+    </aside>
   )
 }
 
@@ -1642,7 +2667,12 @@ function normalizeTaskList(tasks) {
   return normalizeLearningTasks(Array.isArray(tasks) ? tasks : [])
 }
 
+const TEMPORARILY_DISABLE_TASK_SEQUENCE_LOCKS = true
+const TEMPORARILY_ENABLE_DEV_COMPLETE_BUTTON = true
+
 function getTaskLockState(task, taskList = []) {
+  if (TEMPORARILY_DISABLE_TASK_SEQUENCE_LOCKS) return { locked: false, reason: '' }
+
   const normalizedTasks = normalizeTaskList(taskList)
   const firstIncompleteIndex = normalizedTasks.findIndex((entry) => !entry.completed)
   if (firstIncompleteIndex === -1) return { locked: false, reason: '' }
@@ -1683,6 +2713,7 @@ export default function Dashboard() {
   const [todayRow,    setTodayRow]    = useState(null)
   const [tomorrowRow, setTomorrowRow] = useState(null)
   const [allRows,     setAllRows]     = useState([])
+  const [conceptMasteryRows, setConceptMasteryRows] = useState([])
   const [user,        setUser]        = useState(null)
 
   // Optimistic task state
@@ -1712,8 +2743,11 @@ export default function Dashboard() {
   const [inventoryCounts, setInventoryCounts] = useState({ taskReroll: 0, reviewShield: 0 })
   const [claimedModuleRewardIds, setClaimedModuleRewardIds] = useState([])
   const [moduleRewardToasts, setModuleRewardToasts] = useState([])
-  const [showLesson,  setShowLesson]  = useState(null)
+  const [showLesson,       setShowLesson]       = useState(null)
+  const [practiceRoundTask, setPracticeRoundTask] = useState(null) // task awaiting PracticeRound
   const [previewTask, setPreviewTask] = useState(null)
+  const [commandOpen, setCommandOpen] = useState(false)
+  const [commandQuery, setCommandQuery] = useState('')
   const [error,       setError]       = useState('')
 
   // Goals sidebar
@@ -1776,6 +2810,9 @@ export default function Dashboard() {
   // Earned badges
   const [earnedBadgeIds, setEarnedBadgeIds] = useState(new Set())
 
+  // Path View overlay (new UI experiment)
+  const [showPathView, setShowPathView] = useState(false)
+
   const missionConfettiTimerRef = useRef(null)
   const taskReloadTimerRef = useRef(null)
   const holdCompletedDayRef = useRef(false)
@@ -1798,11 +2835,35 @@ export default function Dashboard() {
     settings: 0,
   })
 
+  useEffect(() => {
+    const handleCommandShortcut = (event) => {
+      const key = event.key?.toLowerCase()
+      if ((event.metaKey || event.ctrlKey) && key === 'k') {
+        event.preventDefault()
+        setCommandOpen((open) => !open)
+      }
+    }
+    window.addEventListener('keydown', handleCommandShortcut)
+    return () => window.removeEventListener('keydown', handleCommandShortcut)
+  }, [])
+
   const themeVars = useMemo(() => getDashboardThemeVars(activeTheme), [activeTheme])
   const pageThemeStyle = useMemo(() => ({
     ...themeVars,
     background: 'radial-gradient(circle at top, var(--theme-page-glow), transparent 34%), var(--theme-bg)',
   }), [themeVars])
+  const goalKnowledge = useMemo(() => (
+    Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')
+  ), [goal?.constraints])
+  const activeDomain = useMemo(() => resolveGoalDomain(goal), [goal])
+  const activeDomainConfig = useMemo(() => (
+    goal?.domain_config || goal?.domainConfig || buildDomainConfig(activeDomain)
+  ), [activeDomain, goal?.domain_config, goal?.domainConfig])
+  const domainGameText = useMemo(() => getDomainGamification(activeDomain), [activeDomain])
+
+  useEffect(() => {
+    setStoredLearningDomain(activeDomain)
+  }, [activeDomain])
 
   const pathTracker = useMemo(() => buildPathOutlineTracker({
     courseOutline: goal?.course_outline,
@@ -1874,6 +2935,7 @@ export default function Dashboard() {
         setGoal(null)
         setAllGoals([])
         setAllRows([])
+        setConceptMasteryRows([])
         setTodayRow(null)
         setTomorrowRow(null)
         setTasks([])
@@ -1959,10 +3021,12 @@ export default function Dashboard() {
         Number(localGoal.total_days) || 0,
         Number(localTracker.plannedDayCount) || 0,
       )
+      const localDomain = resolveGoalDomain(localGoal)
 
       setGoal(localGoal)
       setAllGoals([localGoal])
       setAllRows(localTaskRows)
+      setConceptMasteryRows(Array.isArray(localBundle.conceptMastery) ? localBundle.conceptMastery : [])
       setTodayRow(localTodayRow)
       setTomorrowRow(localTomorrow)
       setTasks(localTodayTasks)
@@ -1990,9 +3054,9 @@ export default function Dashboard() {
       setQuests(
         Array.isArray(localToday?.quests) && localToday.quests.length > 0
           ? localToday.quests
-          : localToday
-            ? generateDailyQuests(localToday.day_number || 1, localTodayTasks.length || 3)
-            : [],
+            : localToday
+              ? generateDailyQuests(localToday.day_number || 1, localTodayTasks.length || 3, localDomain)
+              : [],
       )
       setStoredOwnedThemes(localOwnedThemes)
       setOwnedThemes(localOwnedThemes)
@@ -2020,8 +3084,9 @@ export default function Dashboard() {
       .from('goals').select('*').eq('user_id', me.id).eq('status', 'active')
       .order('created_at', { ascending: false }).limit(1).maybeSingle()
     if (ge) { setError(ge.message); setLoading(false); return }
-    if (!activeGoal) { setLoading(false); return }
+    if (!activeGoal) { setConceptMasteryRows([]); setLoading(false); return }
     const hydratedGoal = hydrateGoalCourseOutline(activeGoal)
+    const hydratedDomain = resolveGoalDomain(hydratedGoal)
     setGoal(hydratedGoal)
 
     // Load all goals for sidebar
@@ -2030,7 +3095,7 @@ export default function Dashboard() {
       .eq('user_id', me.id).order('created_at', { ascending: false })
     setAllGoals(goalsList || [])
 
-    const [{ data: rows, error: re }, { data: prog, error: progError }] = await Promise.all([
+    const [{ data: rows, error: re }, { data: prog, error: progError }, { data: masteryRows }] = await Promise.all([
       supabaseData
         .from('daily_tasks').select('*')
         .eq('goal_id', hydratedGoal.id).eq('user_id', me.id)
@@ -2038,6 +3103,10 @@ export default function Dashboard() {
       supabaseData
         .from('user_progress').select('total_xp,current_streak,longest_streak,freeze_count,hearts_remaining,hearts_refill_at,total_days,gems,xp_boost_until')
         .eq('goal_id', hydratedGoal.id).eq('user_id', me.id).maybeSingle(),
+      supabaseData
+        .from('concept_mastery').select('concept_id,mastery_score,last_review,review_interval')
+        .eq('goal_id', hydratedGoal.id).eq('user_id', me.id)
+        .order('mastery_score', { ascending: false }),
     ])
     if (re) { setError(re.message); setLoading(false); return }
 
@@ -2050,7 +3119,7 @@ export default function Dashboard() {
       courseOutline: hydratedGoal?.course_outline,
       rows: scopedRowsForRepair,
       goalText: hydratedGoal?.goal_text || '',
-      claimedModuleRewardIds: getClaimedModuleRewardIds(txRows || []),
+      claimedModuleRewardIds: getClaimedModuleRewardIds([]),
     })
     const repairSequenceByDay = new Map(
       (Array.isArray(repairTracker.sequenceItems) ? repairTracker.sequenceItems : [])
@@ -2107,6 +3176,7 @@ export default function Dashboard() {
     })
     completedTaskIdsByRowRef.current = nextCompletionFloor
     setAllRows(taskRows)
+    setConceptMasteryRows(Array.isArray(masteryRows) ? masteryRows : [])
 
     const trackerSnapshot = buildPathOutlineTracker({
       courseOutline: hydratedGoal?.course_outline,
@@ -2316,7 +3386,7 @@ export default function Dashboard() {
     } else if (today) {
       const { generateDailyQuests } = await import('@/lib/quests')
       const dayTasks = Array.isArray(today.tasks) ? today.tasks : []
-      setQuests(generateDailyQuests(today.day_number || 1, dayTasks.length))
+      setQuests(generateDailyQuests(today.day_number || 1, dayTasks.length, hydratedDomain))
     }
 
     // Load weekly challenge
@@ -2542,12 +3612,8 @@ export default function Dashboard() {
   const handleTabSelect = useCallback((nextTab) => {
     if (nextTab === activeTab) return
     tabScrollPositionsRef.current[activeTab] = window.scrollY
-    if (nextTab === 'courses') {
-      router.push('/courses')
-      return
-    }
     setActiveTab(nextTab)
-  }, [activeTab, router])
+  }, [activeTab])
 
   // XP boost countdown timer
   useEffect(() => {
@@ -2640,14 +3706,18 @@ export default function Dashboard() {
 
   // ─── Optimistic task completion ─────────────────────────────────────────────
   const completeTask = useCallback(async (task, event, metrics = {}) => {
-    if (task.completed || completing) return
+    if (!task?.id || task.completed || completing) return
+    if (!todayRow?.id || !goal || !user) {
+      setError('Task data is still loading. Try again in a moment.')
+      return
+    }
     const normalizedTask = normalizeLearningTask(task)
     const lockState = getTaskLockState(task, tasks)
     if (lockState.locked) {
       setError(lockState.reason)
       return
     }
-    if (normalizedTask.type === 'concept' && !metrics?.fromLesson) {
+    if (normalizedTask.type === 'concept' && !metrics?.fromLesson && !TEMPORARILY_ENABLE_DEV_COMPLETE_BUTTON) {
       setError('Finish the concept lesson from inside the lesson view to unlock the next task.')
       return
     }
@@ -2657,7 +3727,7 @@ export default function Dashboard() {
       taskReloadTimerRef.current = null
     }
 
-    const rowId = todayRow?.id
+    const rowId = todayRow.id
     const prevTasks = normalizeTaskList(tasks)
     const prevCompletedCount = countCompletedTasks(prevTasks)
     const prevRowStatus = deriveTaskRowStatus(prevTasks, todayRow?.completion_status || 'not_started')
@@ -2667,8 +3737,10 @@ export default function Dashboard() {
     let nextGemFloor = gems + optimisticTaskGems
 
     // Capture event coordinates eagerly — synthetic event will be recycled after await
-    const tapX = event ? event.currentTarget.getBoundingClientRect().left + event.currentTarget.getBoundingClientRect().width / 2 : null
-    const tapY = event ? event.currentTarget.getBoundingClientRect().top : null
+    const eventTarget = event?.currentTarget
+    const rect = eventTarget?.getBoundingClientRect?.()
+    const tapX = rect ? rect.left + rect.width / 2 : null
+    const tapY = rect ? rect.top : null
     const streakTapX = event?.clientX || (typeof window !== 'undefined' ? window.innerWidth / 2 : 200)
 
     // 1. Immediate optimistic update
@@ -2736,7 +3808,7 @@ export default function Dashboard() {
       const data = await completeLearningTask({
         user,
         goal,
-        taskRowId: todayRow.id,
+        taskRowId: rowId,
         taskId: task.id,
         completedTaskIds: prevTasks.filter((entry) => entry.completed).map((entry) => entry.id),
         clientHour: new Date().getHours(),
@@ -2756,6 +3828,9 @@ export default function Dashboard() {
         bossDefeated: metrics?.bossDefeated,
         comboMax: metrics?.comboMax,
         quizPerfect: metrics?.quizPerfect,
+        takeaway: metrics?.takeaway,
+        proofSubmission: metrics?.proofSubmission,
+        proofResult: metrics?.proofResult,
       })
       if (!data.ok) {
         setTasks(prevTasks)
@@ -2797,6 +3872,31 @@ export default function Dashboard() {
       // API succeeded — task is persisted. NEVER revert after this point.
       apiOk = true
       setError('')
+
+      const serverTasks = Array.isArray(data.updatedTasks) ? normalizeTaskList(data.updatedTasks) : null
+      if (serverTasks) {
+        const serverCompletedCount = countCompletedTasks(serverTasks)
+        const serverStatus = data.completionStatus || deriveTaskRowStatus(serverTasks, nextRowStatus)
+        setTasks(serverTasks)
+        if (rowId) {
+          completedTaskIdsByRowRef.current.set(
+            rowId,
+            new Set(serverTasks.filter((entry) => entry.completed).map((entry) => String(entry.id))),
+          )
+          setTodayRow(prev => prev?.id === rowId ? {
+            ...prev,
+            tasks: serverTasks,
+            tasks_completed: serverCompletedCount,
+            completion_status: serverStatus,
+          } : prev)
+          setAllRows(prev => prev.map(row => row.id === rowId ? {
+            ...row,
+            tasks: serverTasks,
+            tasks_completed: serverCompletedCount,
+            completion_status: serverStatus,
+          } : row))
+        }
+      }
 
       if (isCourseFinalTask && data.finalExamPassed === false) {
         const revertedTasks = normalizeTaskList(Array.isArray(data.updatedTasks) ? data.updatedTasks : prevTasks)
@@ -2955,7 +4055,7 @@ export default function Dashboard() {
         try {
           track(EVENTS.MISSION_COMPLETED, {
             totalXp: data.xpEarned ?? (xpAmount + (data.missionBonusXp || 0) + (data.streakBonusXp || 0)),
-            dayNumber: todayRow.day_number,
+            dayNumber: todayRow?.day_number,
           }, {
             userId: user?.id, goalId: goal?.id, missionId: todayRow?.id,
             streakValue: data.streakState?.current ?? streakData.current,
@@ -3046,7 +4146,7 @@ export default function Dashboard() {
   }, [tasks, completing, xpDisplay, todayRow, streakData, addXpToast, load, gems, user, goal, energy, resolveMissionCompletion, allRows])
 
   const handleTaskReroll = useCallback(async (task) => {
-    if (rerollingTaskId || !goal || !todayRow || !user || !canRerollTask(task)) return
+    if (rerollingTaskId || !task?.id || !goal || !todayRow?.id || !user || !canRerollTask(task)) return
     setRerollingTaskId(task.id)
     try {
       const data = await rerollLearningTask({
@@ -3292,13 +4392,37 @@ export default function Dashboard() {
 
   // ─── Lesson complete ────────────────────────────────────────────────────────
   const handleLessonComplete = useCallback((task, metrics = {}) => {
-    // Close lesson view first, then complete the task
     setShowLesson(null)
-    if (task && !task.completed) {
-      // Small delay so the view closes visually before the task completion triggers
+    if (!task || task.completed) return
+    const normalizedType = getCanonicalTaskType(task?.type, task)
+    // Concept tasks get a practice round interstitial before marking complete
+    if (normalizedType === 'concept') {
+      setPracticeRoundTask({ task, metrics })
+    } else {
       setTimeout(() => completeTask(task, null, metrics), 100)
     }
   }, [completeTask])
+
+  const openDevGeneratedProject = useCallback(() => {
+    const seed = Date.now()
+    const conceptText = Array.isArray(todayRow?.covered_topics) && todayRow.covered_topics.length > 0
+      ? todayRow.covered_topics.filter(Boolean).slice(0, 6).join(', ')
+      : goal?.goal_text || 'applied fundamentals'
+
+    setPreviewTask(null)
+    setPracticeRoundTask(null)
+    setShowLesson(normalizeLearningTask({
+      id: `dev-project-${seed}`,
+      type: 'project',
+      title: 'Dev Generated Project',
+      description: 'Temporary dev tool project generated on demand for testing the project viewer.',
+      estimatedTimeMin: 60,
+      durationMin: 60,
+      _concept: conceptText,
+      _devAutoProjectMode: 'guided',
+      _devGenerated: true,
+    }))
+  }, [goal?.goal_text, todayRow?.covered_topics])
 
   // ─── Switch active goal ─────────────────────────────────────────────────────
   const switchGoal = useCallback(async (goalId) => {
@@ -3319,11 +4443,19 @@ export default function Dashboard() {
 
   // ─── Computed ───────────────────────────────────────────────────────────────
   const visibleTasks = useMemo(() => getFilteredTasks(annotateTaskLocks(tasks), energy), [tasks, energy])
-  const activeViewerTask = showLesson ? normalizeLearningTask(showLesson) : null
+  const activeViewerTask = useMemo(() => showLesson ? normalizeLearningTask(showLesson) : null, [showLesson])
   const activeViewerType = activeViewerTask?.type || ''
   const activeViewerPresentation = activeViewerTask?.presentation || ''
+  const activeViewerPracticeDomain = resolvePracticeDomainForGoal(activeDomain, goal?.goal_text || '')
+  const storedViewerDomainTaskType = activeViewerTask?.domainTaskType || activeViewerTask?._domainTaskType || null
+  const fallbackViewerDomainTaskType = getDomainAssignmentType(activeViewerPracticeDomain, activeViewerType, goal?.goal_text || '')
+  const storedViewerTaskIsInvalidCode = CODE_DOMAIN_TASK_TYPES.includes(storedViewerDomainTaskType)
+    && activeViewerPracticeDomain !== 'CS_CODING'
+  const activeViewerDomainTaskType = activeViewerType !== 'concept'
+    && !['boss', 'final_exam'].includes(activeViewerType)
+    ? (storedViewerTaskIsInvalidCode ? fallbackViewerDomainTaskType : storedViewerDomainTaskType || fallbackViewerDomainTaskType)
+    : null
   const hiddenCount = tasks.length - visibleTasks.length
-  const courseDayLocked = isCourseDayPaywalled(goal, todayRow)
   const expectedCourseSpan = Math.max(
     Number(totalDaysPlanned) || 0,
     Number(goal?.total_days) || 0,
@@ -3383,6 +4515,189 @@ export default function Dashboard() {
   }, 0)
   const weekDays   = allRows.slice(-7).filter(r=>r.completion_status==='completed').length
   const dayNumber  = todayRow?.day_number || 1
+  const nextActionTask = visibleTasks.find((task) => !task.completed && !task._locked) || null
+  const focusProgress = useMemo(() => {
+    const progressTasks = visibleTasks.length > 0 ? visibleTasks : tasks
+    const completed = progressTasks.filter((task) => task.completed).length
+    const total = progressTasks.length
+    return {
+      completed,
+      total,
+      ratio: total > 0 ? Math.min(1, completed / total) : 0,
+    }
+  }, [tasks, visibleTasks])
+  const commandActions = useMemo(() => {
+    const actions = []
+    const add = (action) => actions.push(action)
+
+    if (nextActionTask) {
+      const info = getTaskDisplayConfig(nextActionTask)
+      const style = taskStyle(nextActionTask)
+      add({
+        id:'continue-next-task',
+        group:'Start',
+        label:`Continue ${nextActionTask.title || 'next task'}`,
+        meta:'Open the next unfinished mission item',
+        icon:info.icon || 'rocket',
+        accent:style.color,
+        pill:`+${xpForTask(nextActionTask)} XP`,
+        keywords:['continue','start','today','task','mission'],
+        run:() => setPreviewTask(nextActionTask),
+      })
+    }
+
+    if (showInlineNextDayCTA && !nextDayBusy) {
+      add({
+        id:'start-next-day',
+        group:'Start',
+        label:nextDayCtaLabel.replace(' →', ''),
+        meta:'Move your course forward',
+        icon:nextRowIsFinalExam ? 'award' : 'rocket',
+        accent:T.teal,
+        keywords:['next','tomorrow','day','continue','course'],
+        run:handleStartNextDay,
+      })
+    }
+
+    DASHBOARD_NAV_ITEMS.forEach((item) => {
+      add({
+        id:`tab-${item.key}`,
+        group:'Navigate',
+        label:item.label,
+        meta:item.meta,
+        icon:item.icon,
+        accent:item.key === activeTab ? T.teal : T.textSec,
+        keywords:[item.key,item.label,item.meta],
+        run:() => handleTabSelect(item.key),
+      })
+    })
+
+    add({
+      id:'switch-goal',
+      group:'Workspace',
+      label:'Switch goal',
+      meta:'Open your goal drawer',
+      icon:'goal',
+      accent:T.teal,
+      keywords:['goal','drawer','course'],
+      run:() => setShowGoalsSidebar(true),
+    })
+    add({
+      id:'new-goal',
+      group:'Workspace',
+      label:'Start a new goal',
+      meta:'Create another learning path',
+      icon:'plus',
+      accent:T.mastery,
+      keywords:['goal','new','onboarding'],
+      run:() => router.push('/onboarding'),
+    })
+    add({
+      id:'portfolio',
+      group:'Workspace',
+      label:'Portfolio',
+      meta:'Review completed projects and proof',
+      icon:'briefcase',
+      accent:T.mastery,
+      keywords:['portfolio','projects','proof'],
+      run:() => router.push('/portfolio'),
+    })
+    add({
+      id:'practice-gallery',
+      group:'Workspace',
+      label:'Practice gallery',
+      meta:'Open generated practice experiences',
+      icon:'library',
+      accent:T.amber,
+      keywords:['practice','gallery'],
+      run:() => router.push('/practice-gallery'),
+    })
+    add({
+      id:'path-preview-overlay',
+      group:'Workspace',
+      label:'Open path preview',
+      meta:'See the experimental path map',
+      icon:'map',
+      accent:T.teal,
+      keywords:['path','preview','map'],
+      run:() => setShowPathView(true),
+    })
+    add({
+      id:'path-view-2',
+      group:'Workspace',
+      label:'Open Path View 2',
+      meta:'Try the alternate course map',
+      icon:'map',
+      accent:T.amber,
+      keywords:['path','preview','map','alternate'],
+      run:() => router.push('/path-view-2'),
+    })
+    add({
+      id:'path-view-3',
+      group:'Workspace',
+      label:'Open Path View 3',
+      meta:'Try the course-style map',
+      icon:'map',
+      accent:T.blue,
+      keywords:['path','preview','map','course'],
+      run:() => router.push('/path-view-3'),
+    })
+    add({
+      id:'dev-generated-project',
+      group:'Workspace',
+      label:'Open dev project',
+      meta:'Generate a test project flow',
+      icon:'folder_kanban',
+      accent:T.mastery,
+      keywords:['dev','project','test'],
+      run:openDevGeneratedProject,
+    })
+
+    if (isComeback && freezeCount > 0 && !freezing) {
+      add({
+        id:'use-streak-freeze',
+        group:'Protect',
+        label:'Use streak freeze',
+        meta:`${freezeCount} available`,
+        icon:'shield',
+        accent:T.flame,
+        keywords:['streak','freeze','protect'],
+        run:handleFreeze,
+      })
+    }
+
+    ENERGY_OPTIONS.forEach((option) => {
+      add({
+        id:`energy-${option.key}`,
+        group:'Energy',
+        label:`Set energy to ${option.label}`,
+        meta:option.key === energy ? 'Current mode' : 'Adjust today\'s mission density',
+        icon:option.icon,
+        accent:option.key === energy ? T.teal : T.textSec,
+        keywords:['energy','mode',option.key,option.label],
+        run:() => handleEnergyChange(option.key),
+      })
+    })
+
+    return actions
+  }, [
+    activeTab,
+    energy,
+    freezeCount,
+    freezing,
+    handleEnergyChange,
+    handleFreeze,
+    handleStartNextDay,
+    handleTabSelect,
+    isComeback,
+    nextActionTask,
+    nextDayBusy,
+    nextDayCtaLabel,
+    nextRowIsFinalExam,
+    openDevGeneratedProject,
+    router,
+    showInlineNextDayCTA,
+  ])
   // ─── Loading state ─────────────────────────────────────────────────────────
   if (loading) return (
     <div style={{...pageThemeStyle,minHeight:'100vh',fontFamily:T.font,padding:'0 20px'}}>
@@ -3427,6 +4742,155 @@ export default function Dashboard() {
   return (
     <div style={themeVars}>
       <style>{KEYFRAMES}</style>
+      <DashboardCommandMenu
+        open={commandOpen}
+        query={commandQuery}
+        onQueryChange={setCommandQuery}
+        actions={commandActions}
+        onClose={() => setCommandOpen(false)}
+      />
+
+      {/* ── Path View overlay ── */}
+      {showPathView && (
+        <PathViewOverlay onClose={() => setShowPathView(false)} />
+      )}
+
+      {/* ── Path View toggle buttons ── */}
+      {!showPathView && activeTab === 'home' && !showLesson && !previewTask && (
+        <div
+          className="dashboard-quick-actions"
+          style={{
+            position:'fixed',
+            right:16,
+            bottom:88,
+            zIndex:400,
+            display:'flex',
+            flexDirection:'column',
+            alignItems:'flex-end',
+            gap:8,
+            animation:'pathTogglePop 0.45s cubic-bezier(0.34,1.3,0.64,1) both',
+          }}
+        >
+          {[
+            { label: 'Path View', href: '/path-view', tone: 'teal' },
+            { label: 'Path View 2', href: '/path-view-2', tone: 'paper' },
+            { label: 'pathView 3', href: '/path-view-3', tone: 'course' },
+            { label: 'Practice Gallery', href: '/practice-gallery', tone: 'practice' },
+            { label: 'Dev Project', onClick: openDevGeneratedProject, tone: 'devProject' },
+          ].map((item) => {
+            const paper = item.tone === 'paper'
+            const course = item.tone === 'course'
+            const practice = item.tone === 'practice'
+            const devProject = item.tone === 'devProject'
+            const baseBg = paper
+              ? 'linear-gradient(135deg,rgba(255,255,255,0.92),rgba(238,238,235,0.92))'
+              : course
+                ? 'linear-gradient(135deg,rgba(0,86,210,0.96),rgba(31,112,255,0.94))'
+                : practice
+                  ? 'linear-gradient(135deg,rgba(250,204,21,0.92),rgba(14,245,194,0.90))'
+                  : devProject
+                    ? 'linear-gradient(135deg,rgba(236,72,153,0.95),rgba(168,85,247,0.92))'
+              : 'linear-gradient(135deg,rgba(14,245,194,0.15),rgba(99,102,241,0.18))'
+            const hoverBg = paper
+              ? 'linear-gradient(135deg,rgba(255,255,255,1),rgba(229,229,226,1))'
+              : course
+                ? 'linear-gradient(135deg,rgba(0,74,178,1),rgba(0,105,255,1))'
+                : practice
+                  ? 'linear-gradient(135deg,rgba(255,214,52,1),rgba(28,255,207,1))'
+                  : devProject
+                    ? 'linear-gradient(135deg,rgba(244,114,182,1),rgba(192,132,252,1))'
+              : 'linear-gradient(135deg,rgba(14,245,194,0.22),rgba(99,102,241,0.26))'
+            return (
+              <button
+                key={item.href || item.label}
+                onClick={() => item.onClick ? item.onClick() : router.push(item.href)}
+                style={{
+                  display:'flex',
+                  alignItems:'center',
+                  gap:7,
+                  padding:'10px 16px',
+                  background:baseBg,
+                  border:paper
+                    ? '1px solid rgba(20,20,20,0.18)'
+                    : course
+                      ? '1px solid rgba(145,190,255,0.55)'
+                      : practice
+                        ? '1px solid rgba(255,255,255,0.36)'
+                        : devProject
+                          ? '1px solid rgba(255,255,255,0.28)'
+                      : '1px solid rgba(14,245,194,0.35)',
+                  borderRadius:9999,
+                  color:paper ? '#1f1f1f' : course ? '#fff' : practice ? '#071510' : devProject ? '#fff' : T.teal,
+                  fontSize:12,
+                  fontWeight:800,
+                  fontFamily:T.font,
+                  cursor:'pointer',
+                  backdropFilter:'blur(20px)',
+                  WebkitBackdropFilter:'blur(20px)',
+                  boxShadow:paper
+                    ? '0 4px 18px rgba(0,0,0,0.18), 0 0 0 1px rgba(255,255,255,0.40)'
+                    : course
+                      ? '0 4px 20px rgba(0,86,210,0.30), 0 0 0 1px rgba(255,255,255,0.12)'
+                      : practice
+                        ? '0 4px 20px rgba(14,245,194,0.22), 0 0 0 1px rgba(250,204,21,0.20)'
+                        : devProject
+                          ? '0 4px 20px rgba(236,72,153,0.26), 0 0 0 1px rgba(255,255,255,0.12)'
+                    : '0 4px 20px rgba(14,245,194,0.18), 0 0 0 1px rgba(14,245,194,0.08)',
+                  letterSpacing:'0.3px',
+                  transition:'all 0.20s cubic-bezier(0.16,1,0.3,1)',
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.background=hoverBg
+                  e.currentTarget.style.transform='scale(1.05)'
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.background=baseBg
+                  e.currentTarget.style.transform='scale(1)'
+                }}
+              >
+                <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                  {paper ? (
+                    <>
+                      <path d="M5 4h14"/>
+                      <path d="M5 9h14"/>
+                      <path d="M5 14h10"/>
+                      <path d="M5 19h7"/>
+                    </>
+                  ) : course ? (
+                    <>
+                      <path d="M4 6.5h16"/>
+                      <path d="M6 6.5v12h12v-12"/>
+                      <path d="M9 10h6"/>
+                      <path d="M9 14h4"/>
+                    </>
+                  ) : practice ? (
+                    <>
+                      <path d="M4 7h16"/>
+                      <path d="M4 12h10"/>
+                      <path d="M4 17h16"/>
+                      <path d="M18 10l2 2-2 2"/>
+                    </>
+                  ) : devProject ? (
+                    <>
+                      <path d="M4 16.5V20h3.5"/>
+                      <path d="M20 7.5V4h-3.5"/>
+                      <path d="M5 19l5.5-5.5"/>
+                      <path d="M19 5l-5.5 5.5"/>
+                      <path d="M12 8l4 4-4 4-4-4 4-4z"/>
+                    </>
+                  ) : (
+                    <>
+                      <circle cx="12" cy="5" r="3"/><line x1="12" y1="8" x2="12" y2="13"/>
+                      <circle cx="12" cy="16" r="3"/><line x1="12" y1="19" x2="12" y2="21"/>
+                    </>
+                  )}
+                </svg>
+                {item.label}
+              </button>
+            )
+          })}
+        </div>
+      )}
 
       {/* Goals sidebar */}
       {showGoalsSidebar && (
@@ -3525,15 +4989,6 @@ export default function Dashboard() {
                 cursor:'pointer',fontFamily:T.font,
                 boxShadow:'0 0 24px rgba(14,245,194,0.25)',
               }}>+ New Goal</button>
-              <button onClick={() => { setShowGoalsSidebar(false); router.push('/courses') }} style={{
-                width:'100%',padding:'11px',
-                marginTop:10,
-                background:'rgba(255,255,255,0.04)',
-                border:`1px solid ${T.border}`,
-                borderRadius:14,
-                color:T.text,fontWeight:800,fontSize:13,
-                cursor:'pointer',fontFamily:T.font,
-              }}>Browse more courses</button>
             </div>
           </div>
         </>
@@ -3768,70 +5223,111 @@ export default function Dashboard() {
 
       {/* Task viewer — routed by canonical task family */}
 
+      {activeViewerTask && activeViewerDomainTaskType && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 200, background: '#070a12', overflowY: 'auto' }}>
+          <div style={{ position: 'sticky', top: 0, zIndex: 4, height: 58, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 18px', background: 'rgba(7,10,18,0.92)', borderBottom: '1px solid rgba(255,255,255,0.08)', backdropFilter: 'blur(18px)' }}>
+            <button
+              onClick={() => setShowLesson(null)}
+              className="interactive-button"
+              style={{ border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.06)', color: '#f5f7fb', borderRadius: 10, padding: '9px 12px', fontWeight: 900, cursor: 'pointer' }}
+            >
+              Close
+            </button>
+            <span style={{ color: '#8ea0b8', fontSize: 12, fontWeight: 900, letterSpacing: '0.12em', textTransform: 'uppercase' }}>
+              {storedViewerTaskIsInvalidCode ? getDomainTaskLabel(activeViewerDomainTaskType) : (activeViewerTask.domainTaskLabel || getDomainTaskLabel(activeViewerDomainTaskType))}
+            </span>
+          </div>
+          <DomainTaskBase
+            taskType={activeViewerDomainTaskType}
+            domain={activeViewerPracticeDomain}
+            topic={activeViewerTask._concept || activeViewerTask.title}
+            goal={goal?.goal_text}
+            taskTitle={activeViewerTask.title}
+            lessonContent={[activeViewerTask.description, activeViewerTask.action, activeViewerTask.outcome].filter(Boolean).join('\n')}
+            userLevel={activeViewerTask._learningContract?.learnerProfile?.level || activeViewerTask.learningContract?.learnerProfile?.level || xpDisplay?.level || 'beginner'}
+            onComplete={(payload) => handleLessonComplete(activeViewerTask, payload)}
+          />
+        </div>
+      )}
+
       {activeViewerTask && activeViewerType === 'concept' && (
         <LessonViewer
           concept={activeViewerTask._concept || activeViewerTask.title}
           taskTitle={activeViewerTask.title}
           goal={goal?.goal_text}
-          knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
+          knowledge={goalKnowledge}
           lessonKey={`${goal?.id || 'g'}::${activeViewerTask.id || activeViewerTask.title}`}
           sourceTask={activeViewerTask}
+          domain={activeDomain}
+          domainConfig={activeDomainConfig}
           aiMode={activeViewerTask._aiMode || 'hint'}
           onClose={() => setShowLesson(null)}
           onComplete={(payload) => handleLessonComplete(activeViewerTask, payload)}
           onHeartLost={handleHeartLost}
         />
       )}
-      {activeViewerTask && activeViewerType === 'guided_practice' && activeViewerPresentation === 'exercise' && (
+      {activeViewerTask && !activeViewerDomainTaskType && activeViewerType === 'guided_practice' && activeViewerPresentation === 'exercise' && (
         <ProjectView
           task={activeViewerTask}
           goal={goal?.goal_text}
-          knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
+          knowledge={goalKnowledge}
+          domain={activeDomain}
+          domainConfig={activeDomainConfig}
           onClose={() => setShowLesson(null)}
           onComplete={(payload) => handleLessonComplete(activeViewerTask, payload)}
         />
       )}
-      {activeViewerTask && activeViewerType === 'guided_practice' && activeViewerPresentation !== 'exercise' && (
+      {activeViewerTask && !activeViewerDomainTaskType && activeViewerType === 'guided_practice' && activeViewerPresentation !== 'exercise' && (
         <GuidedPracticeView
           task={activeViewerTask}
           goal={goal?.goal_text}
-          knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
+          knowledge={goalKnowledge}
+          domain={activeDomain}
+          domainConfig={activeDomainConfig}
           onClose={() => setShowLesson(null)}
           onComplete={(payload) => handleLessonComplete(activeViewerTask, payload)}
         />
       )}
-      {activeViewerTask && activeViewerType === 'challenge' && (
+      {activeViewerTask && !activeViewerDomainTaskType && activeViewerType === 'challenge' && (
         <ChallengeView
           task={activeViewerTask}
           goal={goal?.goal_text}
-          knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
+          knowledge={goalKnowledge}
+          domain={activeDomain}
+          domainConfig={activeDomainConfig}
           onClose={() => setShowLesson(null)}
           onComplete={(payload) => handleLessonComplete(activeViewerTask, payload)}
         />
       )}
-      {activeViewerTask && activeViewerType === 'explain' && (
+      {activeViewerTask && !activeViewerDomainTaskType && activeViewerType === 'explain' && (
         <AIInteractionView
           task={activeViewerTask}
           goal={goal?.goal_text}
-          knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
+          knowledge={goalKnowledge}
+          domain={activeDomain}
+          domainConfig={activeDomainConfig}
           onClose={() => setShowLesson(null)}
           onComplete={(payload) => handleLessonComplete(activeViewerTask, payload)}
         />
       )}
-      {activeViewerTask && activeViewerType === 'recall' && activeViewerPresentation === 'flashcard' && (
+      {activeViewerTask && !activeViewerDomainTaskType && activeViewerType === 'recall' && activeViewerPresentation === 'flashcard' && (
         <FlashcardView
           task={activeViewerTask}
           goal={goal?.goal_text}
-          knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
+          knowledge={goalKnowledge}
+          domain={activeDomain}
+          domainConfig={activeDomainConfig}
           onClose={() => setShowLesson(null)}
           onComplete={(payload) => handleLessonComplete(activeViewerTask, payload)}
         />
       )}
-      {activeViewerTask && ['quiz', 'recall', 'final_exam'].includes(activeViewerType) && !(activeViewerType === 'recall' && activeViewerPresentation === 'flashcard') && (
+      {activeViewerTask && !activeViewerDomainTaskType && ['quiz', 'recall', 'final_exam'].includes(activeViewerType) && !(activeViewerType === 'recall' && activeViewerPresentation === 'flashcard') && (
         <MultiQuizView
           task={activeViewerTask}
           goal={goal?.goal_text}
-          knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
+          knowledge={goalKnowledge}
+          domain={activeDomain}
+          domainConfig={activeDomainConfig}
           onClose={() => setShowLesson(null)}
           onComplete={(payload) => handleLessonComplete(activeViewerTask, payload)}
         />
@@ -3840,7 +5336,9 @@ export default function Dashboard() {
         <ReflectionView
           task={activeViewerTask}
           goal={goal?.goal_text}
-          knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
+          knowledge={goalKnowledge}
+          domain={activeDomain}
+          domainConfig={activeDomainConfig}
           onClose={() => setShowLesson(null)}
           onComplete={(payload) => handleLessonComplete(activeViewerTask, payload)}
         />
@@ -3849,7 +5347,9 @@ export default function Dashboard() {
         <BossChallengeView
           task={activeViewerTask}
           goal={goal?.goal_text}
-          knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
+          knowledge={goalKnowledge}
+          domain={activeDomain}
+          domainConfig={activeDomainConfig}
           onClose={() => setShowLesson(null)}
           onComplete={(payload) => handleLessonComplete(activeViewerTask, payload)}
         />
@@ -3858,8 +5358,11 @@ export default function Dashboard() {
         <ProjectViewer
           task={activeViewerTask}
           goal={goal?.goal_text}
-          knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
+          knowledge={goalKnowledge}
+          domain={activeDomain}
+          domainConfig={activeDomainConfig}
           goalId={goal?.id}
+          autoGenerateMode={activeViewerTask?._devAutoProjectMode || null}
           onClose={() => setShowLesson(null)}
           onComplete={(payload) => handleLessonComplete(activeViewerTask, payload)}
         />
@@ -3869,13 +5372,35 @@ export default function Dashboard() {
           concept={activeViewerTask._concept || activeViewerTask.title}
           taskTitle={activeViewerTask.title}
           goal={goal?.goal_text}
-          knowledge={Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')}
+          knowledge={goalKnowledge}
           lessonKey={`${goal?.id || 'g'}::${activeViewerTask.id || activeViewerTask.title}`}
           sourceTask={activeViewerTask}
+          domain={activeDomain}
+          domainConfig={activeDomainConfig}
           aiMode={activeViewerTask._aiMode || 'hint'}
           onClose={() => setShowLesson(null)}
           onComplete={(payload) => handleLessonComplete(activeViewerTask, payload)}
           onHeartLost={handleHeartLost}
+        />
+      )}
+
+      {/* ── Practice Round interstitial (concept tasks only) ── */}
+      {practiceRoundTask && (
+        <PracticeRound
+          taughtPoints={practiceRoundTask.task?._learningContract?.taughtPoints || []}
+          learningContract={practiceRoundTask.task?._learningContract || null}
+          goalId={goal?.id}
+          previousConcepts={[]}
+          onComplete={(practiceMetrics) => {
+            const { task, metrics } = practiceRoundTask
+            setPracticeRoundTask(null)
+            setTimeout(() => completeTask(task, null, { ...metrics, practiceScore: practiceMetrics?.score, practiceXp: practiceMetrics?.xp }), 80)
+          }}
+          onSkip={() => {
+            const { task, metrics } = practiceRoundTask
+            setPracticeRoundTask(null)
+            setTimeout(() => completeTask(task, null, metrics), 80)
+          }}
         />
       )}
 
@@ -3884,32 +5409,44 @@ export default function Dashboard() {
         {/* ── Sticky top bar ── */}
         <div style={{
           position:'sticky',top:0,zIndex:60,
-          background:'rgba(5,6,8,0.92)',
-          backdropFilter:'blur(20px) saturate(180%)',
-          WebkitBackdropFilter:'blur(20px) saturate(180%)',
-          borderBottom:'1px solid rgba(14,245,194,0.06)',
+          background:'rgba(4,5,10,0.90)',
+          backdropFilter:'blur(28px) saturate(200%)',
+          WebkitBackdropFilter:'blur(28px) saturate(200%)',
+          borderBottom:'1px solid rgba(255,255,255,0.07)',
         }} className="safe-top-shell">
-          <div style={{maxWidth:600,margin:'0 auto',height:56,
-            display:'flex',alignItems:'center',gap:14,padding:'0 20px',justifyContent:'space-between'}}>
+          <div className="dashboard-top-inner" style={{height:58,
+            display:'flex',alignItems:'center',gap:12,padding:'0 16px',justifyContent:'space-between'}}>
             <button onClick={() => setShowGoalsSidebar(true)} className="interactive-icon" style={{
-              minWidth:0,maxWidth:'48%',background:'none',border:'none',
+              minWidth:0,maxWidth:'min(280px,52vw)',background:'none',border:'none',
               cursor:'pointer',fontFamily:T.font,textAlign:'left',padding:0,
               display:'flex',alignItems:'center',gap:10,
               minHeight:44,
             }}>
               <PathBoltLogo />
-              <div style={{
-                minWidth:0,
-              }}>
+              <div style={{minWidth:0}}>
+                <div style={{fontSize:10,fontWeight:800,color:T.textMuted,letterSpacing:'1.5px',textTransform:'uppercase',marginBottom:1}}>
+                  Goal
+                </div>
                 <div style={{
                   fontSize:14,fontWeight:800,color:T.text,
                   whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',
-                  display:'flex',alignItems:'center',gap:5,
+                  display:'flex',alignItems:'center',gap:4,
                 }}>
                   {shortGoalText}
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={T.textMuted} strokeWidth="2.5" strokeLinecap="round"><polyline points="6 9 12 15 18 9"/></svg>
                 </div>
               </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setCommandOpen(true)}
+              className="dashboard-command-trigger interactive-secondary"
+            >
+              <IconGlyph name="compass" size={16} strokeWidth={2.35} color={T.teal}/>
+              <span style={{fontSize:13,fontWeight:850,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
+                Find anything
+              </span>
             </button>
 
             <div style={{display:'flex',alignItems:'center',gap:12,flexShrink:0}}>
@@ -3999,6 +5536,17 @@ export default function Dashboard() {
           </div>
         )}
 
+        <div className="dashboard-main-shell">
+          <DashboardDesktopNav
+            activeTab={activeTab}
+            onSelect={handleTabSelect}
+            onOpenCommand={() => setCommandOpen(true)}
+            goalText={shortGoalText}
+            dayNumber={dayNumber}
+            focusProgress={focusProgress}
+          />
+
+          <main className="dashboard-main-content">
         {/* ══════════════════════════════════════════════════════════════ */}
         {/* HOME TAB                                                       */}
         {/* ══════════════════════════════════════════════════════════════ */}
@@ -4011,22 +5559,22 @@ export default function Dashboard() {
             {boostTimeLeft > 0 && (
               <StaggerBlock index={1}>
                 <div style={{maxWidth:600,margin:'0 auto',padding:'0 20px'}}>
-                  <div style={{
-                    background:'linear-gradient(90deg,rgba(251,191,36,0.12),rgba(14,245,194,0.10),rgba(0,212,255,0.10))',
-                    border:'1px solid rgba(251,191,36,0.22)',
-                    borderRadius:16,padding:'12px 16px',
-                    display:'flex',alignItems:'center',justifyContent:'space-between',
-                    animation:'pulseActive 2s ease-in-out infinite',
-                    boxShadow:'0 0 30px rgba(251,191,36,0.08)',
-                  }}>
-                    <div style={{display:'flex',alignItems:'center',gap:8}}>
-                      <IconGlyph name="bolt" size={16} strokeWidth={2.3} color="#FBBF24"/>
-                      <span style={{fontSize:13,fontWeight:800,color:'#FBBF24'}}>Double XP is live</span>
-                    </div>
-                    <span style={{fontSize:14,fontWeight:800,color:'#FBBF24',fontFamily:T.fontMono}}>
-                      {Math.floor(boostTimeLeft/60)}:{String(boostTimeLeft%60).padStart(2,'0')}
-                    </span>
+                <div style={{
+                  background:'linear-gradient(90deg,rgba(251,191,36,0.12),rgba(14,245,194,0.10),rgba(0,212,255,0.10))',
+                  border:'1px solid rgba(251,191,36,0.22)',
+                  borderRadius:18,padding:'14px 18px',
+                  display:'flex',alignItems:'center',justifyContent:'space-between',
+                  animation:'pulseActive 2s ease-in-out infinite',
+                  boxShadow:'0 0 30px rgba(251,191,36,0.08)',
+                }}>
+                  <div style={{display:'flex',alignItems:'center',gap:8}}>
+                    <IconGlyph name="bolt" size={16} strokeWidth={2.3} color="#FBBF24"/>
+                    <span style={{fontSize:15,fontWeight:900,color:'#FBBF24'}}>Double XP is live</span>
                   </div>
+                  <span style={{fontSize:15,fontWeight:900,color:'#FBBF24',fontFamily:T.fontMono}}>
+                    {Math.floor(boostTimeLeft/60)}:{String(boostTimeLeft%60).padStart(2,'0')}
+                  </span>
+                </div>
                 </div>
               </StaggerBlock>
             )}
@@ -4112,19 +5660,33 @@ export default function Dashboard() {
               <StaggerBlock index={3}>
               <div style={{maxWidth:600,margin:'12px auto 0',padding:'0 20px'}}>
                 <div style={{
-                  background:T.surface,border:`1px solid ${T.border}`,
-                  borderRadius:20,padding:'16px 18px',
-                  backdropFilter:'blur(16px)',WebkitBackdropFilter:'blur(16px)',
+                  background:'linear-gradient(145deg,rgba(255,255,255,0.05) 0%,rgba(255,255,255,0.02) 100%)',
+                  border:`1px solid ${T.border}`,
+                  borderRadius:24,padding:'18px 20px',
+                  backdropFilter:'blur(20px)',WebkitBackdropFilter:'blur(20px)',
+                  boxShadow:'inset 0 1px 0 rgba(255,255,255,0.06)',
                 }}>
-                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
+                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
                     <div style={{display:'flex',alignItems:'center',gap:8}}>
-                      <IconGlyph name="target" size={16} strokeWidth={2.3} color={T.textSec}/>
-                      <span style={{fontSize:12,fontWeight:800,letterSpacing:'1px',color:T.textSec,textTransform:'uppercase'}}>
-                        Daily Quests
+                      <div style={{
+                        width:28,height:28,borderRadius:9,
+                        display:'flex',alignItems:'center',justifyContent:'center',
+                        background:'rgba(14,245,194,0.09)',border:`1px solid ${T.tealBorder}`,
+                      }}>
+                        <IconGlyph name="target" size={14} strokeWidth={2.3} color={T.teal}/>
+                      </div>
+                      <span style={{fontSize:15,fontWeight:900,color:T.text}}>
+                        Daily {domainGameText.quests}
                       </span>
                     </div>
-                    <span style={{fontSize:11,color:T.textMuted,fontWeight:600}}>
-                      {quests.filter(q => q.completed).length}/{quests.length} done
+                    <span style={{
+                      fontSize:11,fontWeight:700,
+                      color: quests.every(q=>q.completed) ? T.teal : T.textMuted,
+                      background: quests.every(q=>q.completed) ? 'rgba(14,245,194,0.09)' : 'rgba(255,255,255,0.04)',
+                      border:`1px solid ${quests.every(q=>q.completed) ? T.tealBorder : 'rgba(255,255,255,0.06)'}`,
+                      padding:'3px 10px',borderRadius:9999,
+                    }}>
+                      {quests.filter(q => q.completed).length}/{quests.length}
                     </span>
                   </div>
 
@@ -4133,38 +5695,57 @@ export default function Dashboard() {
                       const pct = q.target > 0 ? Math.min(1, q.current / q.target) : 0
                       return (
                         <div key={q.id} style={{
-                          padding:'10px 14px',
-                          background: q.completed ? 'rgba(14,245,194,0.04)' : 'rgba(255,255,255,0.02)',
+                          padding:'12px 14px',
+                          background: q.completed ? 'rgba(14,245,194,0.04)' : 'rgba(255,255,255,0.025)',
                           border:`1px solid ${q.completed ? 'rgba(14,245,194,0.14)' : 'rgba(255,255,255,0.06)'}`,
-                          borderRadius:14,
-                          opacity: q.completed ? 0.7 : 1,
+                          borderRadius:16,
+                          opacity: q.completed ? 0.65 : 1,
+                          transition:'all 0.2s',
                         }}>
-                          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:6}}>
-                            <span style={{
-                              fontSize:13,fontWeight:600,
-                              color: q.completed ? T.textMuted : T.text,
-                              textDecoration: q.completed ? 'line-through' : 'none',
+                          <div style={{display:'flex',alignItems:'center',gap:10,marginBottom: q.completed ? 0 : 8}}>
+                            <div style={{
+                              width:22, height:22, borderRadius:7, flexShrink:0,
+                              display:'flex', alignItems:'center', justifyContent:'center',
+                              background: q.completed ? 'rgba(14,245,194,0.10)' : 'rgba(255,255,255,0.05)',
+                              border:`1px solid ${q.completed ? 'rgba(14,245,194,0.22)' : 'rgba(255,255,255,0.08)'}`,
                             }}>
-                              {q.completed && <span style={{display:'inline-flex',verticalAlign:'middle',marginRight:6}}><IconGlyph name="check" size={11} strokeWidth={2.8} color={T.teal}/></span>}
+                              {q.completed && <IconGlyph name="check" size={11} strokeWidth={2.8} color={T.teal}/>}
+                            </div>
+                            <span style={{
+                              flex:1,
+                              fontSize:14,fontWeight:700,
+                              color: q.completed ? T.textMuted : T.text,
+                              textDecorationLine: q.completed ? 'line-through' : 'none',
+                              textDecorationColor:'rgba(255,255,255,0.2)',
+                            }}>
                               {q.description}
                             </span>
                             <span style={{
-                              fontSize:12,fontWeight:700,color:q.completed ? T.textMuted : T.teal,
+                              fontSize:12,fontWeight:800,
+                              color:q.completed ? T.textMuted : T.teal,
                               display:'flex',alignItems:'center',gap:3,flexShrink:0,
+                              background: q.completed ? 'transparent' : 'rgba(14,245,194,0.07)',
+                              padding: q.completed ? 0 : '2px 8px', borderRadius:6,
                             }}>
                               <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
                                 <path d="M6 3L2 9l10 12L22 9l-4-6H6z" fill={q.completed ? T.textMuted : T.teal} opacity="0.85"/>
                               </svg>
-                              {q.completed ? 'Claimed' : `+${q.reward}`}
+                              {q.completed ? 'Done' : `+${q.reward}`}
                             </span>
                           </div>
                           {!q.completed && (
-                            <div style={{height:4,background:'rgba(255,255,255,0.06)',borderRadius:9999,overflow:'hidden'}}>
-                              <div style={{
-                                height:'100%',width:`${Math.round(pct*100)}%`,
-                                background:T.primaryGradientSoft,borderRadius:9999,
-                                transition:'width 0.4s',
-                              }}/>
+                            <div style={{display:'flex',alignItems:'center',gap:8}}>
+                              <div style={{flex:1,height:4,background:'rgba(255,255,255,0.06)',borderRadius:9999,overflow:'hidden'}}>
+                                <div style={{
+                                  height:'100%',width:`${Math.round(pct*100)}%`,
+                                  background:T.primaryGradientSoft,borderRadius:9999,
+                                  transition:'width 0.5s cubic-bezier(0.16,1,0.3,1)',
+                                  boxShadow: pct>0 ? '0 0 6px rgba(14,245,194,0.45)' : 'none',
+                                }}/>
+                              </div>
+                              <span style={{fontSize:10,color:T.textMuted,fontWeight:700,minWidth:28,textAlign:'right'}}>
+                                {Math.round(pct*100)}%
+                              </span>
                             </div>
                           )}
                         </div>
@@ -4175,14 +5756,16 @@ export default function Dashboard() {
                   {/* Quest Master bonus */}
                   {quests.length > 0 && quests.every(q => q.completed) && (
                     <div style={{
-                      marginTop:10,padding:'10px 14px',
+                      marginTop:12,padding:'12px 16px',
                       background:'linear-gradient(90deg,rgba(255,215,0,0.10),rgba(14,245,194,0.06))',
-                      border:'1px solid rgba(255,215,0,0.25)',borderRadius:12,
-                      textAlign:'center',fontSize:13,fontWeight:800,color:'#FFD700',
+                      border:'1px solid rgba(255,215,0,0.28)',borderRadius:14,
+                      display:'flex',alignItems:'center',justifyContent:'center',gap:8,
+                      fontSize:13,fontWeight:800,color:'#FFD700',
                       backgroundSize:'200% auto',
                       animation:'questShimmer 3s linear infinite',
                     }}>
-                      Quest Master +30 gems
+                      <IconGlyph name="trophy" size={14} strokeWidth={2.3} color="#FFD700"/>
+                      Quest Master — +30 gems
                     </div>
                   )}
                 </div>
@@ -4199,13 +5782,13 @@ export default function Dashboard() {
               <div style={{maxWidth:600,margin:'12px auto 0',padding:'0 20px'}}>
                 <div style={{
                   background:T.surface,border:`1px solid ${T.border}`,
-                  borderRadius:20,padding:'16px 18px',
+                  borderRadius:24,padding:'18px 20px',
                   backdropFilter:'blur(16px)',WebkitBackdropFilter:'blur(16px)',
                 }}>
                   <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
                     <div style={{display:'flex',alignItems:'center',gap:8}}>
                       <IconGlyph name="map" size={16} strokeWidth={2.3} color={T.textSec}/>
-                      <span style={{fontSize:12,fontWeight:800,letterSpacing:'1px',color:T.textSec,textTransform:'uppercase'}}>
+                      <span style={{fontSize:13,fontWeight:900,letterSpacing:'1px',color:T.textSec,textTransform:'uppercase'}}>
                         Weekly Rewards
                       </span>
                     </div>
@@ -4254,7 +5837,7 @@ export default function Dashboard() {
                               <IconGlyph name="trophy" size={14} strokeWidth={2.2} color="#FFD700"/>
                             ) : (
                               <span style={{
-                                fontSize:11,fontWeight:700,
+                                fontSize:12,fontWeight:800,
                                 color: isToday ? T.teal : T.textMuted,
                               }}>{CAL_REWARDS[i]}</span>
                             )}
@@ -4277,7 +5860,7 @@ export default function Dashboard() {
                       <button onClick={handleClaimReward} disabled={claimingReward} style={{
                         width:'100%',marginTop:12,padding:'10px',
                         background:'rgba(14,245,194,0.08)',border:`1px solid ${T.tealBorder}`,
-                        borderRadius:12,color:T.teal,fontSize:13,fontWeight:700,
+                        borderRadius:14,color:T.teal,fontSize:15,fontWeight:900,
                         cursor:claimingReward?'default':'pointer',fontFamily:T.font,
                         display:'flex',alignItems:'center',justifyContent:'center',gap:6,
                       }}>
@@ -4384,36 +5967,29 @@ export default function Dashboard() {
 
             {/* Task list */}
             <StaggerBlock index={8}>
-              <div style={{maxWidth:600,margin:'0 auto',padding:'14px 20px 0',display:'grid',gap:10}}>
-                {courseDayLocked ? (
-                  <div style={{
-                    border:`1px solid ${T.tealBorder}`,
-                    borderRadius:24,
-                    background:'linear-gradient(145deg, rgba(14,245,194,0.10), rgba(132,163,255,0.07))',
-                    padding:'22px 20px',
-                    boxShadow:'0 22px 52px rgba(0,0,0,0.24)',
-                  }}>
-                    <div style={{fontSize:11,fontWeight:900,letterSpacing:'0.14em',textTransform:'uppercase',color:T.teal,marginBottom:8}}>
-                      Course preview complete
+              <div style={{maxWidth:600,margin:'0 auto',padding:'18px 20px 0'}}>
+                {/* Section header */}
+                {visibleTasks.length > 0 && (
+                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
+                    <div style={{display:'flex',alignItems:'center',gap:8}}>
+                      <div style={{
+                        width:3,height:16,borderRadius:9999,
+                        background:T.primaryGradient,
+                      }}/>
+                      <span style={{fontSize:13,fontWeight:900,color:T.textSec,letterSpacing:'1.2px',textTransform:'uppercase'}}>
+                        Today&apos;s Tasks
+                      </span>
                     </div>
-                    <h3 style={{margin:'0 0 8px',fontSize:22,lineHeight:1.05,color:T.text}}>
-                      Upgrade to Pro to continue this path.
-                    </h3>
-                    <p style={{margin:'0 0 16px',fontSize:14,lineHeight:1.55,color:T.textMuted}}>
-                      The first {FREE_COURSE_DAY_LIMIT} days are fully unlocked. Your selected course is saved, so you can keep going from this exact mission after upgrading.
-                    </p>
-                    <button onClick={() => router.push('/pricing')} style={{
-                      width:'100%',padding:'13px',
-                      border:'none',borderRadius:16,
-                      background:T.primaryGradient,
-                      color:T.ink,fontWeight:900,fontSize:14,
-                      cursor:'pointer',fontFamily:T.font,
-                      boxShadow:'0 0 28px rgba(14,245,194,0.20)',
+                    <span style={{
+                      fontSize:12,fontWeight:800,color:T.textSec,
                     }}>
-                      Upgrade to Pro
-                    </button>
+                      {visibleTasks.filter(t=>t.completed).length}/{visibleTasks.length} done
+                    </span>
                   </div>
-                ) : todayRow ? visibleTasks.length > 0 ? (
+                )}
+
+                <div style={{display:'grid',gap:10}}>
+                {todayRow ? visibleTasks.length > 0 ? (
                   visibleTasks.map((task, i) => (
                     <TaskItem key={`${String(task.id || 'task')}:${i}`} task={task} isCompleting={completing}
                       onComplete={completeTask}
@@ -4431,10 +6007,22 @@ export default function Dashboard() {
                       index={i}/>
                   ))
                 ) : (
-                  <div style={{textAlign:'center',padding:'40px 0',color:T.textMuted,fontSize:14}}>
-                    {tasks.every(t=>t.completed)
-                      ? 'All tasks complete. Great work today.'
-                      : 'No tasks available.'}
+                  <div style={{
+                    textAlign:'center',padding:'48px 24px',
+                    background:'rgba(255,255,255,0.02)',border:`1px solid ${T.border}`,
+                    borderRadius:20,
+                  }}>
+                    <div style={{fontSize:32,marginBottom:12}}>
+                      {tasks.every(t=>t.completed) ? '🎉' : '📋'}
+                    </div>
+                    <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:6}}>
+                      {tasks.every(t=>t.completed) ? 'All done!' : 'No tasks available'}
+                    </div>
+                    <div style={{fontSize:13,color:T.textMuted,lineHeight:1.6}}>
+                      {tasks.every(t=>t.completed)
+                        ? 'Great work today. Come back tomorrow for more.'
+                        : 'Check back soon.'}
+                    </div>
                   </div>
                 ) : (
                   <div style={{textAlign:'center',padding:'40px 0',color:T.textMuted,fontSize:14}}>
@@ -4443,8 +6031,12 @@ export default function Dashboard() {
                 )}
 
                 {energy === 'drained' && (
-                  <div style={{textAlign:'center',padding:'8px 0',color:T.textMuted,fontSize:13}}>
-                    Rest day. Stay in the habit.
+                  <div style={{
+                    textAlign:'center',padding:'14px 16px',
+                    background:'rgba(255,255,255,0.02)',border:`1px solid ${T.border}`,
+                    borderRadius:14,fontSize:13,color:T.textMuted,lineHeight:1.5,
+                  }}>
+                    Rest day — maintain the habit.
                   </div>
                 )}
                 {hiddenCount > 0 && energy !== 'drained' && (
@@ -4452,6 +6044,7 @@ export default function Dashboard() {
                     {hiddenCount} more task{hiddenCount>1?'s':''} available when you have more energy
                   </p>
                 )}
+                </div>
               </div>
             </StaggerBlock>
 
@@ -4560,11 +6153,11 @@ export default function Dashboard() {
         {/* STATS TAB                                                      */}
         {/* ══════════════════════════════════════════════════════════════ */}
         {activeTab === 'stats' && (
-          <div className="shell-transition-fade" style={{maxWidth:600,margin:'0 auto',padding:'20px 20px 0'}}>
+          <div className="shell-transition-fade" style={{maxWidth:980,margin:'0 auto',padding:'20px 20px 0'}}>
             <h2 style={{fontSize:22,fontWeight:800,color:T.text,letterSpacing:'-0.4px',marginBottom:16}}>
               Your Progress
             </h2>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:20}}>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(190px,1fr))',gap:10,marginBottom:20}}>
               <StatCard label="Total XP"       value={xpDisplay.totalXp.toLocaleString()} sub="lifetime"        color={T.amber}/>
               <StatCard label="Streak"         value={`${streakData.current}d`}             sub={streakData.current>=7?'Strong momentum':'Keep going'} color={T.flame}/>
               <StatCard label="Best Streak"    value={`${streakData.longest}d`}             sub="personal best"/>
@@ -4620,6 +6213,15 @@ export default function Dashboard() {
                   <div style={{fontSize:20,fontWeight:900,color:T.text}}>{totalMins}m</div>
                 </div>
               </div>
+            </div>
+
+            <div style={{marginBottom:12}}>
+              <ConceptHeatMap
+                rows={allRows}
+                masteries={conceptMasteryRows}
+                title="Learned concepts"
+                subtitle="Your concept heat map across lessons, practice, recall, application, and explanation"
+              />
             </div>
 
             {weekDays >= 5 && (
@@ -4869,7 +6471,13 @@ export default function Dashboard() {
         {/* ══════════════════════════════════════════════════════════════ */}
         {activeTab === 'badges' && (
           <div className="shell-transition-fade" style={{ paddingTop: 20, paddingBottom: 40 }}>
-            <BadgeShowcase earnedIds={earnedBadgeIds} />
+            <BadgeShowcase
+              earnedIds={earnedBadgeIds}
+              rows={allRows}
+              goalText={goal?.goal_text || ''}
+              maxWidth={1120}
+              outerPadding="0 18px 40px"
+            />
           </div>
         )}
 
@@ -4908,22 +6516,23 @@ export default function Dashboard() {
             />
           </div>
         )}
+          </main>
+        </div>
       </div>
 
       {/* ── iOS bottom tab bar ── */}
       <div style={{
         position:'fixed',bottom:0,left:0,right:0,zIndex:70,
-        background:T.chrome,
-        backdropFilter:'blur(32px) saturate(200%)',
-        WebkitBackdropFilter:'blur(32px) saturate(200%)',
-        borderTop:`1px solid ${T.border}`,
-      }} className="safe-bottom-nav">
+        background:'rgba(4,5,10,0.88)',
+        backdropFilter:'blur(36px) saturate(200%)',
+        WebkitBackdropFilter:'blur(36px) saturate(200%)',
+        borderTop:'1px solid rgba(255,255,255,0.07)',
+      }} className="safe-bottom-nav dashboard-bottom-nav">
         <div style={{maxWidth:600,margin:'0 auto',
-          display:'grid',gridTemplateColumns:'repeat(7, 1fr)'}}>
+          display:'grid',gridTemplateColumns:'repeat(6, 1fr)',padding:'6px 8px 0'}}>
           {[
             {key:'home',     label:'Home',   Icon:HomeIcon    },
-            {key:'courses',  label:'Courses', Icon:CoursesIcon },
-            {key:'badges',   label:'Badges', Icon:BadgesIcon  },
+            {key:'badges',   label:'Cards',  Icon:BadgesIcon  },
             {key:'shop',     label:'Shop',   Icon:ShopIcon    },
             {key:'stats',    label:'Stats',  Icon:StatsIcon   },
             {key:'path',     label:'Path',   Icon:PathIcon    },
@@ -4933,21 +6542,32 @@ export default function Dashboard() {
             return (
               <button key={key} onClick={() => handleTabSelect(key)} className="interactive-icon" style={{
                 background:'none',border:'none',
-                padding:'10px 0 12px',
-                display:'flex',flexDirection:'column',alignItems:'center',gap:3,
-                cursor:'pointer',color:active?T.teal:T.textMuted,
-                fontFamily:T.font,transition:'color 0.18s',position:'relative',
+                padding:'8px 0 10px',
+                display:'flex',flexDirection:'column',alignItems:'center',gap:4,
+                cursor:'pointer',
+                color:active ? T.teal : T.textDead,
+                fontFamily:T.font,
+                transition:'color 0.2s',
+                position:'relative',
                 minHeight:52,
               }}>
                 {active && (
                   <div style={{
-                    position:'absolute',top:5,width:20,height:2,
-                    borderRadius:9999,background:T.teal,
-                    boxShadow:`0 0 8px ${T.teal}`,
+                    position:'absolute',
+                    inset:'0 4px',
+                    borderRadius:14,
+                    background:`${T.teal}12`,
+                    border:`1px solid ${T.teal}22`,
                   }}/>
                 )}
-                <Icon/>
-                <span style={{fontSize:10,fontWeight:active?700:500,letterSpacing:'0.2px'}}>
+                <div style={{position:'relative',zIndex:1,transition:'transform 0.2s cubic-bezier(0.34,1.56,0.64,1)',transform:active?'scale(1.12)':'scale(1)'}}>
+                  <Icon/>
+                </div>
+                <span style={{
+                  position:'relative',zIndex:1,
+                  fontSize:10,fontWeight:active?800:500,letterSpacing:'0.2px',
+                  transition:'all 0.18s',
+                }}>
                   {label}
                 </span>
               </button>

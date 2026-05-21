@@ -1,5 +1,6 @@
 import { getOpenAIModel } from '@/lib/openaiModels'
 import { getSupabaseServerClient } from '@/lib/supabaseServer'
+import { formatDomainForPrompt, normalizeDomain, parseDomainFromConstraints } from '@/lib/domainAdapter'
 
 function extractAccessToken(request) {
   const authHeader = request.headers.get('authorization') || request.headers.get('Authorization')
@@ -8,10 +9,15 @@ function extractAccessToken(request) {
   return authHeader.slice(7).trim() || null
 }
 
+function buildDomainPrompt({ domain, knowledge } = {}) {
+  const resolvedDomain = normalizeDomain(domain || parseDomainFromConstraints([knowledge]), null)
+  return resolvedDomain ? `DOMAIN ADAPTER:\n${formatDomainForPrompt(resolvedDomain)}\n` : ''
+}
+
 export async function POST(request) {
   try {
     const body = await request.json()
-    const { projectId, stepId, action, answer } = body
+    const { projectId, stepId, action, answer, domain, knowledge } = body
 
     if (!projectId || !stepId) {
       return Response.json({ error: 'Missing projectId or stepId' }, { status: 400 })
@@ -53,6 +59,7 @@ export async function POST(request) {
       const prompt = `You are a ${skillLabel}. A student just completed a step in their ${skillType} project.
 
 PROJECT: ${project.title}
+${buildDomainPrompt({ domain, knowledge })}
 STEP JUST COMPLETED: ${step.title}
 STEP DESCRIPTION: ${step.description}
 CONCEPTS: ${(step.concepts || []).join(', ')}
@@ -111,6 +118,7 @@ RULES:
       const prompt = `A student answered a checkpoint question about their ${skillType} project.
 
 PROJECT: ${project.title}
+${buildDomainPrompt({ domain, knowledge })}
 STEP: ${step.title}
 QUESTION: ${body.question}
 STUDENT'S ANSWER: "${answer}"

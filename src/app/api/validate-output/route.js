@@ -1,5 +1,6 @@
 import { getOpenAIModel } from '@/lib/openaiModels'
 import { getSupabaseServerClient } from '@/lib/supabaseServer'
+import { formatDomainForPrompt, normalizeDomain, parseDomainFromConstraints } from '@/lib/domainAdapter'
 import {
   buildStepStatus,
   deriveCompletedSteps,
@@ -55,11 +56,17 @@ function runCodingChecks(step, verification) {
   }
 }
 
-function buildArtifactValidationPrompt(project, step, artifact) {
+function buildDomainPrompt({ domain, knowledge } = {}) {
+  const resolvedDomain = normalizeDomain(domain || parseDomainFromConstraints([knowledge]), null)
+  return resolvedDomain ? `DOMAIN ADAPTER:\n${formatDomainForPrompt(resolvedDomain)}\n` : ''
+}
+
+function buildArtifactValidationPrompt(project, step, artifact, { domain, knowledge } = {}) {
   const skillType = project.skill_type || 'general'
   return `Evaluate whether a learner's submitted artifact satisfies this project step.
 
 PROJECT: ${project.title}
+${buildDomainPrompt({ domain, knowledge })}
 SKILL TYPE: ${skillType}
 STEP: ${step.title}
 STEP DESCRIPTION: ${step.description}
@@ -88,7 +95,7 @@ RULES:
 export async function POST(request) {
   try {
     const body = await request.json()
-    const { projectId, stepId, artifact } = body || {}
+    const { projectId, stepId, artifact, domain, knowledge } = body || {}
     if (!projectId || !stepId) return Response.json({ error: 'Missing projectId or stepId' }, { status: 400 })
 
     const accessToken = extractAccessToken(request) || body?.accessToken || null
@@ -122,7 +129,7 @@ export async function POST(request) {
       const artifactText = String(artifact || '').trim()
       if (!artifactText) return Response.json({ error: 'No artifact provided' }, { status: 400 })
 
-      const prompt = buildArtifactValidationPrompt(project, step, artifactText.slice(0, 4000))
+      const prompt = buildArtifactValidationPrompt(project, step, artifactText.slice(0, 4000), { domain, knowledge })
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {

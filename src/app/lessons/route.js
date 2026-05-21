@@ -1,5 +1,5 @@
 import { generateLessonFromOpenAI } from '@/lib/lessonGenerator'
-import { buildDeterministicLesson } from '@/lib/deterministicLesson'
+import { normalizeConceptLessonDoc } from '@/lib/conceptLesson'
 
 export async function POST(request) {
   let concept = 'your topic'
@@ -16,6 +16,14 @@ export async function POST(request) {
       taskOutcome,
       resourceUrl,
       resourceTitle,
+      learningContract,
+      learnerProfile,
+      domain,
+      domainConfig,
+      userLevel,
+      xp,
+      depthOverride,
+      visualPreference,
     } = body
 
     if (!concept || !goal) {
@@ -23,104 +31,56 @@ export async function POST(request) {
     }
 
     const resource = resourceUrl ? { url: resourceUrl, title: resourceTitle || 'Primary resource' } : null
-    const tryGenerate = () => generateLessonFromOpenAI({
+    const lesson = await generateLessonFromOpenAI({
       concept,
       taskTitle,
       goal,
       knowledge,
+      taskDescription,
+      taskAction,
+      taskOutcome,
+      resourceUrl,
+      resourceTitle,
+      learningContract,
+      learnerProfile,
+      domain,
+      domainConfig,
+      userLevel,
+      xp,
+      depthOverride,
+      visualPreference,
       openaiApiKey: process.env.OPENAI_API_KEY,
     })
 
-    try {
-      const lesson = await tryGenerate()
-      console.info('[PathAI] lesson_generation', {
-        mode: 'ai',
-        concept,
-        taskTitle,
-        cacheable: true,
-      })
-      return Response.json({
-        ...lesson,
-        generationMode: 'ai',
-        cacheable: true,
-        resource,
-      })
-    } catch (primaryError) {
-      const primaryReason = primaryError?.code || 'unknown_generation_error'
-      console.warn('[PathAI] lesson_generation_failed', {
-        stage: 'primary',
-        reason: primaryReason,
-        concept,
-        taskTitle,
-      })
-
-      try {
-        const retriedLesson = await tryGenerate()
-        console.info('[PathAI] lesson_generation', {
-          mode: 'ai',
-          concept,
-          taskTitle,
-          cacheable: true,
-          recoveredFrom: primaryReason,
-        })
-        return Response.json({
-          ...retriedLesson,
-          generationMode: 'ai',
-          cacheable: true,
-          resource,
-        })
-      } catch (retryError) {
-        const retryReason = retryError?.code || primaryReason
-        console.warn('[PathAI] lesson_generation_failed', {
-          stage: 'retry',
-          reason: retryReason,
-          concept,
-          taskTitle,
-        })
-        const fallbackLesson = buildDeterministicLesson({
-          concept,
-          taskTitle,
-          goal,
-          knowledge,
-          taskDescription,
-          taskAction,
-          taskOutcome,
-          resourceUrl,
-          resourceTitle,
-          fallbackReason: retryReason,
-        })
-
-        return Response.json({
-          ...fallbackLesson,
-          generationMode: 'deterministic',
-          cacheable: true,
-          resource: fallbackLesson.resource || resource,
-        })
-      }
-    }
-
+    console.info('[PathAI] lesson_generation', {
+      mode: 'ai',
+      concept,
+      taskTitle,
+      cacheable: false,
+    })
+    return Response.json({
+      lessonDoc: normalizeConceptLessonDoc(lesson.lessonDoc, {
+        ...body,
+        learnerProfile,
+        domain,
+        domainConfig,
+        depthOverride,
+        visualPreference,
+      }),
+      generationMode: 'ai',
+      cacheable: false,
+      resource: lesson.resource || resource || null,
+    })
   } catch (err) {
-    console.error('Lesson API error:', err)
-    if (body?.goal) {
-      const fallbackLesson = buildDeterministicLesson({
-        concept,
-        taskTitle: body?.taskTitle,
-        goal: body?.goal,
-        knowledge: body?.knowledge,
-        taskDescription: body?.taskDescription,
-        taskAction: body?.taskAction,
-        taskOutcome: body?.taskOutcome,
-        resourceUrl: body?.resourceUrl,
-        resourceTitle: body?.resourceTitle,
-        fallbackReason: err?.code || err?.message || 'route_error',
-      })
-      return Response.json({
-        ...fallbackLesson,
-        generationMode: 'deterministic',
-        cacheable: true,
-        resource: fallbackLesson.resource || null,
-      })
-    }
-    return Response.json({ error: 'Unable to build lesson right now.' }, { status: 500 })
+    console.error('[PathAI] lesson_generation_failed', {
+      stage: 'single_pass',
+      reason: err?.code || err?.message || 'route_error',
+      concept,
+    })
+    return Response.json({
+      error: 'Lesson generation failed on the first pass.',
+      reason: err?.code || err?.message || 'route_error',
+      cacheable: false,
+    }, { status: body?.goal ? 502 : 500 })
   }
 }

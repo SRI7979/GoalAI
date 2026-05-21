@@ -56,13 +56,13 @@ import {
 const TASK_SEQUENCE = ['concept', 'recall', 'quiz']
 const CLEAN_TASK_TYPES = [...CANONICAL_TASK_TYPES]
 const FALLBACK_MODULE_DAY_VARIANTS = [
-  'Tracing and Predicting Results',
-  'Debugging Common Mistakes',
-  'Real Scenario Practice',
-  'Comparing Strong and Weak Uses',
-  'Combining with Earlier Skills',
-  'Mini Build and Output Check',
-  'Edge Cases and Decision Rules',
+  'First Worked Example',
+  'One Common Mistake',
+  'Guided Practice Move',
+  'Real Situation Walkthrough',
+  'Boundary Case',
+  'Short Proof Check',
+  'Confidence Review',
 ]
 
 export const BANNED_CONCEPT_WORDS = [
@@ -87,106 +87,222 @@ export const BANNED_CONCEPT_WORDS = [
 
 const CONCRETE_CONCEPTS = {
   python: [
-    'Variables and Data Types',
-    'String Operations and Formatting',
-    'Conditional Statements (if/elif/else)',
-    'For Loops and Iteration',
-    'While Loops and Loop Control',
-    'Functions: Parameters and Return Values',
-    'Lists: Creating, Indexing, Slicing',
-    'List Methods and List Comprehensions',
-    'Dictionaries: Key-Value Storage',
-    'Tuples and Sets',
-    'File Reading and Writing',
-    'Error Handling with Try/Except',
-    'Modules and Imports',
-    'Classes and Object Basics',
-    'Working with JSON Data',
+    'What Python Is Used For',
+    'How Python Runs One Line at a Time',
+    'How print() Displays Text',
+    'What a Variable Stores',
+    'How = Assigns a Value',
+    'How Text Values Use Strings',
+    'How Number Values Store Amounts',
+    'How Comments Explain Code',
+    'How input() Reads User Text',
+    'How if Chooses One Path',
+    'How elif Checks Another Path',
+    'How else Handles the Remaining Case',
+    'How for Loops Repeat a Fixed Count',
+    'How while Loops Repeat Until a Condition Changes',
+    'How a Function Reuses Steps',
+    'How Parameters Pass Values into a Function',
+    'How return Sends a Value Back',
+    'How Lists Store Ordered Items',
+    'How List Indexes Pick One Item',
+    'How Dictionaries Store Key-Value Pairs',
+    'How try/except Handles an Error',
+    'How import Loads a Module',
   ],
   javascript: [
-    'Variables: let, const, and var',
-    'Data Types and Type Coercion',
-    'Functions and Arrow Functions',
-    'Arrays and Array Methods',
-    'Objects and Dot Notation',
-    'DOM Selection and Manipulation',
-    'Event Listeners and Handlers',
-    'Conditional Logic',
-    'Loops: for, while, forEach',
-    'Template Literals and String Methods',
-    'Promises and Async/Await',
-    'Fetch API and HTTP Requests',
-    'Error Handling',
-    'ES6 Destructuring and Spread',
-    'Local Storage',
+    'What JavaScript Does in a Web Page',
+    'How console.log() Shows a Value',
+    'How let Creates a Changeable Variable',
+    'How const Protects a Saved Value',
+    'How Strings Store Text',
+    'How Numbers Store Amounts',
+    'How if Chooses One Path',
+    'How Arrays Keep Items in Order',
+    'How Objects Store Named Values',
+    'How Functions Reuse Steps',
+    'How Parameters Pass Values into Functions',
+    'How return Sends a Value Back',
+    'How querySelector Finds an Element',
+    'How Events Trigger Code',
+    'How fetch Requests Data',
   ],
   web_development: [
-    'HTML Document Structure and Tags',
-    'HTML Forms and Input Elements',
-    'CSS Selectors and Properties',
-    'CSS Box Model: Margin, Padding, Border',
-    'CSS Flexbox Layout',
-    'CSS Grid Layout',
-    'Responsive Design with Media Queries',
-    'CSS Colors, Fonts, and Typography',
-    'Linking CSS and JavaScript to HTML',
-    'Building a Navigation Bar',
-    'Creating a Responsive Card Layout',
-    'HTML Tables and Lists',
-    'CSS Transitions and Animations',
-    'Deploying a Static Website',
+    'What HTML Describes on a Page',
+    'How an HTML Element Wraps Content',
+    'How Headings Create Page Structure',
+    'How Links Move to Another Page',
+    'How CSS Selectors Choose Elements',
+    'How Color Changes Text and Backgrounds',
+    'How the Box Model Adds Space',
+    'How Flexbox Aligns Items in One Direction',
+    'How Grid Places Items in Rows and Columns',
+    'How Media Queries Change Layout by Screen Size',
+    'How Forms Collect User Input',
+    'How JavaScript Changes Page Content',
   ],
   machine_learning: [
-    'What is Machine Learning: Supervised vs Unsupervised',
-    'Training Data and Test Data Splits',
-    'Linear Regression: Fitting a Line',
-    'Evaluating Model Accuracy: MSE and R²',
-    'Classification: Predicting Categories',
-    'Logistic Regression',
-    'Decision Trees: How They Split Data',
-    'Overfitting and Underfitting',
-    'Feature Engineering Basics',
-    'Neural Network Architecture: Layers and Neurons',
-    'Gradient Descent: How Models Learn',
-    'Training a Simple Neural Network',
-    'Confusion Matrix and Classification Metrics',
-    'K-Nearest Neighbors Algorithm',
+    'What Machine Learning Predicts',
+    'How Examples Become Training Data',
+    'How Features Describe Each Example',
+    'How Labels Show the Answer',
+    'How Train/Test Split Checks Generalization',
+    'How Linear Regression Fits a Line',
+    'How Classification Predicts a Category',
+    'How Accuracy Counts Correct Predictions',
+    'How a Confusion Matrix Shows Mistakes',
+    'How Overfitting Memorizes Training Data',
+    'How Decision Trees Split Data',
+    'How Gradient Descent Reduces Error',
+  ],
+  data_science: [
+    'What a Dataset Stores',
+    'How Rows Represent Examples',
+    'How Columns Represent Variables',
+    'How a Chart Shows a Pattern',
+    'How Averages Summarize Values',
+    'How Outliers Stand Apart',
+    'How Correlation Shows Movement Together',
+    'How Filtering Narrows Data',
+    'How Grouping Compares Categories',
+    'How Train/Test Split Checks a Model',
   ],
   git: [
-    'Repositories and Local History',
-    'Staging Changes with git add',
-    'Creating Commits with Clear Messages',
-    'Viewing History with git log and diff',
-    'Branch Creation and Switching',
-    'Merging Branches',
-    'Resolving Merge Conflicts',
-    'Remote Repositories and git push',
-    'Pull Requests and Code Review Flow',
-    'Undoing Mistakes with reset, restore, and revert',
+    'What a Git Repository Tracks',
+    'How git status Shows File Changes',
+    'How git add Stages a Change',
+    'How a Commit Saves a Snapshot',
+    'How git log Shows History',
+    'How Branches Separate Work',
+    'How Merge Combines Branches',
+    'How Merge Conflicts Mark Overlap',
+    'How Remote Repositories Share Work',
+    'How Pull Requests Review Changes',
   ],
   ios: [
-    'Swift Variables and Constants',
-    'Swift Functions and Return Values',
-    'Conditionals and Control Flow in Swift',
-    'SwiftUI Views and Layout Stacks',
-    'State Management with @State',
-    'Lists, ForEach, and Dynamic Content',
-    'NavigationStack and Screen Flow',
-    'Forms, TextField, and User Input',
-    'Networking with URLSession',
-    'Saving Data with UserDefaults',
+    'What SwiftUI Displays on Screen',
+    'How Text Shows Words in SwiftUI',
+    'How VStack Stacks Views Vertically',
+    'How @State Stores Changing Screen Data',
+    'How Button Runs an Action',
+    'How if Shows Conditional UI',
+    'How ForEach Repeats Views',
+    'How TextField Collects Input',
+    'How NavigationStack Moves Between Screens',
+    'How UserDefaults Saves a Small Value',
   ],
   foreign_language: [
-    'Greetings and Introductions',
-    'Numbers, Time, and Dates',
-    'Present Tense Verb Conjugation',
-    'Question Words and Basic Questions',
-    'Articles, Gender, and Agreement',
-    'Describing People and Places',
-    'Ordering Food and Drinks',
-    'Directions and Transportation',
-    'Talking About the Past',
-    'Talking About the Future',
+    'How a Greeting Starts a Conversation',
+    'How Subject Pronouns Name the Speaker',
+    'How to Say I Am',
+    'How to Say I Want',
+    'How to Ask a Simple Question',
+    'How Articles Mark a Noun',
+    'How Adjectives Describe a Noun',
+    'How Numbers Name Amounts',
+    'How to Order Food Politely',
+    'How to Ask for Directions',
+    'How Present Tense Shows Now',
+    'How Past Tense Shows Before Now',
+  ],
+  arduino: [
+    'What Arduino Controls',
+    'How an Arduino Pin Sends a Signal',
+    'How a Breadboard Row Connects Holes',
+    'Why an LED Needs a Resistor',
+    'How Digital Output Turns an LED On',
+    'What setup() Runs Once',
+    'How loop() Repeats Instructions',
+    'How pinMode Sets a Pin Role',
+    'How digitalWrite Sets HIGH or LOW',
+    'How delay() Pauses the Program',
+    'How a Button Changes an Input Pin',
+    'How analogRead Measures a Sensor',
+    'How PWM Fades an LED',
+    'How Serial Monitor Shows Readings',
+  ],
+  physics: [
+    'What a Force Does to Motion',
+    'How Gravity Points Downward',
+    'How Normal Force Pushes Up',
+    'How Friction Opposes Sliding',
+    'How Net Force Combines Arrows',
+    'How Acceleration Shows Changing Velocity',
+    'How Mass Changes Acceleration',
+    'How Position Changes Over Time',
+    'How Velocity-Time Graphs Show Motion',
+    'How Energy Transfers Between Forms',
+  ],
+  math: [
+    'What a Variable Represents in Math',
+    'How a Number Line Shows Value',
+    'How Coordinates Locate a Point',
+    'How Slope Means Rise Over Run',
+    'How an Equation Balances Two Sides',
+    'How Distributive Property Opens Parentheses',
+    'How Like Terms Combine',
+    'How a Function Maps Input to Output',
+    'How Graphs Show a Pattern',
+    'How Area Counts Square Units',
+  ],
+  cybersecurity: [
+    'What Phishing Tries to Make You Do',
+    'How Urgency Creates Pressure in Phishing',
+    'How Fake Domains Hide in Sender Addresses',
+    'How Suspicious Links Reveal Risk',
+    'How Password Reuse Increases Damage',
+    'How Multi-Factor Authentication Blocks Login Theft',
+    'How Logs Show Repeated Failed Logins',
+    'How Least Privilege Limits Access',
+    'How Encryption Protects Data in Transit',
+    'How Backups Reduce Ransomware Damage',
+  ],
+  finance: [
+    'What Income Means',
+    'How Expenses Reduce Cash',
+    'How a Budget Assigns Money',
+    'What Diversification Means',
+    'How Portfolio Allocation Shows Concentration',
+    'How Compound Interest Grows Money',
+    'How Risk and Return Trade Off',
+    'How Cash Flow Shows Timing',
+    'How Debt Interest Adds Cost',
+    'How Net Worth Compares Assets and Debts',
+  ],
+  biology: [
+    'What a Cell Does',
+    'How a Cell Membrane Controls Entry',
+    'How the Nucleus Stores Instructions',
+    'How Mitochondria Release Energy',
+    'How Blood Carries Oxygen',
+    'How the Heart Pumps Blood',
+    'How DNA Stores Genetic Information',
+    'How Enzymes Speed Reactions',
+    'How Photosynthesis Stores Energy',
+    'How Immune Cells Recognize Threats',
+  ],
+  chemistry: [
+    'What an Atom Is',
+    'How Protons Set an Element',
+    'How Electrons Form Bonds',
+    'How Molecules Combine Atoms',
+    'How a Water Molecule Uses Two Hydrogens',
+    'How Chemical Equations Show Reactants and Products',
+    'How Coefficients Balance Atoms',
+    'How pH Shows Acidity',
+    'How Ions Carry Charge',
+    'How Concentration Measures Amount per Volume',
+  ],
+  design: [
+    'How Contrast Makes Text Readable',
+    'How Alignment Creates Order',
+    'How Spacing Separates Groups',
+    'How Visual Hierarchy Guides Attention',
+    'How Color Signals State',
+    'How Buttons Show Available Actions',
+    'How Grids Keep Layouts Consistent',
+    'How Typography Sets Reading Priority',
+    'How Before and After Comparisons Reveal Design Issues',
   ],
   general: null,
 }
@@ -254,10 +370,21 @@ export function isConceptTooVague(concept = '') {
   return BANNED_CONCEPT_WORDS.some((word) => lower.includes(word))
 }
 
-function detectConceptFamily(goal = '') {
-  const text = String(goal || '').toLowerCase()
-  if (/machine learning|\bml\b|deep learning|neural|data science/.test(text)) return 'machine_learning'
+function detectConceptFamily(goal = '', learnerProfile = null) {
+  const profileDomain = String(learnerProfile?.domain || learnerProfile?.domainConfig?.domain || '').toLowerCase()
+  const text = `${goal || ''} ${profileDomain}`.toLowerCase()
+  if (/arduino|electronics|circuit|breadboard|microcontroller|raspberry pi|electrical engineering/.test(text)) return 'arduino'
+  if (/cybersecurity|cyber_security|security|phishing|hacking|soc|network defense|password|malware/.test(text)) return 'cybersecurity'
+  if (/physics|force|gravity|motion|velocity|acceleration|energy/.test(text)) return 'physics'
+  if (/mathematics|math|algebra|geometry|calculus|equation|slope|function|statistics/.test(text)) return 'math'
+  if (/finance|business|invest|portfolio|budget|accounting|economics/.test(text)) return 'finance'
+  if (/biology|anatomy|health|medicine|cell|heart|genetics/.test(text)) return 'biology'
+  if (/chemistry|molecule|atom|reaction|periodic|stoichiometry/.test(text)) return 'chemistry'
+  if (/art_design|design|ui|ux|art|typography|layout|color theory/.test(text)) return 'design'
+  if (/data_science|data science|statistics|analytics|dataset|data analysis/.test(text)) return 'data_science'
+  if (/ml_ai|machine learning|\bml\b|deep learning|neural/.test(text)) return 'machine_learning'
   if (/python/.test(text)) return 'python'
+  if (/cs_coding|coding|programming|software/.test(text)) return 'python'
   if (/web development|web dev|frontend|html|css/.test(text)) return 'web_development'
   if (/\bjavascript\b|\bjs\b|typescript|react|node/.test(text)) return 'javascript'
   if (/\bgit\b|version control/.test(text)) return 'git'
@@ -290,15 +417,14 @@ function buildSpecificConceptVariants(baseConcepts = [], targetCount = 0) {
   let round = 0
   const minimum = Math.max(targetCount || 0, cleanedBase.length)
   while (collected.length < minimum && round < 6) {
-    cleanedBase.forEach((concept, index) => {
-      const nextConcept = cleanedBase[(index + 1) % cleanedBase.length]
+    cleanedBase.forEach((concept) => {
       const variant = [
         `${concept}: Tracing and Predicting Results`,
         `${concept}: Debugging Common Mistakes`,
         `${concept}: Real Scenario Practice`,
         `${concept}: Comparing Strong and Weak Uses`,
         `${concept}: Edge Cases and Decision Rules`,
-        `${concept} with ${nextConcept}`,
+        `${concept}: Confidence Review`,
       ][round] || `${concept}: Real Scenario Practice`
       add(variant)
     })
@@ -311,7 +437,8 @@ function buildSpecificConceptVariants(baseConcepts = [], targetCount = 0) {
 function buildGeneralConcreteConcepts(goal = '', targetCount = 10) {
   const subject = cleanGoalSubject(goal)
   return buildSpecificConceptVariants([
-    `${subject}: Essential Terms and Notation`,
+    `What ${subject} Is Used For`,
+    `${subject}: Essential Vocabulary`,
     `${subject}: First Worked Example`,
     `${subject}: Common Patterns and Signals`,
     `${subject}: Common Mistakes and Fixes`,
@@ -324,8 +451,8 @@ function buildGeneralConcreteConcepts(goal = '', targetCount = 10) {
   ], targetCount)
 }
 
-function getFallbackModuleSeeds(goal = '', targetCount = 10) {
-  const family = detectConceptFamily(goal)
+function getFallbackModuleSeeds(goal = '', targetCount = 10, learnerProfile = null) {
+  const family = detectConceptFamily(goal, learnerProfile)
   const familyConcepts = CONCRETE_CONCEPTS[family]
   if (Array.isArray(familyConcepts) && familyConcepts.length > 0) {
     return buildSpecificConceptVariants(familyConcepts, targetCount)
@@ -370,6 +497,252 @@ function buildSequenceItemCoveredTopics(item = {}) {
     item?.title,
     ...(Array.isArray(item?.concepts) ? item.concepts : []),
   ])
+}
+
+const KNOWN_ASSERTION_RE = /\b(already\s+)?(know|understand|understood|familiar with|comfortable with|can use|can build|have used|used before|covered|completed|learned|studied|experience with|worked with)\b/i
+const BRAND_NEW_RE = /\b(brand new|from scratch|zero experience|no experience|never used|new to|complete beginner|total beginner)\b/i
+const TOPIC_STOP_WORDS = new Set([
+  'what',
+  'when',
+  'where',
+  'why',
+  'how',
+  'does',
+  'used',
+  'uses',
+  'using',
+  'into',
+  'with',
+  'from',
+  'that',
+  'this',
+  'shows',
+  'show',
+  'means',
+  'mean',
+  'value',
+  'values',
+  'one',
+  'two',
+  'the',
+  'and',
+  'for',
+  'are',
+  'before',
+  'after',
+])
+
+function topicKeywords(topic = '') {
+  const normalized = normalizeComparableTopic(topic)
+  const variants = new Set()
+  normalized
+    .split(/\s+/)
+    .filter((word) => word && !TOPIC_STOP_WORDS.has(word) && word.length >= 3)
+    .forEach((word) => {
+      variants.add(word)
+      if (word.endsWith('s') && word.length > 4) variants.add(word.slice(0, -1))
+      if (!word.endsWith('s')) variants.add(`${word}s`)
+    })
+  return [...variants]
+}
+
+function collectExplicitKnowledgeChunks(value, chunks = []) {
+  if (!value) return chunks
+  if (typeof value === 'string') {
+    chunks.push(value)
+    return chunks
+  }
+  if (Array.isArray(value)) {
+    value.forEach((entry) => collectExplicitKnowledgeChunks(entry, chunks))
+    return chunks
+  }
+  if (typeof value === 'object') {
+    const knownKeys = [
+      'knownConcepts',
+      'coveredConcepts',
+      'completedConcepts',
+      'skillsKnown',
+      'alreadyKnow',
+      'priorKnowledge',
+      'familiarWith',
+      'canDo',
+      'strengths',
+    ]
+    knownKeys.forEach((key) => {
+      const knownValue = value[key]
+      if (!knownValue) return
+      const before = chunks.length
+      collectExplicitKnowledgeChunks(knownValue, chunks)
+      for (let index = before; index < chunks.length; index += 1) {
+        chunks[index] = `I know ${chunks[index]}`
+      }
+    })
+  }
+  return chunks
+}
+
+function topicLooksExplicitlyKnown(topic = '', text = '') {
+  const normalizedText = normalizeComparableTopic(text)
+  if (!topic || !normalizedText || !KNOWN_ASSERTION_RE.test(text)) return false
+
+  const normalizedTopic = normalizeComparableTopic(topic)
+  if (normalizedTopic && normalizedText.includes(normalizedTopic)) return true
+
+  const words = new Set(normalizedText.split(/\s+/).filter(Boolean))
+  return topicKeywords(topic).some((keyword) => words.has(keyword))
+}
+
+function buildCurriculumKnowledgeState({
+  goal = '',
+  knowledge = '',
+  learnerProfile = null,
+  seeds = [],
+} = {}) {
+  const profile = normalizeLearnerProfile(learnerProfile, { knowledge, goal })
+  const chunks = collectExplicitKnowledgeChunks(knowledge, [])
+  collectExplicitKnowledgeChunks(learnerProfile, chunks)
+  const knowledgeText = chunks.join('. ')
+  const explicitlyBrandNew = BRAND_NEW_RE.test(knowledgeText)
+  const explicitKnownConcepts = explicitlyBrandNew
+    ? []
+    : dedupeTopics(
+      (Array.isArray(seeds) ? seeds : [])
+        .filter((seed) => topicLooksExplicitlyKnown(seed, knowledgeText)),
+    )
+  const prereqMode = String(profile.prereqComfort || 'compressed').toLowerCase()
+  const skippableKnownConcepts = prereqMode === 'test_out' ? explicitKnownConcepts : []
+
+  return {
+    profileLevel: profile.level,
+    prerequisiteMode: prereqMode === 'full' ? 'full' : prereqMode === 'test_out' ? 'test_out' : 'compressed',
+    explicitKnownConcepts,
+    skippableKnownConcepts,
+    report: {
+      policy: 'teach_before_assess',
+      source: explicitKnownConcepts.length > 0 ? 'onboarding_explicit_topics' : 'no_explicit_prior_topics',
+      profileLevel: profile.level,
+      prerequisiteMode: prereqMode === 'full' ? 'full' : prereqMode === 'test_out' ? 'test_out' : 'compressed',
+      knownFromOnboarding: explicitKnownConcepts,
+      summary: explicitKnownConcepts.length > 0
+        ? `Known from onboarding: ${explicitKnownConcepts.join(', ')}.`
+        : 'No specific prior topics were confirmed; teach from the first prerequisite.',
+    },
+  }
+}
+
+function buildDayCurriculumMetadata({
+  knowledgeState,
+  taughtBefore = [],
+  currentConcept = '',
+  futureConcepts = [],
+} = {}) {
+  const explicitKnown = Array.isArray(knowledgeState?.explicitKnownConcepts) ? knowledgeState.explicitKnownConcepts : []
+  const knownBefore = dedupeTopics([...explicitKnown, ...taughtBefore])
+  const newConceptsToday = currentConcept ? [currentConcept] : []
+  const allowedAssessmentConcepts = dedupeTopics([...knownBefore, ...newConceptsToday])
+  const notYetTaught = dedupeTopics(futureConcepts).slice(0, 12)
+
+  return {
+    explicitKnownConcepts: explicitKnown,
+    knownBefore,
+    taughtBefore: dedupeTopics(taughtBefore),
+    newConceptsToday,
+    allowedAssessmentConcepts,
+    notYetTaught,
+    prerequisitePolicy: 'teach_before_assess',
+    coverageReport: {
+      ...(knowledgeState?.report || {}),
+      taughtBefore: dedupeTopics(taughtBefore),
+      newToday: newConceptsToday,
+      assessOnly: allowedAssessmentConcepts,
+      notYetTaught,
+      rule: 'Do not quiz, challenge, or require a concept unless it is in knownBefore, taughtBefore, or newToday after the lesson teaches it.',
+    },
+  }
+}
+
+function annotateModulesWithCurriculum({
+  modules = [],
+  goal = '',
+  knowledge = '',
+  learnerProfile = null,
+} = {}) {
+  const flatDays = []
+  modules.forEach((module, moduleIndex) => {
+    const moduleDays = Array.isArray(module?.days) ? module.days : []
+    moduleDays.forEach((day, dayIndex) => {
+      flatDays.push({
+        moduleIndex,
+        dayIndex,
+        primary: pickPrimaryDayFocus(day),
+      })
+    })
+  })
+
+  const knowledgeState = buildCurriculumKnowledgeState({
+    goal,
+    knowledge,
+    learnerProfile,
+    seeds: flatDays.map((day) => day.primary),
+  })
+
+  let flatIndex = 0
+  let taughtBefore = []
+  return modules.map((module) => ({
+    ...module,
+    curriculumReport: knowledgeState.report,
+    days: (Array.isArray(module?.days) ? module.days : []).map((day) => {
+      const primary = pickPrimaryDayFocus(day)
+      const futureConcepts = flatDays.slice(flatIndex + 1).map((entry) => entry.primary)
+      const metadata = buildDayCurriculumMetadata({
+        knowledgeState,
+        taughtBefore,
+        currentConcept: primary,
+        futureConcepts,
+      })
+      flatIndex += 1
+      taughtBefore = dedupeTopics([...taughtBefore, primary])
+      return {
+        ...day,
+        title: primary,
+        concepts: [primary],
+        ...metadata,
+      }
+    }),
+  }))
+}
+
+function rowIsFullyCompleted(row = {}) {
+  if (row?.completion_status === 'completed') return true
+  const tasks = normalizeLearningTasks(row?.tasks || [])
+  return tasks.length > 0 && tasks.every((task) => task.completed)
+}
+
+function buildCompletedCoverageFromRows(existingRows = []) {
+  const topics = []
+  const rows = Array.isArray(existingRows) ? existingRows : []
+  rows
+    .slice()
+    .sort((a, b) => Number(a?.day_number || 0) - Number(b?.day_number || 0))
+    .forEach((row) => {
+      if (rowIsFullyCompleted(row)) {
+        topics.push(...(Array.isArray(row?.covered_topics) ? row.covered_topics : []))
+      }
+      normalizeLearningTasks(row?.tasks || [])
+        .filter((task) => task.completed || rowIsFullyCompleted(row))
+        .forEach((task) => {
+          topics.push(
+            task?._concept,
+            task?.lessonSeed?.focusConcept,
+            task?.learningContract?.dayFocus,
+            task?._learningContract?.dayFocus,
+          )
+        })
+    })
+
+  return {
+    completedTopics: dedupeTopics(topics),
+  }
 }
 
 export function needsSequenceDayRepair(row = {}, item = null) {
@@ -427,6 +800,7 @@ export function categorizeGoal(goal = '') {
 
 function buildStructuredFallbackOutline({
   goal,
+  knowledge = '',
   days,
   minutesPerDay,
   skillLevel,
@@ -435,13 +809,20 @@ function buildStructuredFallbackOutline({
   learnerProfile = null,
 }) {
   const safeDays = Math.max(1, Number(days) || 30)
-  const seeds = getFallbackModuleSeeds(goal, safeDays)
-  const profile = normalizeLearnerProfile(learnerProfile, { goal })
   const domainContext = buildDomainPromptContext({ learnerProfile })
-  const startOffset = profile.level === 'advanced' && profile.prereqComfort !== 'full' ? 1 : 0
-  const targetModuleCount = Math.max(4, Math.min(seeds.length, safeDays))
-  const selectedSeeds = seeds.slice(startOffset, startOffset + targetModuleCount)
-  const finalSeeds = selectedSeeds.length >= 4 ? selectedSeeds : seeds.slice(0, targetModuleCount)
+  const rawSeeds = getFallbackModuleSeeds(goal, safeDays, learnerProfile)
+  const knowledgeState = buildCurriculumKnowledgeState({
+    goal,
+    knowledge,
+    learnerProfile,
+    seeds: rawSeeds,
+  })
+  const skippable = new Set(knowledgeState.skippableKnownConcepts.map((concept) => normalizeComparableTopic(concept)))
+  const seeds = rawSeeds.filter((seed) => !skippable.has(normalizeComparableTopic(seed)))
+  const safeSeeds = seeds.length > 0 ? seeds : rawSeeds
+  const targetModuleCount = Math.max(1, Math.min(safeSeeds.length, safeDays))
+  const selectedSeeds = safeSeeds.slice(0, targetModuleCount)
+  const finalSeeds = selectedSeeds.length >= 4 ? selectedSeeds : safeSeeds.slice(0, targetModuleCount)
   const moduleDayCounts = Array.from({ length: finalSeeds.length }, () => 1)
 
   let remainingDays = Math.max(0, safeDays - finalSeeds.length)
@@ -453,7 +834,7 @@ function buildStructuredFallbackOutline({
   }
 
   let dayNumber = 1
-  const modules = finalSeeds.map((seed, moduleIndex) => {
+  const rawModules = finalSeeds.map((seed, moduleIndex) => {
     const allocatedDays = moduleDayCounts[moduleIndex]
     const daysForModule = Array.from({ length: allocatedDays }, (_, dayIndex) => {
       const dayIdentity = buildFallbackDayIdentity(seed, dayIndex, allocatedDays)
@@ -473,6 +854,12 @@ function buildStructuredFallbackOutline({
       days: daysForModule,
     }
   })
+  const modules = annotateModulesWithCurriculum({
+    modules: rawModules,
+    goal,
+    knowledge,
+    learnerProfile,
+  })
 
   const concepts = []
   let conceptId = 1
@@ -489,6 +876,14 @@ function buildStructuredFallbackOutline({
         _moduleTitle: module.title,
         _dayTitle: day.title,
         _allConcepts: dedupeTopics([primaryFocus, ...day.concepts]),
+        _explicitKnownConcepts: day.explicitKnownConcepts || [],
+        _knownBefore: day.knownBefore || [],
+        _taughtBefore: day.taughtBefore || [],
+        _newConceptsToday: day.newConceptsToday || [primaryFocus],
+        _allowedAssessmentConcepts: day.allowedAssessmentConcepts || [primaryFocus],
+        _notYetTaught: day.notYetTaught || [],
+        _coverageReport: day.coverageReport || null,
+        _prerequisitePolicy: day.prerequisitePolicy || 'teach_before_assess',
       })
     })
   })
@@ -517,6 +912,7 @@ export function buildDeterministicCourseOutline({ goal, knowledge, days, minutes
   const profile = normalizeLearnerProfile(learnerProfile, { knowledge, goal })
   return buildStructuredFallbackOutline({
     goal,
+    knowledge,
     days,
     minutesPerDay,
     skillLevel: inferSkillLevel(knowledge),
@@ -627,6 +1023,7 @@ export async function generateCourseOutline({ goal, knowledge, days, minutesPerD
     })
       return buildStructuredFallbackOutline({
         goal,
+        knowledge,
         days: requestedDays,
         minutesPerDay,
         skillLevel,
@@ -670,15 +1067,18 @@ export async function generateCourseOutline({ goal, knowledge, days, minutesPerD
                 'REQUIREMENTS:',
                 '1. Break the skill into concrete modules and multiple specific days.',
                 'CRITICAL: Every day\'s concept MUST be a specific, teachable topic — never a category label.',
+                'CURRICULUM SEQUENCING RULE: Assume the learner does not know a prerequisite unless the prior knowledge explicitly names it or an earlier day teaches it.',
+                'Do not skip to intermediate concepts just because the learner has a goal. Start with what the thing is, the essential vocabulary, and the first safe action, then build upward.',
+                'Do not ask about, assess, or require a topic before a previous day has taught it. Each day should teach exactly one new topic.',
                 'BAD examples (too vague — NEVER generate these): Foundations, Core Fundamentals, Intermediate Application, Advanced Problem Solving, Getting Started, Building Blocks, Key Concepts, Practical Skills.',
-                'GOOD examples (specific and teachable): Variables and Data Types, For Loops and Iteration, Functions with Parameters and Return Values, SQL JOIN Operations, CSS Flexbox Layout, React useState Hook, Conditional Statements (if/elif/else), List Comprehensions, HTTP Request Methods (GET, POST, PUT, DELETE), Binary Search Algorithm.',
+                'GOOD examples (specific and teachable): How print() Displays Text, What a Variable Stores, How Slope Means Rise Over Run, How Gravity Points Downward, Why an LED Needs a Resistor, How Urgency Creates Pressure in Phishing.',
                 'Each concept should be narrow enough that a teacher could explain it in 10 minutes and a student could practice it in 15 minutes. If a concept feels too broad, split it into multiple days.',
                 '2. Each day must include title, concepts array, estimatedMinutes, and difficulty.',
                 `3. Total day count must equal at least ${days}.`,
                 `4. Each day must fit within ${minutesPerDay || 30} minutes.`,
                 '5. Use progressive difficulty from 1 to 5.',
                 '6. Avoid generic buckets like Core Skills, General Practice, Foundations, Basics, or Overview.',
-                '7. Use prerequisite compression: bridge fundamentals quickly when the learner knows them, but do not leave prerequisite gaps.',
+                '7. Use prerequisite compression only for explicitly confirmed prior knowledge; otherwise teach the prerequisite before using it.',
                 '8. For visual learners, day titles should map to concrete mental models and examples.',
                 '',
                 'Return ONLY valid JSON:',
@@ -729,14 +1129,20 @@ export async function generateCourseOutline({ goal, knowledge, days, minutesPerD
           difficulty: Math.max(1, Math.min(5, Number(d.difficulty) || 1)),
         })),
       }))
+      const curriculumModules = annotateModulesWithCurriculum({
+        modules: normalizedModules,
+        goal,
+        knowledge,
+        learnerProfile: profile,
+      })
 
-      const totalOutlineDays = normalizedModules.reduce((sum, module) => sum + module.days.length, 0)
-      const containsVagueConcepts = normalizedModules.some((module) =>
+      const totalOutlineDays = curriculumModules.reduce((sum, module) => sum + module.days.length, 0)
+      const containsVagueConcepts = curriculumModules.some((module) =>
         module.days.some((day) => {
           const primaryFocus = pickPrimaryDayFocus(day)
           return isConceptTooVague(primaryFocus)
         }))
-      if (normalizedModules.length < minimumModuleCount || totalOutlineDays < requestedDays || containsVagueConcepts) {
+      if (curriculumModules.length < minimumModuleCount || totalOutlineDays < requestedDays || containsVagueConcepts) {
         reason = 'validation_failed'
         continue
       }
@@ -751,7 +1157,7 @@ export async function generateCourseOutline({ goal, knowledge, days, minutesPerD
 
       const concepts = []
       let conceptId = 1
-      normalizedModules.forEach((mod) => {
+      curriculumModules.forEach((mod) => {
         mod.days.forEach((d) => {
           const primaryFocus = pickPrimaryDayFocus(d)
           concepts.push({
@@ -764,6 +1170,14 @@ export async function generateCourseOutline({ goal, knowledge, days, minutesPerD
             _moduleTitle: mod.title,
             _dayTitle: d.title,
             _allConcepts: dedupeTopics([primaryFocus, ...d.concepts]),
+            _explicitKnownConcepts: d.explicitKnownConcepts || [],
+            _knownBefore: d.knownBefore || [],
+            _taughtBefore: d.taughtBefore || [],
+            _newConceptsToday: d.newConceptsToday || [primaryFocus],
+            _allowedAssessmentConcepts: d.allowedAssessmentConcepts || [primaryFocus],
+            _notYetTaught: d.notYetTaught || [],
+            _coverageReport: d.coverageReport || null,
+            _prerequisitePolicy: d.prerequisitePolicy || 'teach_before_assess',
           })
         })
       })
@@ -778,7 +1192,7 @@ export async function generateCourseOutline({ goal, knowledge, days, minutesPerD
         recommendedDays,
         domain: domainContext.domain,
         domain_config: domainContext.domainConfig,
-        modules: normalizedModules,
+        modules: curriculumModules,
         concepts,
         previous_version: null,
       }, {
@@ -811,6 +1225,7 @@ export async function generateCourseOutline({ goal, knowledge, days, minutesPerD
 
   return buildStructuredFallbackOutline({
     goal,
+    knowledge,
     days: requestedDays,
     minutesPerDay,
     skillLevel,
@@ -883,12 +1298,41 @@ function resolveDayDate(existingRows = [], targetDayNumber, preservedDate = null
   return today.toISOString().split('T')[0]
 }
 
-function buildConceptFromSequenceItem(item) {
+function buildConceptFromSequenceItem(item, {
+  existingRows = [],
+} = {}) {
   const coveredTopics = buildSequenceItemCoveredTopics(item)
   const primaryFocus = pickPrimaryDayFocus({
     title: item.title,
     concepts: coveredTopics,
   })
+  const completedCoverage = buildCompletedCoverageFromRows(existingRows)
+  const explicitKnownConcepts = Array.isArray(item.explicitKnownConcepts) ? item.explicitKnownConcepts : []
+  const taughtBefore = completedCoverage.completedTopics.length > 0
+    ? completedCoverage.completedTopics
+    : []
+  const knownBefore = dedupeTopics([
+    ...explicitKnownConcepts,
+    ...taughtBefore,
+  ])
+  const newConceptsToday = Array.isArray(item.newConceptsToday) && item.newConceptsToday.length > 0
+    ? item.newConceptsToday
+    : [primaryFocus]
+  const allowedAssessmentConcepts = dedupeTopics([
+    ...knownBefore,
+    ...taughtBefore,
+    ...newConceptsToday,
+  ])
+  const notYetTaught = Array.isArray(item.notYetTaught) ? item.notYetTaught : []
+  const coverageReport = {
+    ...(item.coverageReport || {}),
+    knownBefore,
+    taughtBefore,
+    newToday: newConceptsToday,
+    assessOnly: allowedAssessmentConcepts,
+    notYetTaught,
+    rule: 'Do not ask about concepts outside assessOnly. Teach newToday first, then check only newToday plus confirmed earlier topics.',
+  }
   return {
     id: item.sequenceIndex || item.dayNumber,
     name: primaryFocus,
@@ -899,6 +1343,14 @@ function buildConceptFromSequenceItem(item) {
     _moduleTitle: item.moduleTitle,
     _dayTitle: item.title,
     _allConcepts: coveredTopics.length > 0 ? dedupeTopics([primaryFocus, ...coveredTopics]) : [primaryFocus],
+    _explicitKnownConcepts: explicitKnownConcepts,
+    _knownBefore: knownBefore,
+    _taughtBefore: taughtBefore,
+    _newConceptsToday: newConceptsToday,
+    _allowedAssessmentConcepts: allowedAssessmentConcepts,
+    _notYetTaught: notYetTaught,
+    _coverageReport: coverageReport,
+    _prerequisitePolicy: item.prerequisitePolicy || 'teach_before_assess',
   }
 }
 
@@ -950,7 +1402,7 @@ export async function buildGoalPlanDayFromSequenceItem({
     return buildProjectDayPlan({ goalText: goalRow.goal_text, item, existingRows })
   }
 
-  const unitConcept = buildConceptFromSequenceItem(item)
+  const unitConcept = buildConceptFromSequenceItem(item, { existingRows })
   const [day] = await buildDailyTasks(
     goalRow.goal_text,
     [unitConcept],
@@ -1335,6 +1787,12 @@ function buildTaskLessonSeed({ type, concept, focusName, resource, goal, mode, l
     moduleTitle: concept?._moduleTitle || '',
     dayTitle: concept?._dayTitle || concept?.name || '',
     allConcepts: Array.isArray(concept?._allConcepts) ? concept._allConcepts : [concept?.name || focusName],
+    knownBefore: Array.isArray(concept?._knownBefore) ? concept._knownBefore : [],
+    taughtBefore: Array.isArray(concept?._taughtBefore) ? concept._taughtBefore : [],
+    newConceptsToday: Array.isArray(concept?._newConceptsToday) ? concept._newConceptsToday : [focusName],
+    allowedAssessmentConcepts: Array.isArray(concept?._allowedAssessmentConcepts) ? concept._allowedAssessmentConcepts : [focusName],
+    notYetTaught: Array.isArray(concept?._notYetTaught) ? concept._notYetTaught : [],
+    coverageReport: concept?._coverageReport || null,
     resourceTitle: resource?.title || '',
     resourceUrl: resource?.url || '',
     mode,
@@ -1375,6 +1833,8 @@ function buildDeterministicTaskTemplate({
   const assignmentPrefix = domainTaskType && domainTaskType !== 'GeneratedLesson'
     ? `${domainTaskLabel}: `
     : ''
+  const canDoStatement = String(learningContract?.canDoStatement || `use ${cleanFocus} correctly in one short, concrete scenario`).trim()
+  const proofPrompt = String(learningContract?.proofPrompt || `Show today's proof by using ${cleanFocus} in one short concrete answer.`).trim()
 
   const common = {
     durationMin: allocateTaskMinutes({ type, baseDuration, difficulty }),
@@ -1384,6 +1844,12 @@ function buildDeterministicTaskTemplate({
     _concept: cleanFocus,
     _moduleTitle: moduleTitle,
     _allConcepts: Array.isArray(concept?._allConcepts) && concept._allConcepts.length > 0 ? concept._allConcepts : [cleanFocus],
+    _knownBefore: Array.isArray(concept?._knownBefore) ? concept._knownBefore : [],
+    _taughtBefore: Array.isArray(concept?._taughtBefore) ? concept._taughtBefore : [],
+    _newConceptsToday: Array.isArray(concept?._newConceptsToday) ? concept._newConceptsToday : [cleanFocus],
+    _allowedAssessmentConcepts: Array.isArray(concept?._allowedAssessmentConcepts) ? concept._allowedAssessmentConcepts : [cleanFocus],
+    _notYetTaught: Array.isArray(concept?._notYetTaught) ? concept._notYetTaught : [],
+    _coverageReport: concept?._coverageReport || null,
     _difficulty: difficulty,
     domain: learningContract?.domain || null,
     domainConfig: learningContract?.domainConfig || null,
@@ -1404,7 +1870,7 @@ function buildDeterministicTaskTemplate({
         presentation: 'lesson',
         title: `Understand ${cleanFocus}`,
         action: `Learn the mental model for ${cleanFocus}, then identify one example and one trap before practice starts.`,
-        outcome: `Finish able to explain ${cleanFocus} simply and recognize where it applies.`,
+        outcome: `Finish able to ${canDoStatement.replace(/\.$/, '')}.`,
         description: `${scaffoldLine} This concept teaches the idea the rest of today's tasks use; use ${resourceTitle} only as a reference, not a script to copy.`,
         _flowStage: 'understand',
       }
@@ -1417,7 +1883,7 @@ function buildDeterministicTaskTemplate({
         action: adaptivePlan?.state === 'struggling'
           ? `Work through a scaffolded example on ${cleanFocus}, checking why each step follows from the concept lesson.`
           : `Apply ${cleanFocus} in one structured exercise with partial support, checking your choices after you commit.`,
-        outcome: `Produce a worked example or short artifact that uses only today's taught scope.`,
+        outcome: proofPrompt,
         description: adaptivePlan?.shouldReviewToday && reviewName
           ? `Reconnect ${reviewName} to ${cleanFocus} through a hands-on task. Use references only when stuck.`
           : `Turn the concept lesson into a concrete move. Apply what was taught without introducing a new topic.`,
@@ -1465,7 +1931,7 @@ function buildDeterministicTaskTemplate({
         type,
         title: `${assignmentPrefix}Check ${cleanDayFocusTitle(reviewName || cleanFocus)}`,
         action: `Answer scored questions without notes, then review why each answer was right or wrong.`,
-        outcome: `Leave with a clear signal on whether today's concept is sticking or needs another pass.`,
+        outcome: `Leave with a clear signal on whether you can ${canDoStatement.replace(/\.$/, '')}.`,
         description: adaptivePlan?.shouldReviewToday && reviewName
           ? `Verify that ${reviewName} is back on solid ground while also checking the new learning from today.`
           : `Use a short scored check to confirm you can recognize and apply the taught idea under light pressure.`,
@@ -1476,8 +1942,8 @@ function buildDeterministicTaskTemplate({
         ...common,
         type,
         title: `Reflect on ${cleanFocus}`,
-        action: `Write what clicked, where you hesitated, how confident you feel, and what you would revisit before tomorrow.`,
-        outcome: `End the day with one honest note about what is getting stronger and one next step for continued progress.`,
+        action: `Write what clicked, where you hesitated, how confident you feel, and what proof best shows ${cleanFocus} today.`,
+        outcome: `End the day able to name what you learned, what you can now do, and the proof you produced.`,
         description: `Use reflection to turn the day into usable signal. This task should make tomorrow’s learning easier by naming what still needs attention.`,
         _flowStage: 'reflect',
       }
@@ -1486,9 +1952,9 @@ function buildDeterministicTaskTemplate({
         ...common,
         type,
         title: `${moduleTitle}: mastery checkpoint`,
-        action: `Combine the main ideas from ${moduleTitle} into one higher-pressure checkpoint with no filler and no low-value repetition.`,
-        outcome: `Finish with a single integrated output that proves you can connect the module’s concepts instead of treating them as isolated facts.`,
-        description: `This checkpoint is the proof layer for ${moduleTitle}. Expect to combine multiple ideas from ${dayTitle} and adjacent units in one focused evaluation.`,
+        action: `Combine today's concept with completed earlier concepts only; leave future topics out of the checkpoint.`,
+        outcome: `Finish with a single integrated output that proves you can connect taught ideas without relying on unstated prerequisites.`,
+        description: `This checkpoint is the proof layer for ${moduleTitle}. It may use completed earlier lessons, but it must not require concepts that have not been taught yet.`,
         xpReward: 200,
         _flowStage: 'prove',
       }
@@ -1525,6 +1991,12 @@ function buildDeterministicDayBundle({
     concept,
     adaptivePlan,
   })
+  const normalizedFlowTypes = (Array.isArray(flowSequence) ? flowSequence : []).map((item, index) => normalizeTaskType(item?.type, index))
+  const dayType = normalizedFlowTypes.includes('boss')
+    ? 'integration_day'
+    : adaptivePlan?.shouldReviewToday || normalizedFlowTypes.includes('recall')
+      ? 'review_day'
+      : 'concept_day'
   const profile = normalizeLearnerProfile(learnerProfile, { goal })
   const domainContext = buildDomainPromptContext({ learnerProfile })
   const depthPolicy = deriveDepthPolicy(profile)
@@ -1540,6 +2012,18 @@ function buildDeterministicDayBundle({
     learnerProfile: profile,
     depthOverride: null,
     visualPreference: profile.visualPreference,
+    dayType,
+    knownBefore: Array.isArray(concept?._knownBefore) ? concept._knownBefore : [],
+    taughtBefore: Array.isArray(concept?._taughtBefore) ? concept._taughtBefore : [],
+    newConceptsToday: Array.isArray(concept?._newConceptsToday) ? concept._newConceptsToday : [primaryFocusName],
+    allowedAssessmentConcepts: Array.isArray(concept?._allowedAssessmentConcepts) ? concept._allowedAssessmentConcepts : [primaryFocusName],
+    forbiddenUntilTaught: Array.isArray(concept?._notYetTaught) ? concept._notYetTaught : [],
+    coverageReport: concept?._coverageReport || null,
+    canDoStatement: dayType === 'integration_day'
+      ? `combine ${primaryFocusName} with earlier ideas in one focused output`
+      : dayType === 'review_day'
+        ? `recall ${primaryFocusName} from memory and use it correctly in one short scenario`
+        : `use ${primaryFocusName} correctly in one short, concrete scenario`,
   })
   dayLearningContract.domain = domainContext.domain
   dayLearningContract.domainConfig = domainContext.domainConfig
@@ -1733,6 +2217,9 @@ async function generateDayTaskBundle({
               `Day topic: ${concept._dayTitle || concept.name}`,
               `Core concept: ${concept.name}`,
               concept._allConcepts?.length > 1 ? `Related concepts: ${concept._allConcepts.join(', ')}` : '',
+              concept._coverageReport ? `Curriculum coverage report JSON: ${JSON.stringify(concept._coverageReport)}` : '',
+              concept._allowedAssessmentConcepts?.length ? `Assessment boundary: ${concept._allowedAssessmentConcepts.join(', ')}` : `Assessment boundary: ${concept.name}`,
+              concept._notYetTaught?.length ? `Do not require yet: ${concept._notYetTaught.join(', ')}` : '',
               `Learner profile JSON: ${JSON.stringify(profile)}`,
               `Depth policy: ${depthPolicy.level}; ${depthPolicy.exampleDifficulty}; ${depthPolicy.repetitionAllowance}`,
               `Prerequisite mode: ${profile.prereqComfort === 'full' ? 'full fundamentals' : 'compressed prerequisite bridge'}`,
@@ -1756,6 +2243,9 @@ async function generateDayTaskBundle({
               '- boss: integrated mastery checkpoint',
               'Learning sequence rule: concept teaches the day idea; every later task only practices, stretches, explains, recalls, or checks that same taught scope.',
               'Rules:',
+              '- Assume unknown unless covered in completed earlier rows or explicitly known from onboarding',
+              '- Do not ask the learner to answer, build, debug, or explain a concept before a lesson has taught it',
+              '- Later tasks can assess only the concept task scope plus the Assessment boundary listed above',
               '- No generic titles or descriptions',
               '- No placeholders like "Concept Task 1", "Getting Started", "Core Concept", or "Learn X - Day Y"',
               '- Titles must be distinct and describe different sub-angles of the same learning day',

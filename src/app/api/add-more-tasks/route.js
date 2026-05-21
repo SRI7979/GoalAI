@@ -1,6 +1,7 @@
 import { getOpenAIModel } from '@/lib/openaiModels'
 import { getSupabaseServerClient } from '@/lib/supabaseServer'
 import { getCanonicalTaskType, normalizeLearningTask, normalizeLearningTasks } from '@/lib/taskTaxonomy'
+import { formatDomainForPrompt, normalizeDomain, parseDomainFromConstraints } from '@/lib/domainAdapter'
 
 const EXTRA_TASK_TYPES = ['concept', 'guided_practice', 'recall', 'quiz', 'explain']
 
@@ -29,7 +30,12 @@ function normalizeExtraTask(task, fallbackType, index, baseDuration, concept, go
   })
 }
 
-async function generateExtraTasks({ goal, concept, count, baseDuration, openaiApiKey }) {
+function buildDomainPrompt({ domain, knowledge } = {}) {
+  const resolvedDomain = normalizeDomain(domain || parseDomainFromConstraints([knowledge]), null)
+  return resolvedDomain ? `\nDOMAIN ADAPTER:\n${formatDomainForPrompt(resolvedDomain)}\n` : ''
+}
+
+async function generateExtraTasks({ goal, concept, count, baseDuration, knowledge, domain, openaiApiKey }) {
   if (!openaiApiKey) return null
 
   try {
@@ -47,6 +53,7 @@ async function generateExtraTasks({ goal, concept, count, baseDuration, openaiAp
           role: 'user',
           content: `Create ${count} additional follow-up tasks for this learning day.
 Goal: ${goal}
+${buildDomainPrompt({ domain, knowledge })}
 Concept: ${concept}
 Each task should be about ${baseDuration} minutes.
 Return ONLY JSON: {"tasks":[{"type":"guided_practice","presentation":"exercise","title":"...","description":"...","durationMin":12,"resourceUrl":"https://...","resourceTitle":"...","resourceType":"article"}]}
@@ -94,13 +101,14 @@ export async function POST(request) {
 
     const { data: goalRow } = await supabase
       .from('goals')
-      .select('goal_text')
+      .select('goal_text,constraints,domain')
       .eq('id', goalId)
       .eq('user_id', userId)
       .maybeSingle()
 
     const currentTasks = normalizeLearningTasks(row.tasks)
     const goalText = goalRow?.goal_text || 'your learning goal'
+    const knowledge = Array.isArray(goalRow?.constraints) ? goalRow.constraints.join(', ') : (goalRow?.constraints || '')
     const concept = row.covered_topics?.[0] || goalText
     const baseDuration = Math.max(10, Math.round((currentTasks.reduce((sum, t) => sum + (Number(t.durationMin || t.estimated_minutes) || 0), 0) || 30) / Math.max(1, currentTasks.length)))
     const addCount = 3
@@ -110,6 +118,8 @@ export async function POST(request) {
       concept,
       count: addCount,
       baseDuration,
+      knowledge,
+      domain: goalRow?.domain,
       openaiApiKey: process.env.OPENAI_API_KEY,
     })
 

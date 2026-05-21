@@ -1,12 +1,13 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { selectReflectionPrompts } from '@/lib/learningEngine'
 import ConfidenceSelector from './ConfidenceSelector'
+import DailyConceptCard, { DailyProofRecapCard } from './DailyConceptCard'
 import IconGlyph from '@/components/IconGlyph'
 
 const font = "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif"
 
-export default function ReflectionView({ task, goal, knowledge, onClose, onComplete }) {
+export default function ReflectionView({ task, goal, knowledge, domain = null, staticPreview = false, onClose, onComplete }) {
   const [prompts] = useState(() =>
     selectReflectionPrompts({
       difficulty: task._difficulty || 2,
@@ -19,6 +20,7 @@ export default function ReflectionView({ task, goal, knowledge, onClose, onCompl
   const [evaluation, setEvaluation] = useState(null)
   const [completing, setCompleting] = useState(false)
   const [confidenceLevel, setConfidenceLevel] = useState('')
+  const learningContract = task?._learningContract || task?.learningContract || task?.lessonSeed?.learningContract || null
 
   const allRequired = prompts.filter(p => p.required).every(p => (responses[p.id] || '').trim().length > 10)
   const filledCount = Object.values(responses).filter(v => v.trim().length > 5).length
@@ -26,6 +28,18 @@ export default function ReflectionView({ task, goal, knowledge, onClose, onCompl
   async function handleSubmit() {
     if (!allRequired) return
     setEvaluating(true)
+
+    if (staticPreview) {
+      setEvaluation({
+        quality_score: 84,
+        feedback: 'Static preview feedback: the real reflection evaluator would summarize growth, confusion, and next-step review here.',
+        suggestion: 'Use this screen to tune the actual reflection UI without calling the curriculum API.',
+        insight: 'The learner is connecting a domain action to proof of understanding.',
+        confused_topics: [],
+      })
+      setEvaluating(false)
+      return
+    }
 
     try {
       const reflections = prompts
@@ -40,6 +54,8 @@ export default function ReflectionView({ task, goal, knowledge, onClose, onCompl
           concept: task._concept || task.title,
           goal,
           reflections,
+          domain,
+          knowledge,
         }),
       })
       const data = await res.json()
@@ -58,11 +74,17 @@ export default function ReflectionView({ task, goal, knowledge, onClose, onCompl
   function handleComplete() {
     if (!confidenceLevel) return
     setCompleting(true)
+    const reflectionSummary = prompts
+      .filter((prompt) => (responses[prompt.id] || '').trim())
+      .map((prompt) => `${prompt.prompt}: ${responses[prompt.id]}`)
+      .join(' | ')
     onComplete({
       reflectionQuality: evaluation?.quality_score || 50,
       confusedTopics: evaluation?.confused_topics || [],
       confidenceLevel,
       attempts: Math.max(1, filledCount),
+      proofSubmission: reflectionSummary,
+      proofResult: evaluation?.feedback || evaluation?.suggestion || 'Reflection captured for today.',
     })
   }
 
@@ -116,6 +138,14 @@ export default function ReflectionView({ task, goal, knowledge, onClose, onCompl
 
             {/* Intro */}
             <div style={{ textAlign: 'center', marginBottom: 32, animation: 'fadeIn 0.4s ease both' }}>
+              <DailyConceptCard
+                learningContract={learningContract}
+                concept={task?._concept || task?.title}
+                goal={goal}
+                accent="#A78BFA"
+                title="Today's concept"
+              />
+
               <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
                 <div style={{ width: 64, height: 64, borderRadius: 20, background: 'rgba(167,139,250,0.10)', border: '1px solid rgba(167,139,250,0.22)', display: 'grid', placeItems: 'center' }}>
                   <IconGlyph name="brain" size={28} strokeWidth={2.2} color="#A78BFA" />
@@ -287,6 +317,20 @@ export default function ReflectionView({ task, goal, knowledge, onClose, onCompl
                   background="rgba(167,139,250,0.05)"
                   label="After reflecting, how clear does this concept feel?"
                 />
+
+                <div style={{ marginTop: 16 }}>
+                  <DailyProofRecapCard
+                    learningContract={learningContract}
+                    concept={task?._concept || task?.title}
+                    goal={goal}
+                    accent="#A78BFA"
+                    proofSubmission={prompts
+                      .filter((prompt) => (responses[prompt.id] || '').trim())
+                      .map((prompt) => `${prompt.prompt}: ${responses[prompt.id]}`)
+                      .join(' | ')}
+                    proofResult={evaluation?.feedback || evaluation?.suggestion || ''}
+                  />
+                </div>
               </div>
             )}
           </div>

@@ -103,7 +103,7 @@ export function persistLocalAccessSession({ email } = {}) {
   }
 }
 
-function readStoredSession() {
+function readStoredSession({ allowExpired = false } = {}) {
   if (typeof window === 'undefined') return null
 
   try {
@@ -111,14 +111,45 @@ function readStoredSession() {
     if (!raw) return null
 
     const session = normalizeStoredSession(JSON.parse(raw))
-    if (!session || isExpiredSession(session)) {
+    if (!session) {
       clearStoredSupabaseSession()
+      return null
+    }
+
+    if (!allowExpired && isExpiredSession(session)) {
       return null
     }
 
     return session
   } catch {
     clearStoredSupabaseSession()
+    return null
+  }
+}
+
+async function refreshStoredSession(session) {
+  if (!session?.refresh_token || !supabaseUrl || !supabaseAnonKey) return null
+
+  try {
+    const response = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
+      method: 'POST',
+      headers: {
+        apikey: supabaseAnonKey,
+        Authorization: `Bearer ${supabaseAnonKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ refresh_token: session.refresh_token }),
+    })
+
+    if (!response.ok) return null
+
+    const payload = await response.json().catch(() => null)
+    const nextSession = normalizeStoredSession(payload)
+    if (!nextSession || isExpiredSession(nextSession)) return null
+
+    persistSupabaseSession(nextSession)
+    return nextSession
+  } catch {
     return null
   }
 }
@@ -162,7 +193,21 @@ export const supabaseData = getGlobalClient('__pathaiSupabaseDataClient', () => 
 ))
 
 export async function getSafeSupabaseSession() {
-  return { session: readStoredSession() || readLocalAccessSession(), error: null }
+  const storedSession = readStoredSession({ allowExpired: true })
+  if (storedSession) {
+    if (!isExpiredSession(storedSession)) {
+      return { session: storedSession, error: null }
+    }
+
+    const refreshedSession = await refreshStoredSession(storedSession)
+    if (refreshedSession) {
+      return { session: refreshedSession, error: null }
+    }
+
+    clearStoredSupabaseSession()
+  }
+
+  return { session: readLocalAccessSession(), error: null }
 }
 
 export async function getSafeSupabaseUser() {

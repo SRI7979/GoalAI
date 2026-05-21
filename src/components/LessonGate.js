@@ -60,6 +60,12 @@ function MultipleChoiceOptions({ options = [], correctIndex, onSelect }) {
     const correct = idx === correctIndex
     setPhase(correct ? 'correct' : 'wrong')
     onSelect(correct, idx)
+    if (!correct) {
+      setTimeout(() => {
+        setSelectedIndex(null)
+        setPhase('idle')
+      }, 850)
+    }
   }
 
   const letters = ['A', 'B', 'C', 'D', 'E']
@@ -157,7 +163,6 @@ export default function LessonGate({
   code,
   explanation,
   onPass,
-  onFeedback,
 }) {
   const [phase, setPhase] = useState('idle')
   const [attempts, setAttempts] = useState(0)
@@ -172,7 +177,6 @@ export default function LessonGate({
 
   function handleCorrect() {
     setPhase('correct')
-    onFeedback?.('correct')
     setTimeout(() => onPass(), 700)
   }
 
@@ -180,7 +184,6 @@ export default function LessonGate({
     const next = attempts + 1
     setAttempts(next)
     triggerShake()
-    onFeedback?.(next >= 2 ? 'reveal' : 'wrong')
     if (next >= 2) {
       setPhase('reveal')
       setTimeout(() => onPass(), 2500)
@@ -230,10 +233,7 @@ export default function LessonGate({
           Ready to continue?
         </p>
         <button
-          onClick={() => {
-            onFeedback?.('correct')
-            onPass()
-          }}
+          onClick={onPass}
           style={{
             padding: '12px 28px',
             borderRadius: 14,
@@ -504,11 +504,7 @@ export default function LessonGate({
           }}
         />
         <button
-          onClick={() => {
-            if (!ready) return
-            onFeedback?.('correct')
-            onPass()
-          }}
+          onClick={() => ready && onPass()}
           disabled={!ready}
           style={{
             marginTop: 12,

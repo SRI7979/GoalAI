@@ -11,6 +11,11 @@ import {
 import { buildPathOutlineTracker } from '@/lib/pathOutline.js'
 import { getCourseOutlineStatus } from '@/lib/courseOutlineStore'
 import { persistCourseOutline } from '@/lib/courseOutlineStore'
+import {
+  buildDomainConfig,
+  buildDomainKnowledgeLine,
+  normalizeDomain,
+} from '@/lib/domainAdapter'
 
 function extractAccessToken(request) {
   const authHeader = request.headers.get('authorization') || request.headers.get('Authorization')
@@ -31,8 +36,18 @@ export async function POST(request) {
     const accessToken = extractAccessToken(request) || body?.accessToken || null
     supabase = getSupabaseServerClient({ accessToken })
 
-    const { goalId, userId, goal, days, weekdayMins, weekendMins, knowledge, mode = 'goal' } = body
+    const { goalId, userId, goal, days, weekdayMins, weekendMins, knowledge, learnerProfile = null, mode = 'goal' } = body
     parsedGoalId = goalId
+    const domain = normalizeDomain(body?.domain || learnerProfile?.domain, null)
+    const domainConfig = domain
+      ? (body?.domainConfig || learnerProfile?.domainConfig || buildDomainConfig(domain))
+      : null
+    const learnerProfileWithDomain = domain
+      ? { ...(learnerProfile || {}), domain, domainConfig }
+      : learnerProfile
+    const knowledgeWithDomain = domain && !String(knowledge || '').includes('Confirmed learning domain:')
+      ? [buildDomainKnowledgeLine(domain), knowledge].filter(Boolean).join('. ')
+      : knowledge
 
     if (!goalId || !userId || !goal) {
       return Response.json({ error: 'Missing required fields' }, { status: 400 })
@@ -58,6 +73,18 @@ export async function POST(request) {
       return Response.json({ success: true, message: 'Plan already generated.' }, { status: 200 })
     }
 
+    if (domain && domainConfig) {
+      try {
+        await supabase
+          .from('goals')
+          .update({ domain, domain_config: domainConfig })
+          .eq('id', goalId)
+          .eq('user_id', userId)
+      } catch (_) {
+        // Domain columns are added by migration; plan generation can still proceed before it is applied.
+      }
+    }
+
     let dailyPlan = []
     let sequenceDayCount = mode === 'explore' ? 0 : Number(days) || 0
     let generationSource = 'deterministic'
@@ -81,7 +108,12 @@ export async function POST(request) {
         exploreConcepts[0],
         minsPerDay,
         1,
-        { knowledge, openaiApiKey: null, generationPhase: 'initial_day' },
+        {
+          knowledge: knowledgeWithDomain,
+          learnerProfile: learnerProfileWithDomain,
+          openaiApiKey: null,
+          generationPhase: 'initial_day',
+        },
       )
       dailyPlan.push(day)
     } else {
@@ -90,10 +122,11 @@ export async function POST(request) {
       const avgMins = Math.round((Number(weekdayMins) * 5 + Number(weekendMins) * 2) / 7)
       const courseOutline = buildDeterministicCourseOutline({
         goal,
-        knowledge,
+        knowledge: knowledgeWithDomain,
         days,
         minutesPerDay: avgMins,
         status: 'pending',
+        learnerProfile: learnerProfileWithDomain,
       })
 
       const tracker = buildPathOutlineTracker({
@@ -114,7 +147,8 @@ export async function POST(request) {
           weekend_mins: Number(weekendMins),
         },
         item: firstItem,
-        knowledge,
+        knowledge: knowledgeWithDomain,
+        learnerProfile: learnerProfileWithDomain,
         openaiApiKey: null,
         adaptiveProfile: null,
         existingRows: [],

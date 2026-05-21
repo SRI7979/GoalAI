@@ -155,7 +155,7 @@ export default function CapstoneView({ task, goal, knowledge, onClose, onComplet
                                 <div style={{ width: 20, height: 20, borderRadius: 6, border: `1.5px solid ${checked[`${mi}-${ti}`] ? '#34D399' : 'rgba(255,255,255,0.15)'}`, background: checked[`${mi}-${ti}`] ? 'rgba(52,211,153,0.15)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2, transition: 'all 0.2s' }}>
                                   {checked[`${mi}-${ti}`] && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#34D399" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ animation: 'checkPop 0.25s ease' }}><polyline points="20 6 9 17 4 12"/></svg>}
                                 </div>
-                                <span style={{ fontSize: 14, color: checked[`${mi}-${ti}`] ? '#636366' : '#8e8e93', lineHeight: 1.5, textDecoration: checked[`${mi}-${ti}`] ? 'line-through' : 'none', transition: 'all 0.2s' }}>{t}</span>
+                                <span style={{ fontSize: 14, color: checked[`${mi}-${ti}`] ? '#636366' : '#8e8e93', lineHeight: 1.5, textDecorationLine: checked[`${mi}-${ti}`] ? 'line-through' : 'none', transition: 'all 0.2s' }}>{t}</span>
                               </button>
                             ))}
                           </div>
