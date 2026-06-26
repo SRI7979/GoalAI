@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   BookOpen,
   ClipboardCheck,
@@ -45,6 +45,7 @@ import { normalizeConceptSlideshowLesson } from '@/lib/conceptSlideshow'
 const TYPE_ICONS = {
   course_map: Layers3,
   lesson: BookOpen,
+  new_lesson_slideshow: Sparkles,
   guided_practice: Target,
   domain_task: SlidersHorizontal,
   quiz: ClipboardCheck,
@@ -660,6 +661,14 @@ function ActualLessonOverlay({ course, activeType, onClose }) {
   const knowledge = `Static UI devtool course.\n\nAPI prompt:\n${course.apiPrompt}`
   const domainConfig = buildDomainConfig(course.domain)
   const onComplete = () => onClose()
+
+  if (activeType === 'new_lesson_slideshow') {
+    return (
+      <div className="actual-domain-task-overlay is-new-lesson-overlay">
+        <NewLessonSlideshow course={course} fullscreen onClose={onClose} />
+      </div>
+    )
+  }
 
   if (activeType === 'lesson') {
     return (
@@ -1450,9 +1459,342 @@ function WorkspacePreview({ course, activeType }) {
   )
 }
 
+function buildNewLessonSlides(course) {
+  const python = isPythonCourse(course)
+  const lessonTitle = python
+    ? "Understanding Python's line-by-line execution"
+    : `Understanding ${course.concept}`
+  return [
+    {
+      kind: 'intro',
+      eyebrow: 'Concept',
+      title: `What is ${lessonTitle}?`,
+      body: python
+        ? 'Read the code in order, name what changes, and predict what appears on screen.'
+        : `Focus on one specific move inside ${course.concept}, then use the visual to predict the result.`,
+      chips: ['read top to bottom', 'track names', 'predict output'],
+    },
+    {
+      kind: 'worked',
+      eyebrow: 'Example',
+      title: 'Small example',
+      code: 'value = 1\nprint(value)',
+      body: 'The code stores one value, then prints it so you can see the result.',
+    },
+    {
+      kind: 'visual',
+      slotId: 'line_execution_trace',
+      visualType: 'line_execution',
+      eyebrow: 'Interactive visual',
+      title: "Try Python's line-by-line execution",
+      body: 'The highlighted line runs now. The memory panel shows what Python remembers, and the output panel shows what appears on screen.',
+      code: 'name = "Sri"\nprint(name)',
+      diagramConcept: 'Python line-by-line execution showing memory update then print output',
+      contextSnippet: 'Beginner Python lesson. The visual appears after a tiny value/print example. Show Python running line 1 then line 2, with memory storing name = "Sri" and terminal output Sri.',
+      diagramPurpose: 'Show how the current line, memory, and output change as Python executes code from top to bottom.',
+      placement: 'after the first small example and before the mini check',
+    },
+    {
+      kind: 'visual',
+      slotId: 'name_value_output_lookup',
+      visualType: 'name_value_output',
+      eyebrow: 'Mental model',
+      title: 'Name, value, output',
+      body: '`print(name)` does not print the letters n-a-m-e. It follows the name to the stored value, then sends that value to the terminal.',
+      code: 'name = "Sri"\nprint(name)',
+      diagramConcept: 'Python variable lookup from variable name to stored value to terminal output',
+      contextSnippet: 'Beginner Python lesson. The visual should explain that a variable name is a handle for a stored value, and print(name) retrieves the current value before displaying it.',
+      diagramPurpose: 'Reinforce that print(name) follows the name to the stored value and outputs the value, not the literal word name.',
+      placement: 'after the line execution visual and before the mini check',
+    },
+    {
+      kind: 'check',
+      eyebrow: 'Mini check',
+      title: 'Tiny check',
+      question: 'What should a good code prediction include?',
+      code: 'score = 10\nscore = 12\nprint(score)',
+      options: ['The exact output', 'Only the topic name', 'A motivational sentence', 'Nothing'],
+      correctIndex: 0,
+      explanation: 'A good prediction names the exact value that appears in the output, after reading the code line by line.',
+    },
+    {
+      kind: 'proof',
+      eyebrow: 'Proof moment',
+      title: 'Use it yourself',
+      body: 'Create one variable, print it, then explain which value Python remembered.',
+      checklist: [
+        'Use `=` to store one value',
+        'Use `print()` to display the value',
+        'Explain which line changes memory and which line creates output',
+      ],
+    },
+  ]
+}
+
+function buildLessonVisualPlanPayload(course, slides) {
+  const diagramSlots = slides
+    .map((slide, index) => ({ slide, index }))
+    .filter(({ slide }) => slide.kind === 'visual')
+    .map(({ slide, index }) => ({
+      slotId: slide.slotId || `visual_${index + 1}`,
+      slideIndex: index,
+      slideTitle: slide.title,
+      concept: slide.diagramConcept || slide.title,
+      surroundingCopy: `${slide.body || ''}\n\n${slide.contextSnippet || ''}`,
+      code: slide.code || '',
+      purpose: slide.diagramPurpose || slide.title,
+      placement: slide.placement || 'inside lesson slideshow',
+    }))
+
+  return {
+    lessonTitle: "What is understanding Python's line-by-line execution?",
+    staticGoal: isPythonCourse(course) ? 'Learn Python variables' : course?.prompt || course?.concept || 'Preview lesson',
+    slides: slides.map((slide, index) => ({
+      index,
+      kind: slide.kind,
+      title: slide.title,
+      body: slide.body || '',
+      code: slide.code || '',
+      question: slide.question || '',
+    })),
+    diagramSlots,
+  }
+}
+
+function LessonAiVisual({ planState, slide }) {
+  const planned = planState.diagrams?.[slide.slotId]
+  const params = planned?.params
+
+  if (params?.svg) {
+    return (
+      <div
+        className="new-lesson-ai-svg"
+        aria-label={params.title || slide.title}
+        dangerouslySetInnerHTML={{ __html: params.svg }}
+      />
+    )
+  }
+
+  if (planState.status === 'error') {
+    return (
+      <div className="new-lesson-ai-visual-state is-error">
+        <strong>AI visual could not load</strong>
+        <span>{planState.error || 'Try reopening the lesson preview.'}</span>
+      </div>
+    )
+  }
+
+  return (
+    <div className="new-lesson-ai-visual-state">
+      <span />
+      <strong>Generating lesson visual...</strong>
+      <small>Planning every diagram with the lesson context in one request.</small>
+    </div>
+  )
+}
+
+function NewLessonSlideshow({ course, fullscreen = false, onClose = null }) {
+  const slides = useMemo(() => buildNewLessonSlides(course), [course])
+  const visualPlanPayload = useMemo(() => buildLessonVisualPlanPayload(course, slides), [course, slides])
+  const visualPlanKey = useMemo(() => JSON.stringify({
+    lessonTitle: visualPlanPayload.lessonTitle,
+    slots: visualPlanPayload.diagramSlots.map((slot) => [slot.slotId, slot.concept, slot.purpose]),
+  }), [visualPlanPayload])
+  const [slideIndex, setSlideIndex] = useState(0)
+  const [answers, setAnswers] = useState({})
+  const [visualPlan, setVisualPlan] = useState({ status: 'idle', diagrams: {}, error: '', requestKey: '' })
+  const slide = slides[slideIndex] || slides[0]
+  const answerKey = `new:${slideIndex}`
+  const selectedAnswer = answers[answerKey]
+  const isCheck = slide.kind === 'check'
+  const answered = selectedAnswer != null
+  const progress = ((slideIndex + 1) / slides.length) * 100
+  const canContinue = !isCheck || answered
+
+  useEffect(() => {
+    const slots = visualPlanPayload.diagramSlots || []
+    if (!slots.length) return undefined
+
+    const controller = new AbortController()
+
+    fetch('/api/dev/lesson-visual-plan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(visualPlanPayload),
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}))
+        if (!response.ok) throw new Error(data?.error || `Visual planner returned ${response.status}.`)
+        return data
+      })
+      .then((data) => {
+        const diagrams = Object.fromEntries((data.diagrams || []).map((diagram) => [diagram.slotId, diagram]))
+        setVisualPlan({ status: 'ready', diagrams, error: '', requestKey: visualPlanKey })
+      })
+      .catch((error) => {
+        if (controller.signal.aborted) return
+        setVisualPlan({
+          status: 'error',
+          diagrams: {},
+          error: error?.message || 'Lesson visual planning failed.',
+          requestKey: visualPlanKey,
+        })
+      })
+
+    return () => controller.abort()
+  }, [visualPlanPayload, visualPlanKey])
+
+  function goNext() {
+    if (!canContinue) return
+    setSlideIndex((current) => Math.min(slides.length - 1, current + 1))
+  }
+
+  function goBack() {
+    setSlideIndex((current) => Math.max(0, current - 1))
+  }
+
+  function chooseAnswer(index) {
+    if (!isCheck || answered) return
+    setAnswers((current) => ({ ...current, [answerKey]: index }))
+  }
+
+  function renderSlide() {
+    if (slide.kind === 'intro') {
+      return (
+        <div className="new-lesson-hero">
+          <Label>{slide.eyebrow}</Label>
+          <h2>{slide.title}</h2>
+          <p>{slide.body}</p>
+          <div className="new-lesson-chips">
+            {slide.chips.map((chip) => <span key={chip}>{chip}</span>)}
+          </div>
+        </div>
+      )
+    }
+
+    if (slide.kind === 'visual') {
+      const planState = visualPlan.requestKey === visualPlanKey
+        ? visualPlan
+        : { status: 'loading', diagrams: {}, error: '', requestKey: visualPlanKey }
+      return (
+        <div className="new-lesson-visual-slide">
+          <div className="new-lesson-visual-copy">
+            <Label>{slide.eyebrow}</Label>
+            <h2>{slide.title}</h2>
+            <p><InlinePreviewText text={slide.body} /></p>
+            {slide.code ? <PreviewCodeBlock code={slide.code} /> : null}
+          </div>
+          <div className="new-lesson-visual-panel">
+            <LessonAiVisual planState={planState} slide={slide} />
+          </div>
+        </div>
+      )
+    }
+
+    if (slide.kind === 'worked') {
+      return (
+        <div className="new-lesson-worked">
+          <Label>{slide.eyebrow}</Label>
+          <h2>{slide.title}</h2>
+          <PreviewCodeBlock code={slide.code} />
+          {slide.body ? <p>{slide.body}</p> : null}
+          {slide.steps?.length ? (
+            <div className="new-lesson-step-list">
+              {slide.steps.map((step, index) => (
+                <div key={step} className="new-lesson-step">
+                  <span className="new-lesson-step-index">{index + 1}</span>
+                  <p><InlinePreviewText text={step} /></p>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      )
+    }
+
+    if (slide.kind === 'check') {
+      const correct = selectedAnswer === slide.correctIndex
+      return (
+        <div className="new-lesson-check">
+          <Label>{slide.eyebrow}</Label>
+          <h2>{slide.title}</h2>
+          <p>{slide.question}</p>
+          <PreviewCodeBlock code={slide.code} />
+          <div className="new-lesson-options">
+            {slide.options.map((option, index) => {
+              const selected = selectedAnswer === index
+              const className = [
+                'new-lesson-option',
+                selected ? 'is-selected' : '',
+                answered && index === slide.correctIndex ? 'is-correct' : '',
+                answered && selected && index !== slide.correctIndex ? 'is-wrong' : '',
+              ].filter(Boolean).join(' ')
+              return (
+                <button key={option} type="button" className={className} onClick={() => chooseAnswer(index)}>
+                  <span>{String.fromCharCode(65 + index)}</span>
+                  <strong>{option}</strong>
+                </button>
+              )
+            })}
+          </div>
+          {answered ? (
+            <div className={correct ? 'new-lesson-feedback is-correct' : 'new-lesson-feedback is-wrong'}>
+              <strong>{correct ? 'Correct' : 'Not quite'}</strong>
+              <p>{slide.explanation}</p>
+            </div>
+          ) : null}
+        </div>
+      )
+    }
+
+    return (
+      <div className="new-lesson-proof">
+        <Label>{slide.eyebrow}</Label>
+        <h2>{slide.title}</h2>
+        <p>{slide.body}</p>
+        <div className="new-lesson-proof-list">
+          {slide.checklist.map((item) => (
+            <div key={item}>
+              <span>✓</span>
+              <strong><InlinePreviewText text={item} /></strong>
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className={`new-lesson-shell ${fullscreen ? 'is-fullscreen' : ''}`}>
+      <section className="new-lesson-frame">
+        <div className="new-lesson-top">
+          {fullscreen && onClose ? (
+            <button type="button" className="new-lesson-close" onClick={onClose} aria-label="Close lesson">×</button>
+          ) : <span className="new-lesson-close-spacer" />}
+          <strong>What is understanding Python&apos;s line-by-line execution?</strong>
+          <div className="new-lesson-count">{slideIndex + 1}/{slides.length}</div>
+        </div>
+        <div className="new-lesson-progress"><span style={{ width: `${progress}%` }} /></div>
+        <div className="new-lesson-stage">
+          <div className={`new-lesson-card is-${slide.kind}`}>{renderSlide()}</div>
+        </div>
+        <div className="new-lesson-bottom">
+          <button type="button" onClick={goBack} disabled={slideIndex === 0}>Back</button>
+          <span>{slide.title}</span>
+          <button type="button" onClick={slideIndex === slides.length - 1 ? () => setSlideIndex(0) : goNext} disabled={slideIndex !== slides.length - 1 && !canContinue}>
+            {slideIndex === slides.length - 1 ? 'Restart' : isCheck && !answered ? 'Answer to continue' : 'Continue'}
+          </button>
+        </div>
+      </section>
+    </div>
+  )
+}
+
 function PreviewArea({ course, activeType, setActiveType, openActualViewer }) {
   if (activeType === 'course_map') return <CourseMapPreview course={course} setActiveType={setActiveType} />
   if (activeType === 'lesson') return <LessonPreview key={`${course.domain}:${course.prompt}`} course={course} openActualViewer={openActualViewer} />
+  if (activeType === 'new_lesson_slideshow') return <NewLessonSlideshow course={course} />
   if (activeType === 'quiz' || activeType === 'test' || activeType === 'boss' || activeType === 'final_exam') {
     return <AssessmentPreview course={course} activeType={activeType} />
   }
@@ -2934,6 +3276,443 @@ const styles = `
     min-height: 760px;
   }
 
+  .new-lesson-shell {
+    padding: 18px;
+  }
+
+  .new-lesson-shell.is-fullscreen {
+    min-height: 100vh;
+    display: block;
+    padding: 0;
+    background:
+      radial-gradient(circle at 50% 4%, rgba(20, 241, 201, 0.15), transparent 26%),
+      radial-gradient(circle at 100% 22%, rgba(56, 189, 248, 0.11), transparent 31%),
+      linear-gradient(180deg, #070b13 0%, #030712 100%);
+  }
+
+  .new-lesson-frame {
+    width: 100%;
+    min-height: 760px;
+    border: 1px solid rgba(125, 211, 252, 0.18);
+    border-radius: 8px;
+    background:
+      radial-gradient(circle at 48% 8%, rgba(20, 241, 201, 0.11), transparent 34%),
+      rgba(5, 10, 18, 0.80);
+    box-shadow: 0 28px 80px rgba(0, 0, 0, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    display: grid;
+    grid-template-rows: 62px 4px minmax(0, 1fr) 92px;
+    overflow: hidden;
+  }
+
+  .new-lesson-shell.is-fullscreen .new-lesson-frame {
+    min-height: 100vh;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .new-lesson-top {
+    display: grid;
+    grid-template-columns: 56px minmax(0, 1fr) 64px;
+    align-items: center;
+    gap: 12px;
+    padding: 0 18px;
+    background: rgba(3, 7, 18, 0.84);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  }
+
+  .new-lesson-top strong {
+    min-width: 0;
+    color: #f8fafc;
+    font-size: 16px;
+    font-weight: 900;
+    letter-spacing: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .new-lesson-close,
+  .new-lesson-close-spacer {
+    width: 44px;
+    height: 44px;
+  }
+
+  .new-lesson-close {
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.07);
+    color: #dbeafe;
+    font: inherit;
+    font-size: 22px;
+    cursor: pointer;
+  }
+
+  .new-lesson-count {
+    justify-self: end;
+    min-width: 44px;
+    text-align: right;
+    color: #7dd3fc;
+    font-size: 14px;
+    font-weight: 950;
+  }
+
+  .new-lesson-progress {
+    height: 4px;
+    background: rgba(148, 163, 184, 0.16);
+    overflow: hidden;
+  }
+
+  .new-lesson-progress span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, #7dd3fc, #14f1c9);
+    transition: width 0.24s ease;
+  }
+
+  .new-lesson-stage {
+    min-height: 0;
+    display: grid;
+    place-items: center;
+    padding: 52px 24px;
+    overflow: hidden;
+  }
+
+  .new-lesson-card {
+    width: min(840px, 100%);
+    min-height: 520px;
+    border: 1px solid rgba(255, 255, 255, 0.11);
+    border-radius: 8px;
+    background:
+      radial-gradient(circle at 15% 8%, rgba(20, 241, 201, 0.09), transparent 35%),
+      linear-gradient(145deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.025)),
+      rgba(15, 23, 42, 0.76);
+    box-shadow: 0 34px 90px rgba(0, 0, 0, 0.30), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    padding: 58px 62px;
+    display: grid;
+    align-content: center;
+    overflow: hidden;
+  }
+
+  .new-lesson-card.is-visual {
+    width: min(1060px, 100%);
+    padding: 42px;
+  }
+
+  .new-lesson-card h2 {
+    margin: 8px 0 0;
+    color: #ffffff;
+    font-size: 56px;
+    line-height: 1.05;
+    letter-spacing: 0;
+  }
+
+  .new-lesson-card p {
+    color: #c8d6e5;
+    font-size: 18px;
+    line-height: 1.6;
+    font-weight: 740;
+  }
+
+  .new-lesson-hero {
+    display: grid;
+    align-content: center;
+    max-width: 760px;
+  }
+
+  .new-lesson-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 18px;
+  }
+
+  .new-lesson-chips span {
+    border: 1px solid rgba(20, 241, 201, 0.20);
+    border-radius: 999px;
+    background: rgba(20, 241, 201, 0.08);
+    color: #ccfbf1;
+    padding: 9px 12px;
+    font-size: 12px;
+    font-weight: 950;
+  }
+
+  .new-lesson-visual-slide {
+    display: grid;
+    grid-template-columns: minmax(300px, 0.72fr) minmax(500px, 1.08fr);
+    gap: 34px;
+    align-items: center;
+  }
+
+  .new-lesson-visual-copy,
+  .new-lesson-visual-panel {
+    min-width: 0;
+  }
+
+  .new-lesson-visual-panel {
+    min-height: 420px;
+    border: 1px solid rgba(125, 211, 252, 0.13);
+    border-radius: 8px;
+    background:
+      radial-gradient(circle at 20% 5%, rgba(20, 241, 201, 0.08), transparent 32%),
+      rgba(2, 8, 15, 0.58);
+    padding: 16px;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+  }
+
+  .new-lesson-ai-svg {
+    width: 100%;
+    display: grid;
+    place-items: center;
+  }
+
+  .new-lesson-ai-svg svg {
+    display: block;
+    width: 100%;
+    max-width: 720px;
+    height: auto;
+    max-height: 430px;
+    border-radius: 8px;
+  }
+
+  .new-lesson-ai-visual-state {
+    width: 100%;
+    min-height: 360px;
+    border: 1px solid rgba(125, 211, 252, 0.14);
+    border-radius: 8px;
+    background:
+      linear-gradient(110deg, rgba(255, 255, 255, 0.035), rgba(20, 241, 201, 0.06), rgba(255, 255, 255, 0.035)),
+      rgba(3, 10, 18, 0.72);
+    display: grid;
+    place-items: center;
+    align-content: center;
+    gap: 10px;
+    color: #dbeafe;
+    text-align: center;
+    padding: 24px;
+  }
+
+  .new-lesson-ai-visual-state > span:first-child {
+    width: 34px;
+    height: 34px;
+    border-radius: 999px;
+    border: 3px solid rgba(125, 211, 252, 0.18);
+    border-top-color: #14f1c9;
+    animation: spin 0.8s linear infinite;
+  }
+
+  .new-lesson-ai-visual-state small,
+  .new-lesson-ai-visual-state > span:not(:first-child) {
+    color: #94a3b8;
+    font-size: 13px;
+  }
+
+  .new-lesson-ai-visual-state.is-error {
+    border-color: rgba(239, 68, 68, 0.24);
+    background: rgba(127, 29, 29, 0.12);
+  }
+
+  .new-lesson-worked,
+  .new-lesson-check,
+  .new-lesson-proof {
+    width: min(960px, 100%);
+    min-width: 0;
+    max-width: 960px;
+    margin: 0 auto;
+  }
+
+  .new-lesson-worked h2,
+  .new-lesson-check h2,
+  .new-lesson-proof h2 {
+    font-size: 52px;
+    line-height: 1.08;
+  }
+
+  .new-lesson-step-list,
+  .new-lesson-proof-list {
+    display: grid;
+    gap: 12px;
+    margin-top: 18px;
+  }
+
+  .new-lesson-step,
+  .new-lesson-proof-list div {
+    display: grid;
+    grid-template-columns: 42px minmax(0, 1fr);
+    gap: 14px;
+    align-items: center;
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.045);
+    padding: 15px 16px;
+    min-width: 0;
+  }
+
+  .new-lesson-step > .new-lesson-step-index,
+  .new-lesson-proof-list div > span {
+    width: 32px;
+    height: 32px;
+    border-radius: 999px;
+    display: grid;
+    place-items: center;
+    background: rgba(20, 241, 201, 0.10);
+    color: #99f6e4;
+    font-weight: 950;
+    flex: 0 0 auto;
+  }
+
+  .new-lesson-step p,
+  .new-lesson-proof-list strong {
+    margin: 0;
+    min-width: 0;
+    color: #e2e8f0;
+    font-size: 15px;
+    line-height: 1.5;
+  }
+
+  .new-lesson-step p span,
+  .new-lesson-proof-list strong span {
+    display: inline;
+    width: auto;
+    height: auto;
+    border-radius: 0;
+    background: transparent;
+    color: inherit;
+    font-weight: inherit;
+  }
+
+  .new-lesson-step p code,
+  .new-lesson-proof-list strong code {
+    color: #ccfbf1;
+    background: rgba(20, 241, 201, 0.08);
+    border: 1px solid rgba(20, 241, 201, 0.14);
+    border-radius: 6px;
+    padding: 1px 5px;
+    white-space: normal;
+  }
+
+  .new-lesson-options {
+    display: grid;
+    gap: 12px;
+    margin-top: 18px;
+  }
+
+  .new-lesson-option {
+    min-height: 70px;
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.055);
+    color: #f8fafc;
+    font: inherit;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px;
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .new-lesson-option span {
+    width: 32px;
+    height: 32px;
+    border-radius: 999px;
+    display: grid;
+    place-items: center;
+    background: rgba(125, 211, 252, 0.10);
+    color: #bae6fd;
+    font-weight: 950;
+  }
+
+  .new-lesson-option.is-selected {
+    border-color: rgba(125, 211, 252, 0.36);
+  }
+
+  .new-lesson-option.is-correct {
+    border-color: rgba(20, 241, 201, 0.46);
+    background: rgba(20, 241, 201, 0.10);
+  }
+
+  .new-lesson-option.is-wrong {
+    border-color: rgba(239, 68, 68, 0.42);
+    background: rgba(239, 68, 68, 0.10);
+  }
+
+  .new-lesson-feedback {
+    margin-top: 16px;
+    border-radius: 8px;
+    padding: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.10);
+  }
+
+  .new-lesson-feedback p {
+    margin: 5px 0 0;
+    font-size: 14px;
+  }
+
+  .new-lesson-feedback.is-correct {
+    border-color: rgba(20, 241, 201, 0.34);
+    background: rgba(20, 241, 201, 0.08);
+  }
+
+  .new-lesson-feedback.is-wrong {
+    border-color: rgba(239, 68, 68, 0.34);
+    background: rgba(239, 68, 68, 0.08);
+  }
+
+  .new-lesson-bottom {
+    display: grid;
+    grid-template-columns: minmax(120px, 160px) minmax(220px, 1fr) minmax(360px, 840px);
+    align-items: center;
+    gap: 14px;
+    padding: 16px 24px;
+    border-top: 1px solid rgba(255, 255, 255, 0.07);
+    background: rgba(3, 7, 18, 0.84);
+  }
+
+  .new-lesson-bottom button {
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.07);
+    color: #e0f7ff;
+    font: inherit;
+    font-size: 15px;
+    font-weight: 950;
+    min-height: 56px;
+    padding: 13px 18px;
+    cursor: pointer;
+  }
+
+  .new-lesson-bottom button:last-child {
+    border: 0;
+    background: linear-gradient(135deg, #7dd3fc, #14f1c9);
+    color: #031018;
+    justify-self: stretch;
+  }
+
+  .new-lesson-bottom button:disabled {
+    cursor: not-allowed;
+    color: #6f7f93;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .new-lesson-bottom span {
+    min-width: 0;
+    color: #90a4ba;
+    font-size: 12px;
+    font-weight: 950;
+    text-align: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
   @media (max-width: 1180px) {
     .ui-devtool {
       grid-template-columns: 240px minmax(0, 1fr);
@@ -2967,7 +3746,25 @@ const styles = `
     .assessment-layout,
     .reflection-preview,
     .project-preview .checkpoint-grid,
-    .flashcard-preview {
+    .flashcard-preview,
+    .new-lesson-visual-slide,
+    .new-lesson-options {
+      grid-template-columns: 1fr;
+    }
+
+    .new-lesson-card,
+    .new-lesson-card.is-visual {
+      padding: 28px;
+    }
+
+    .new-lesson-card h2,
+    .new-lesson-worked h2,
+    .new-lesson-check h2,
+    .new-lesson-proof h2 {
+      font-size: 34px;
+    }
+
+    .new-lesson-bottom {
       grid-template-columns: 1fr;
     }
 

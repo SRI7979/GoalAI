@@ -23,6 +23,12 @@ import {
 } from '@/lib/courseCompletion'
 import { getStoredCourseOutline } from '@/lib/courseOutlineStore'
 import { getCanonicalTaskType, normalizeLearningTasks } from '@/lib/taskTaxonomy'
+import {
+  applyEvidence,
+  buildEvidenceEventFromTask,
+  getLearnerState,
+  persistPendingEvidence,
+} from '@/lib/learnerState'
 
 function extractAccessToken(request) {
   const authHeader = request.headers.get('authorization') || request.headers.get('Authorization')
@@ -825,6 +831,52 @@ export async function POST(request) {
       conceptMasteryScore = masteryRow?.mastery_score || 0
     } catch (e) {
       if (e?.message !== 'skip_final_exam_mastery') warnings.push(`Mastery update skipped: ${e.message}`)
+    }
+
+    // ── Prompt 2 learner state evidence ─────────────────────────────────────
+    if (!alreadyCompleted) {
+      let evidenceEvent = null
+      try {
+        evidenceEvent = buildEvidenceEventFromTask({
+          task: targetTask,
+          row,
+          canonicalTaskType,
+          metrics: {
+            ...body,
+            accuracy,
+            attempts,
+            correctCount,
+            questionCount,
+            hintsUsed,
+            maxHints,
+            reflectionQuality: body?.reflectionQuality,
+            challengeScore: body?.challengeScore,
+            aiInteractionDepth: body?.aiInteractionDepth,
+            bossDefeated: body?.bossDefeated,
+            confidenceLevel,
+            assistantUsageCount,
+            completionTimeSec,
+            lessonTimeSec,
+            comboMax,
+            quizPerfect: body?.quizPerfect,
+            proofSubmission,
+            proofResult,
+            takeaway,
+            completedAt,
+          },
+        })
+        const learnerState = await getLearnerState(row.user_id, row.goal_id)
+        await applyEvidence(learnerState, evidenceEvent)
+      } catch (e) {
+        await persistPendingEvidence({
+          userId: row.user_id,
+          goalId: row.goal_id,
+          event: evidenceEvent,
+          error: e,
+          source: '/api/complete',
+        })
+        warnings.push(`Learner state update queued: ${e.message}`)
+      }
     }
 
     // ── Understanding score & adaptive difficulty ────────────────────────────

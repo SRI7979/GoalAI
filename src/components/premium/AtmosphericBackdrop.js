@@ -7,7 +7,7 @@ const VARIANTS = {
     halos: [
       {
         background:
-          'radial-gradient(circle, rgba(0,229,199,0.24) 0%, rgba(0,229,199,0.08) 32%, transparent 74%)',
+          'radial-gradient(circle, var(--theme-primary-dim) 0%, color-mix(in srgb, var(--theme-primary) 8%, transparent) 32%, transparent 74%)',
         width: 820,
         height: 820,
         top: -420,
@@ -17,7 +17,7 @@ const VARIANTS = {
       },
       {
         background:
-          'radial-gradient(circle, rgba(120,148,255,0.18) 0%, rgba(120,148,255,0.06) 34%, transparent 74%)',
+          'radial-gradient(circle, var(--theme-mastery-dim) 0%, color-mix(in srgb, var(--theme-mastery) 6%, transparent) 34%, transparent 74%)',
         width: 620,
         height: 620,
         top: -220,
@@ -36,7 +36,7 @@ const VARIANTS = {
       },
       {
         background:
-          'radial-gradient(circle, rgba(0,229,199,0.12) 0%, rgba(0,229,199,0.03) 38%, transparent 72%)',
+          'radial-gradient(circle, var(--theme-primary-dim) 0%, color-mix(in srgb, var(--theme-primary) 3%, transparent) 38%, transparent 72%)',
         width: 500,
         height: 500,
         bottom: '-10%',
@@ -49,7 +49,7 @@ const VARIANTS = {
     halos: [
       {
         background:
-          'radial-gradient(circle, rgba(0,229,199,0.18) 0%, rgba(0,229,199,0.06) 34%, transparent 72%)',
+          'radial-gradient(circle, var(--theme-primary-dim) 0%, color-mix(in srgb, var(--theme-primary) 6%, transparent) 34%, transparent 72%)',
         width: 720,
         height: 720,
         top: -360,
@@ -59,7 +59,7 @@ const VARIANTS = {
       },
       {
         background:
-          'radial-gradient(circle, rgba(126,160,255,0.16) 0%, rgba(126,160,255,0.05) 32%, transparent 74%)',
+          'radial-gradient(circle, var(--theme-mastery-dim) 0%, color-mix(in srgb, var(--theme-mastery) 5%, transparent) 32%, transparent 74%)',
         width: 560,
         height: 560,
         top: 80,
@@ -68,7 +68,7 @@ const VARIANTS = {
       },
       {
         background:
-          'radial-gradient(circle, rgba(0,229,199,0.10) 0%, rgba(0,229,199,0.04) 36%, transparent 76%)',
+          'radial-gradient(circle, var(--theme-primary-dim) 0%, color-mix(in srgb, var(--theme-primary) 4%, transparent) 36%, transparent 76%)',
         width: 460,
         height: 460,
         bottom: '-12%',

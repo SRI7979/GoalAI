@@ -24,6 +24,8 @@ import ReflectionView from '@/components/ReflectionView'
 import BossChallengeView from '@/components/BossChallengeView'
 import AIInteractionView from '@/components/AIInteractionView'
 import PracticeRound from '@/components/PracticeRound'
+import MissionRunner from '@/components/MissionRunner'
+import LovableHome from '@/components/lovable/LovableHome'
 import HeartBar from '@/components/HeartBar'
 import NoHeartsOverlay from '@/components/NoHeartsOverlay'
 import GemShop from '@/components/GemShop'
@@ -107,8 +109,273 @@ const T = {
   masteryGradient:'linear-gradient(135deg,var(--theme-mastery),var(--theme-mastery-strong))',
   masteryGradientSoft:'linear-gradient(90deg,var(--theme-mastery),var(--theme-mastery-strong))',
   highlightGradient:'linear-gradient(90deg,var(--theme-highlight),var(--theme-primary))',
-  font:         "'Plus Jakarta Sans','DM Sans',system-ui,sans-serif",
+  font:         "'Inter','DM Sans',system-ui,sans-serif",
   fontMono:     "'JetBrains Mono','Fira Code',Menlo,monospace",
+}
+
+function ProofTargetCard({ proofTarget }) {
+  if (!proofTarget?.description) return null
+  const criteria = Array.isArray(proofTarget.passCriteria) ? proofTarget.passCriteria.slice(0, 3) : []
+  const rubric = Array.isArray(proofTarget.rubric) ? proofTarget.rubric.slice(0, 3) : []
+  const typeLabel = String(proofTarget.evaluationType || 'proof')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+
+  return (
+    <div className="dashboard-proof-target-card" style={{maxWidth:600,margin:'12px auto 0',padding:'0 20px'}}>
+      <div style={{
+        background:'linear-gradient(145deg,rgba(14,245,194,0.08),rgba(59,130,246,0.05))',
+        border:`1px solid ${T.tealBorder}`,
+        borderRadius:22,
+        padding:'18px 20px',
+        boxShadow:'inset 0 1px 0 rgba(255,255,255,0.06)',
+      }}>
+        <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:14,marginBottom:10}}>
+          <div style={{display:'flex',alignItems:'center',gap:10,minWidth:0}}>
+            <div style={{
+              width:34,height:34,borderRadius:12,
+              background:'rgba(14,245,194,0.10)',
+              border:`1px solid ${T.tealBorder}`,
+              display:'flex',alignItems:'center',justifyContent:'center',
+              color:T.teal,flexShrink:0,
+            }}>
+              <IconGlyph name="shield_check" size={17} strokeWidth={2.4} color={T.teal}/>
+            </div>
+            <div style={{minWidth:0}}>
+              <div style={{fontSize:10,fontWeight:900,letterSpacing:'0.14em',textTransform:'uppercase',color:T.teal,marginBottom:3}}>
+                Proof of mastery
+              </div>
+              <div style={{fontSize:15,fontWeight:900,color:T.text,lineHeight:1.25}}>
+                Your finish line is visible from day one
+              </div>
+            </div>
+          </div>
+          <span style={{
+            padding:'5px 9px',
+            borderRadius:9999,
+            background:'rgba(255,255,255,0.05)',
+            border:`1px solid ${T.border}`,
+            fontSize:10,
+            fontWeight:800,
+            color:T.textSec,
+            whiteSpace:'nowrap',
+          }}>
+            {typeLabel}
+          </span>
+        </div>
+
+        <div style={{fontSize:13,lineHeight:1.65,color:T.textSec,marginBottom:12}}>
+          {proofTarget.description}
+        </div>
+
+        {criteria.length > 0 && (
+          <div style={{display:'flex',flexDirection:'column',gap:7,marginBottom:12}}>
+            {criteria.map((criterion, index) => (
+              <div key={`${criterion}-${index}`} style={{display:'flex',gap:8,alignItems:'flex-start'}}>
+                <span style={{
+                  width:18,height:18,borderRadius:7,flexShrink:0,
+                  background:'rgba(14,245,194,0.10)',
+                  color:T.teal,
+                  display:'flex',alignItems:'center',justifyContent:'center',
+                  fontSize:10,fontWeight:900,
+                }}>
+                  {index + 1}
+                </span>
+                <span style={{fontSize:12,lineHeight:1.45,color:T.text}}>{criterion}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {rubric.length > 0 && (
+          <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
+            {rubric.map((item) => (
+              <span key={item.id || item.label} style={{
+                padding:'4px 8px',
+                borderRadius:9999,
+                background:'rgba(255,255,255,0.04)',
+                border:`1px solid ${T.border}`,
+                fontSize:10,
+                fontWeight:800,
+                color:T.textMuted,
+              }}>
+                {item.label}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function LearningStatusCard({ status, loading, missionCapable }) {
+  if (!missionCapable) return null
+
+  const progress = status?.graphProgress || {}
+  const learner = status?.learner || {}
+  const proof = status?.proof || {}
+  const profile = learner?.pedagogicalProfile || {}
+  const focusConcepts = Array.isArray(learner?.focusConcepts) ? learner.focusConcepts.slice(0, 3) : []
+  const strongestConcepts = Array.isArray(learner?.strongestConcepts) ? learner.strongestConcepts.slice(0, 2) : []
+  const openIssueCount = Number(status?.quality?.openIssueCount) || 0
+  const progressPercent = Math.max(0, Math.min(100, Number(progress.percentComplete) || 0))
+  const proofPercent = Math.max(0, Math.min(100, Number(proof.readinessPercent) || 0))
+  const practicedConcepts = Number(learner?.practicedConcepts) || 0
+  const sessionMinutes = Number(profile?.optimalSessionMinutes) || 15
+  const difficultyLabel = String(profile?.difficultyPreference || 'balanced').replace(/_/g, ' ')
+
+  const statItems = [
+    { label: 'Path learned', value: `${progressPercent}%` },
+    { label: 'Concepts practiced', value: practicedConcepts || (progress.totalConcepts ? `${progress.mastered || 0}/${progress.totalConcepts}` : '0') },
+    { label: 'Proof readiness', value: `${proofPercent}%` },
+  ]
+
+  return (
+    <div className="dashboard-learning-status-card" style={{maxWidth:760,margin:'12px auto 0',padding:'0 20px'}}>
+      <div style={{
+        background:'linear-gradient(145deg,rgba(15,23,42,0.78),rgba(8,19,32,0.82))',
+        border:`1px solid ${T.border}`,
+        borderRadius:24,
+        padding:'18px 20px',
+        boxShadow:'0 18px 60px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.06)',
+      }}>
+        <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:16,marginBottom:14}}>
+          <div style={{display:'flex',gap:12,alignItems:'flex-start',minWidth:0}}>
+            <div style={{
+              width:38,height:38,borderRadius:14,flexShrink:0,
+              background:'linear-gradient(135deg,rgba(14,245,194,0.16),rgba(125,211,252,0.10))',
+              border:`1px solid ${T.tealBorder}`,
+              display:'flex',alignItems:'center',justifyContent:'center',
+              color:T.teal,
+            }}>
+              <IconGlyph name="sparkles" size={18} strokeWidth={2.35} color={T.teal}/>
+            </div>
+            <div style={{minWidth:0}}>
+              <div style={{fontSize:10,fontWeight:900,letterSpacing:'0.16em',textTransform:'uppercase',color:T.teal,marginBottom:4}}>
+                Adaptive path
+              </div>
+              <div style={{fontSize:16,fontWeight:950,color:T.text,lineHeight:1.25}}>
+                PathAI is tuning today&apos;s mission from your real progress
+              </div>
+            </div>
+          </div>
+          <span style={{
+            padding:'6px 10px',
+            borderRadius:9999,
+            background:proof.ready ? 'rgba(20,241,201,0.12)' : 'rgba(255,255,255,0.05)',
+            border:`1px solid ${proof.ready ? T.tealBorder : T.border}`,
+            color:proof.ready ? T.teal : T.textMuted,
+            fontSize:10,
+            fontWeight:900,
+            whiteSpace:'nowrap',
+          }}>
+            {proof.ready ? 'Proof ready soon' : `${sessionMinutes} min rhythm`}
+          </span>
+        </div>
+
+        {loading ? (
+          <div style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:8}}>
+            {[0, 1, 2].map((index) => (
+              <div key={index} style={{
+                height:58,
+                borderRadius:16,
+                border:`1px solid ${T.border}`,
+                background:'linear-gradient(90deg,rgba(255,255,255,0.04),rgba(255,255,255,0.08),rgba(255,255,255,0.04))',
+                backgroundSize:'220% 100%',
+                animation:'questShimmer 1.8s linear infinite',
+              }}/>
+            ))}
+          </div>
+        ) : (
+          <>
+            <div style={{
+              height:8,
+              borderRadius:999,
+              background:'rgba(255,255,255,0.07)',
+              overflow:'hidden',
+              marginBottom:14,
+            }}>
+              <div style={{
+                width:`${Math.max(4, progressPercent)}%`,
+                height:'100%',
+                borderRadius:999,
+                background:T.primaryGradientSoft,
+                boxShadow:'0 0 18px rgba(14,245,194,0.35)',
+              }}/>
+            </div>
+
+            <div style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:8,marginBottom:14}}>
+              {statItems.map((item) => (
+                <div key={item.label} style={{
+                  border:`1px solid ${T.border}`,
+                  borderRadius:16,
+                  padding:'12px 12px',
+                  background:'rgba(255,255,255,0.035)',
+                }}>
+                  <div style={{fontSize:10,fontWeight:850,color:T.textMuted,textTransform:'uppercase',letterSpacing:'0.09em',marginBottom:5}}>
+                    {item.label}
+                  </div>
+                  <div style={{fontSize:18,fontWeight:950,color:T.text,lineHeight:1}}>
+                    {item.value}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{display:'grid',gridTemplateColumns:'minmax(0,1.25fr) minmax(0,1fr)',gap:10}}>
+              <div style={{
+                border:`1px solid ${T.border}`,
+                borderRadius:16,
+                padding:'12px 14px',
+                background:'rgba(14,245,194,0.045)',
+              }}>
+                <div style={{fontSize:11,fontWeight:900,color:T.teal,letterSpacing:'0.10em',textTransform:'uppercase',marginBottom:8}}>
+                  Next focus
+                </div>
+                <div style={{display:'flex',flexWrap:'wrap',gap:7}}>
+                  {(focusConcepts.length > 0 ? focusConcepts : strongestConcepts).map((concept) => (
+                    <span key={concept.conceptId} style={{
+                      padding:'6px 9px',
+                      borderRadius:999,
+                      border:`1px solid ${T.tealBorder}`,
+                      background:'rgba(14,245,194,0.08)',
+                      color:T.text,
+                      fontSize:11,
+                      fontWeight:850,
+                    }}>
+                      {concept.label}
+                    </span>
+                  ))}
+                  {focusConcepts.length === 0 && strongestConcepts.length === 0 && (
+                    <span style={{fontSize:12,color:T.textSec,lineHeight:1.5}}>
+                      Complete today&apos;s first mission and this will become personal.
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div style={{
+                border:`1px solid ${T.border}`,
+                borderRadius:16,
+                padding:'12px 14px',
+                background:'rgba(255,255,255,0.035)',
+              }}>
+                <div style={{fontSize:11,fontWeight:900,color:T.textMuted,letterSpacing:'0.10em',textTransform:'uppercase',marginBottom:8}}>
+                  Lesson tuning
+                </div>
+                <div style={{fontSize:12,color:T.textSec,lineHeight:1.55,fontWeight:750}}>
+                  {profile?.prefersVisual ? 'Visual examples are prioritized.' : 'Text-first explanations are prioritized.'}
+                  {' '}Difficulty is set to {difficultyLabel}.
+                  {openIssueCount > 0 ? ' PathAI noticed friction and will keep the next step gentler.' : ''}
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
 }
 
 const THEME_REASON_TO_ID = {
@@ -424,34 +691,6 @@ function getWeekStartStr() {
 const CAL_REWARDS = [5, 8, 10, 12, 15, 20, 30]
 const CAL_DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
 
-// ─── Energy options ────────────────────────────────────────────────────────────
-const ENERGY_OPTIONS = [
-  {key:'energized', icon:'bolt',   label:'Energized'},
-  {key:'good',      icon:'check',  label:'Good'     },
-  {key:'okay',      icon:'circle', label:'Okay'     },
-  {key:'tired',     icon:'moon',   label:'Tired'    },
-  {key:'drained',   icon:'heart',  label:'Drained'  },
-]
-function getFilteredTasks(tasks, energy) {
-  if (!tasks?.length) return tasks || []
-  const normalizedTasks = tasks.map((task, index) => normalizeLearningTask(task, index))
-  if (energy === 'energized' || energy === 'good') return tasks
-  if (energy === 'okay') {
-    return normalizedTasks.filter((task) => !['challenge', 'boss', 'final_exam'].includes(task.type) && task.effortWeight <= 3)
-  }
-  if (energy === 'tired') {
-    const easy = normalizedTasks.filter((task) => ['concept', 'recall', 'reflect'].includes(task.type) && task.effortWeight <= 2)
-    return easy.slice(0, 2)
-  }
-  if (energy === 'drained') {
-    const safestTask = normalizedTasks.find((task) => ['recall', 'reflect'].includes(task.type))
-      || normalizedTasks.find((task) => task.effortWeight <= 2)
-      || normalizedTasks[0]
-    return safestTask ? [safestTask] : []
-  }
-  return tasks
-}
-
 // ─── SVG icons ─────────────────────────────────────────────────────────────────
 const BoltIcon     = ({sz=13}) => <svg width={sz} height={sz} viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
 const ArrowRight   = ({sz=14}) => <svg width={sz} height={sz} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
@@ -695,8 +934,8 @@ function MissionConfettiBurst({ active }) {
 // ─── XP Level Bar ──────────────────────────────────────────────────────────────
 function XPLevelBar({ level, title, xpInLevel, xpForLevel, pct, animating }) {
   return (
-    <div style={{maxWidth:600,margin:'0 auto',padding:'12px 20px 0'}}>
-      <div style={{
+    <div className="dashboard-xp-shell" style={{maxWidth:1040,margin:'0 auto',padding:'12px 20px 0'}}>
+      <div className="dashboard-xp-card" style={{
         background:'linear-gradient(145deg, rgba(129,140,248,0.14), rgba(255,255,255,0.04))',
         border:'1px solid rgba(129,140,248,0.20)', borderRadius:24,
         padding:'15px 18px', backdropFilter:'blur(20px)', WebkitBackdropFilter:'blur(20px)',
@@ -768,47 +1007,56 @@ function MissionHeroCard({ todayRow, tasks, dayNumber }) {
   const concept   = todayRow.covered_topics?.[0] || `Day ${dayNumber}`
 
   return (
-    <div style={{maxWidth:600,margin:'0 auto',padding:'0 20px'}}>
-      <div style={{
+    <div className="dashboard-mission-shell" style={{maxWidth:920,margin:'0 auto',padding:'0 18px'}}>
+      <div className={`dashboard-mission-card${allDone ? ' is-complete' : ''}`} style={{
         position:'relative',
         background: allDone
-          ? 'linear-gradient(145deg,rgba(14,245,194,0.18) 0%,rgba(0,212,255,0.10) 100%)'
-          : 'linear-gradient(145deg,rgba(255,255,255,0.11) 0%,rgba(255,255,255,0.03) 100%)',
-        border:`1px solid ${allDone ? 'rgba(14,245,194,0.34)' : 'rgba(255,255,255,0.12)'}`,
-        borderRadius:28, padding:'26px 24px 24px',
-        backdropFilter:'blur(28px)', WebkitBackdropFilter:'blur(28px)',
+          ? 'linear-gradient(155deg,rgba(14,245,194,0.26) 0%,rgba(0,212,255,0.16) 60%,rgba(129,140,248,0.10) 100%)'
+          : 'linear-gradient(155deg,rgba(14,245,194,0.13) 0%,rgba(129,140,248,0.07) 55%,rgba(255,255,255,0.04) 100%)',
+        border:`1.5px solid ${allDone ? 'rgba(14,245,194,0.46)' : 'rgba(14,245,194,0.22)'}`,
+        borderRadius:36, padding:'36px 30px 30px',
+        backdropFilter:'blur(36px) saturate(180%)', WebkitBackdropFilter:'blur(36px) saturate(180%)',
         boxShadow: allDone
-          ? 'inset 0 1px 0 rgba(14,245,194,0.25),0 0 50px rgba(14,245,194,0.10)'
-          : 'inset 0 1px 0 rgba(255,255,255,0.12),0 24px 56px rgba(0,0,0,0.30)',
+          ? 'inset 0 2px 0 rgba(255,255,255,0.20),inset 0 -4px 0 rgba(0,212,255,0.16),0 0 80px rgba(14,245,194,0.18),0 36px 90px rgba(0,0,0,0.40)'
+          : 'inset 0 2px 0 rgba(255,255,255,0.16),inset 0 -4px 0 rgba(14,245,194,0.12),0 0 50px rgba(14,245,194,0.08),0 36px 90px rgba(0,0,0,0.40)',
         overflow:'hidden',
       }}>
         {/* Rotating gradient border */}
         <div style={{
-          position:'absolute', inset:-1, borderRadius:28, padding:1,
-          background:'conic-gradient(from 0deg, rgba(14,245,194,0.00), rgba(14,245,194,0.40), rgba(0,212,255,0.30), rgba(14,245,194,0.00))',
+          position:'absolute', inset:-1, borderRadius:36, padding:1,
+          background:'conic-gradient(from 0deg, rgba(14,245,194,0.00), rgba(14,245,194,0.55), rgba(0,212,255,0.40), rgba(129,140,248,0.30), rgba(14,245,194,0.00))',
           animation:'missionBorderSpin 10s linear infinite',
           pointerEvents:'none',
-          opacity:allDone ? 0.3 : 0.65,
+          opacity:allDone ? 0.45 : 0.75,
         }}>
-          <div style={{ width:'100%', height:'100%', borderRadius:27, background:'transparent' }}/>
+          <div style={{ width:'100%', height:'100%', borderRadius:35, background:'transparent' }}/>
         </div>
 
-        {/* Subtle radial glow */}
+        {/* Brilliant-style ambient glow blob — top-right */}
         <div style={{
-          position:'absolute', top:-40, right:-40,
-          width:200, height:200, borderRadius:'50%',
-          background: allDone ? 'radial-gradient(circle,rgba(14,245,194,0.12),transparent 70%)' : 'radial-gradient(circle,rgba(14,245,194,0.06),transparent 70%)',
+          position:'absolute', top:-60, right:-60,
+          width:280, height:280, borderRadius:'50%',
+          background: allDone
+            ? 'radial-gradient(circle,rgba(14,245,194,0.28),transparent 70%)'
+            : 'radial-gradient(circle,rgba(14,245,194,0.16),transparent 70%)',
+          filter:'blur(8px)',
+          pointerEvents:'none',
+        }}/>
+
+        {/* Duolingo-style accent blob — bottom-left mascot zone */}
+        <div style={{
+          position:'absolute', bottom:-50, left:-50,
+          width:220, height:220, borderRadius:'50%',
+          background:'radial-gradient(circle,rgba(129,140,248,0.18),transparent 65%)',
+          filter:'blur(10px)',
           pointerEvents:'none',
         }}/>
 
         {/* Top row: label + ring */}
         <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:14,position:'relative'}}>
           <div>
-            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
-              <span style={{
-                fontSize:11,fontWeight:900,letterSpacing:'2px',
-                color:allDone?T.teal:T.textSec,textTransform:'uppercase',
-              }}>
+            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10}}>
+              <span className="display-eyebrow" style={{ color: allDone ? T.teal : T.textSec }}>
                 Day {dayNumber} · Mission
               </span>
               {allDone && (
@@ -819,11 +1067,7 @@ function MissionHeroCard({ todayRow, tasks, dayNumber }) {
                 }}>Complete ✓</span>
               )}
             </div>
-            <h1 style={{
-              fontSize:28,fontWeight:900,color:T.text,
-              letterSpacing:'-0.7px',lineHeight:1.08,margin:0,
-              position:'relative',
-            }}>
+            <h1 className="display-mega" style={{ margin: 0, position: 'relative' }}>
               {concept}
             </h1>
           </div>
@@ -842,29 +1086,14 @@ function MissionHeroCard({ todayRow, tasks, dayNumber }) {
         {/* Meta pills */}
         <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:18,position:'relative',flexWrap:'wrap'}}>
           {totalMin > 0 && (
-            <span style={{
-              display:'flex',alignItems:'center',gap:4,
-              fontSize:13,color:T.textSec,fontWeight:800,
-              background:'rgba(255,255,255,0.07)',border:'1px solid rgba(255,255,255,0.10)',
-              borderRadius:9999,padding:'6px 12px',
-            }}>
+            <span className="meta-pill is-time">
               <ClockIcon />~{totalMin} min
             </span>
           )}
-          <span style={{
-            display:'flex',alignItems:'center',gap:4,
-            fontSize:13,color:'#FBBF24',fontWeight:900,
-            background:'rgba(251,191,36,0.08)',border:'1px solid rgba(251,191,36,0.18)',
-            borderRadius:9999,padding:'6px 12px',
-          }}>
+          <span className="meta-pill is-xp">
             <BoltIcon />+{reward} XP
           </span>
-          <span style={{
-            display:'flex',alignItems:'center',gap:4,
-            fontSize:13,color:T.textSec,fontWeight:800,
-            background:'rgba(255,255,255,0.07)',border:'1px solid rgba(255,255,255,0.10)',
-            borderRadius:9999,padding:'6px 12px',
-          }}>
+          <span className="meta-pill">
             {total} tasks
           </span>
         </div>
@@ -900,6 +1129,322 @@ function MissionHeroCard({ todayRow, tasks, dayNumber }) {
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+function TodayQuestHero({
+  goal,
+  todayRow,
+  tasks,
+  visibleTasks,
+  dayNumber,
+  focusProgress,
+  showMissionSurface,
+  missionLoading,
+  onContinue,
+  onOpenPath,
+}) {
+  const safeTasks = Array.isArray(visibleTasks) && visibleTasks.length > 0
+    ? visibleTasks
+    : (Array.isArray(tasks) ? tasks : [])
+  const nextTask = safeTasks.find((task) => !task.completed && !task._locked) || safeTasks.find((task) => !task.completed) || safeTasks[0]
+  const completed = focusProgress?.completed || 0
+  const total = focusProgress?.total || safeTasks.length
+  const pct = total > 0 ? Math.round((completed / total) * 100) : 0
+  const totalMinutes = safeTasks.reduce((sum, task) => sum + (Number(task.estimatedTimeMin || task.durationMin) || 0), 0)
+  const rewardXp = safeTasks.reduce((sum, task) => sum + (Number(task.xp_reward || task.rewardXp || task.xp || task.points) || 0), 0) || 154
+  const concept = todayRow?.covered_topics?.[0] || nextTask?._concept || nextTask?.title || goal?.goal_text || 'Today’s lesson'
+  const heroTitle = nextTask?.title || concept
+  const heroTitleWords = String(heroTitle).split(/\s+/).filter(Boolean)
+  const heroAccentWordCount = heroTitleWords.length > 5 ? 3 : Math.min(2, Math.max(1, heroTitleWords.length - 1))
+  const heroAccentStart = Math.max(1, heroTitleWords.length - heroAccentWordCount)
+  const heroTitleLead = heroTitleWords.slice(0, heroAccentStart).join(' ')
+  const heroTitleAccent = heroTitleWords.slice(heroAccentStart).join(' ')
+  const pathSteps = safeTasks.slice(0, 4)
+  const modeLabel = showMissionSurface ? 'Adaptive mission' : 'Daily lesson'
+
+  return (
+    <div className="today-quest-shell" style={{maxWidth:1040,margin:'14px auto 0',padding:'0 20px'}}>
+      <section className="pathai-premium-hero" style={{
+        position:'relative',
+        overflow:'hidden',
+        borderRadius:34,
+        border:'1px solid color-mix(in srgb, var(--theme-primary) 22%, var(--theme-border))',
+        background:[
+          'radial-gradient(circle at 12% 12%, color-mix(in srgb, var(--theme-primary) 20%, transparent) 0%, transparent 34%)',
+          'radial-gradient(circle at 88% 18%, color-mix(in srgb, var(--theme-secondary) 18%, transparent) 0%, transparent 32%)',
+          'linear-gradient(145deg, color-mix(in srgb, var(--theme-card) 94%, white 6%), color-mix(in srgb, var(--theme-shell) 90%, black 10%))',
+        ].join(','),
+        padding:22,
+        boxShadow:'0 28px 80px rgba(0,0,0,0.30), inset 0 1px 0 rgba(255,255,255,0.10)',
+      }}>
+        <div style={{
+          position:'absolute',
+          inset:0,
+          background:'linear-gradient(120deg, transparent 0%, rgba(255,255,255,0.06) 42%, transparent 72%)',
+          transform:'translateX(-40%)',
+          animation:'shimmerSweep 8s ease-in-out infinite',
+          pointerEvents:'none',
+        }}/>
+
+        <div style={{
+          display:'grid',
+          gridTemplateColumns:'repeat(auto-fit, minmax(280px, 1fr))',
+          gap:22,
+          alignItems:'stretch',
+          position:'relative',
+          zIndex:1,
+        }}>
+          <div className="today-quest-copy" style={{padding:'16px 12px 14px'}}>
+            <div className="today-quest-badge-row" style={{display:'flex',gap:10,flexWrap:'wrap',marginBottom:18}}>
+              <div className="today-quest-badge is-league" style={{
+                display:'inline-flex',
+                alignItems:'center',
+                gap:9,
+                borderRadius:9999,
+                padding:'8px 13px',
+                border:'1px solid color-mix(in srgb, var(--theme-mastery) 38%, transparent)',
+                background:'color-mix(in srgb, var(--theme-mastery) 16%, transparent)',
+                color:T.mastery,
+                fontSize:11,
+                fontWeight:950,
+                letterSpacing:'0.14em',
+                textTransform:'uppercase',
+              }}>
+                <IconGlyph name="crown" size={14} strokeWidth={2.4} color={T.mastery}/>
+                Sapphire League · #3
+              </div>
+              <div className="today-quest-badge is-day" style={{
+                display:'inline-flex',
+                alignItems:'center',
+                gap:9,
+                borderRadius:9999,
+                padding:'8px 13px',
+                border:'1px solid color-mix(in srgb, var(--theme-highlight) 38%, transparent)',
+                background:'color-mix(in srgb, var(--theme-highlight) 16%, transparent)',
+                color:T.amber,
+                fontSize:11,
+                fontWeight:950,
+                letterSpacing:'0.14em',
+                textTransform:'uppercase',
+              }}>
+                <IconGlyph name="flame" size={14} strokeWidth={2.4} color={T.amber}/>
+                Day {dayNumber} · Streak Alive
+              </div>
+            </div>
+
+            <h1 className="today-quest-title" style={{
+              margin:'0 0 12px',
+              color:T.text,
+              fontSize:42,
+              lineHeight:1.02,
+              letterSpacing:'-0.045em',
+              fontWeight:950,
+              maxWidth:560,
+            }}>
+              {heroTitleLead}
+              {heroTitleAccent && (
+                <>
+                  {' '}
+                  <span className="today-title-accent">{heroTitleAccent}</span>
+                </>
+              )}
+              <span className="today-title-sparkle" aria-hidden="true"> ✨</span>
+            </h1>
+
+            <p className="today-quest-subtitle" style={{
+              margin:'0 0 20px',
+              color:T.textSec,
+              fontSize:17,
+              lineHeight:1.58,
+              fontWeight:750,
+              maxWidth:560,
+            }}>
+              A focused path for today: learn the idea, practice it, then prove you can use it.
+            </p>
+
+            <div style={{display:'flex',gap:10,flexWrap:'wrap',marginBottom:22}}>
+              {[
+                { icon:'timer', label:totalMinutes > 0 ? `~${totalMinutes} min` : '~30 min' },
+                { icon:'bolt', label:`+${rewardXp} XP` },
+                { icon:'target', label:total > 0 ? `${total} tasks` : modeLabel },
+              ].map((chip) => (
+                <span key={chip.label} style={{
+                  display:'inline-flex',
+                  alignItems:'center',
+                  gap:7,
+                  borderRadius:9999,
+                  padding:'8px 12px',
+                  border:`1px solid ${T.border}`,
+                  background:'rgba(255,255,255,0.055)',
+                  color:T.textSec,
+                  fontSize:13,
+                  fontWeight:850,
+                }}>
+                  <IconGlyph name={chip.icon} size={14} strokeWidth={2.35} color={T.teal}/>
+                  {chip.label}
+                </span>
+              ))}
+            </div>
+
+            <div className="today-hero-progress">
+              <div className="today-hero-progress-head">
+                <span>Mission progress</span>
+                <strong>{pct}%</strong>
+              </div>
+              <div className="today-hero-progress-track">
+                <div className="today-hero-progress-fill" style={{width:`${Math.max(4, pct)}%`}}/>
+              </div>
+            </div>
+
+            <div style={{display:'flex',gap:12,flexWrap:'wrap',alignItems:'center'}}>
+              <button
+                type="button"
+                onClick={onContinue}
+                className="candy-cta is-pulsing"
+                style={{
+                  minHeight:54,
+                  padding:'0 24px',
+                  borderRadius:18,
+                  border:'none',
+                  background:T.primaryGradient,
+                  color:T.ink,
+                  fontFamily:T.font,
+                  fontSize:16,
+                  fontWeight:950,
+                  cursor:'pointer',
+                  boxShadow:'0 7px 0 color-mix(in srgb, var(--theme-primary) 48%, black 42%), 0 18px 38px color-mix(in srgb, var(--theme-primary) 20%, transparent)',
+                  display:'inline-flex',
+                  alignItems:'center',
+                  gap:9,
+                }}
+              >
+                {missionLoading ? 'Building mission' : 'Continue mission'}
+                <IconGlyph name="arrow_right" size={18} strokeWidth={2.6} color={T.ink}/>
+              </button>
+              <button
+                type="button"
+                onClick={onOpenPath}
+                className="dashboard-soft-button"
+                style={{
+                  minHeight:52,
+                  padding:'0 18px',
+                  borderRadius:17,
+                  border:`1px solid ${T.border}`,
+                  background:'rgba(255,255,255,0.045)',
+                  color:T.textSec,
+                  fontFamily:T.font,
+                  fontSize:15,
+                  fontWeight:900,
+                  cursor:'pointer',
+                  display:'inline-flex',
+                  alignItems:'center',
+                  gap:8,
+                }}
+              >
+                <IconGlyph name="map" size={17} strokeWidth={2.35} color={T.textSec}/>
+                View path
+              </button>
+            </div>
+          </div>
+
+          <div className="today-skill-path" style={{
+            position:'relative',
+            borderRadius:28,
+            border:`1px solid ${T.border}`,
+            background:'linear-gradient(145deg, rgba(255,255,255,0.08), rgba(255,255,255,0.025))',
+            padding:18,
+            minHeight:300,
+            boxShadow:'inset 0 1px 0 rgba(255,255,255,0.08)',
+          }}>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,marginBottom:18}}>
+              <div>
+                <div style={{fontSize:11,fontWeight:950,letterSpacing:'0.14em',textTransform:'uppercase',color:T.textMuted,marginBottom:5}}>
+                  Skill path
+                </div>
+                <div style={{fontSize:19,fontWeight:950,color:T.text,letterSpacing:'-0.02em'}}>
+                  {pct}% today
+                </div>
+              </div>
+              <MiniProgressRing
+                size={64}
+                value={completed}
+                total={Math.max(total, 1)}
+                stroke="var(--theme-primary)"
+                track="rgba(255,255,255,0.09)"
+                label={`${pct}%`}
+                labelColor={pct >= 100 ? T.teal : T.text}
+                textSize={12}
+              />
+            </div>
+
+            <div style={{display:'grid',gap:12}}>
+              {(pathSteps.length > 0 ? pathSteps : [{ title:'Your next step', completed:false }]).map((task, index) => {
+                const taskConfig = task?.title ? getTaskDisplayConfig(task) : { icon:'sparkles', label:'Lesson' }
+                const isDone = Boolean(task?.completed)
+                const isNext = !isDone && index === pathSteps.findIndex((candidate) => !candidate.completed)
+                return (
+                  <div key={`${task?.id || task?.title || 'path'}-${index}`} className={`today-skill-step${isNext ? ' is-next' : ''}${isDone ? ' is-done' : ''}`} style={{
+                    display:'flex',
+                    alignItems:'center',
+                    gap:12,
+                    borderRadius:20,
+                    padding:'13px 14px',
+                    border:`1px solid ${isNext ? T.tealBorder : T.border}`,
+                    background:isNext
+                      ? 'linear-gradient(90deg, color-mix(in srgb, var(--theme-primary) 15%, transparent), rgba(255,255,255,0.04))'
+                      : 'rgba(255,255,255,0.035)',
+                    boxShadow:isNext ? '0 14px 28px color-mix(in srgb, var(--theme-primary) 12%, transparent)' : 'none',
+                    transform:isNext ? 'translateX(2px)' : 'none',
+                    transition:'transform 0.2s ease, border-color 0.2s ease',
+                  }}>
+                    <div style={{
+                      width:38,
+                      height:38,
+                      borderRadius:14,
+                      flexShrink:0,
+                      display:'flex',
+                      alignItems:'center',
+                      justifyContent:'center',
+                      background:isDone ? T.primaryGradient : isNext ? 'rgba(14,245,194,0.12)' : 'rgba(255,255,255,0.045)',
+                      border:`1px solid ${isDone || isNext ? T.tealBorder : T.border}`,
+                      color:isDone ? T.ink : T.teal,
+                    }}>
+                      <IconGlyph name={isDone ? 'check' : taskConfig.icon || 'sparkles'} size={17} strokeWidth={2.55} color={isDone ? T.ink : T.teal}/>
+                    </div>
+                    <div style={{minWidth:0,flex:1}}>
+                      <div style={{
+                        fontSize:14,
+                        fontWeight:950,
+                        color:isDone ? T.textSec : T.text,
+                        whiteSpace:'nowrap',
+                        overflow:'hidden',
+                        textOverflow:'ellipsis',
+                      }}>
+                        {task?.title || 'Personalized learning step'}
+                      </div>
+                      <div style={{fontSize:11,fontWeight:850,color:isNext ? T.teal : T.textMuted,marginTop:3}}>
+                        {isDone ? 'Complete' : isNext ? 'Up next' : taskConfig.label || 'Lesson'}
+                      </div>
+                    </div>
+                    {isNext && (
+                      <div style={{
+                        width:10,
+                        height:10,
+                        borderRadius:'50%',
+                        background:T.teal,
+                        boxShadow:'0 0 18px rgba(14,245,194,0.75)',
+                        animation:'nodeBreath 1.8s ease-in-out infinite',
+                      }}/>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      </section>
     </div>
   )
 }
@@ -1451,42 +1996,6 @@ function PathModuleCard({ module, expanded, onToggle, expandedUnits, onToggleUni
   )
 }
 
-// ─── Energy Selector ───────────────────────────────────────────────────────────
-function EnergySelector({ value, onChange }) {
-  return (
-    <div style={{maxWidth:600,margin:'0 auto',padding:'10px 20px 0'}}>
-      <div style={{fontSize:13,fontWeight:900,color:T.textSec,
-        textTransform:'uppercase',letterSpacing:'1.2px',marginBottom:12}}>
-        Energy today
-      </div>
-      <div style={{display:'flex',gap:6,overflowX:'auto',paddingBottom:2}}>
-        {ENERGY_OPTIONS.map(opt => {
-          const active = value === opt.key
-          return (
-            <button key={opt.key} onClick={() => onChange(opt.key)} className="interactive-secondary" style={{
-              flexShrink:0, padding:'10px 16px',
-              background: active
-                ? 'linear-gradient(135deg,rgba(14,245,194,0.16),rgba(0,212,255,0.10))'
-                : T.surface,
-              border:`1px solid ${active ? T.tealBorder : T.border}`,
-              borderRadius:14, color:active?T.teal:T.text,
-              fontSize:14, fontWeight:active?800:700,
-              cursor:'pointer', fontFamily:T.font,
-              display:'flex', alignItems:'center', gap:5,
-              transition:'all 0.18s cubic-bezier(0.16,1,0.3,1)',
-              boxShadow:active?'inset 0 1px 0 rgba(14,245,194,0.20), 0 10px 24px rgba(0,0,0,0.16)':'none',
-              whiteSpace:'nowrap',
-            }}>
-              <IconGlyph name={opt.icon} size={14} strokeWidth={2.4}/>
-              {opt.label}
-            </button>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
 function canRerollTask(task) {
   const normalized = normalizeLearningTask(task)
   return Boolean(task) && !normalized.completed && !['project', 'boss', 'quiz', 'final_exam'].includes(normalized.type)
@@ -1506,92 +2015,132 @@ function TaskPreview({ task, onClose, onStart, onComplete, onReroll, rerollCount
   const canUseReroll = canRerollTask(task) && rerollCount > 0 && !anyCompleting && rerollingTaskId !== task.id && !isLocked
   const label = info.actionLabel || 'Start'
 
+  const brickShadow = '0 5px 0 0 color-mix(in oklab, var(--color-background) 55%, oklch(0 0 0))'
+
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') onClose?.()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
+
   return (
-    <div onClick={onClose} style={{
+    <div onClick={onClose} className="lovable-app" style={{
       position:'fixed', inset:0, zIndex:150,
-      background:'rgba(0,0,0,0.70)', backdropFilter:'blur(14px)', WebkitBackdropFilter:'blur(14px)',
-      display:'flex', alignItems:'flex-end', justifyContent:'center',
+      background:'rgba(3,10,18,0.72)', backdropFilter:'blur(14px)', WebkitBackdropFilter:'blur(14px)',
+      display:'flex', alignItems:'center', justifyContent:'center',
+      padding:'24px',
       animation:'fadeInBg 0.2s ease both',
     }}>
       <div onClick={e => e.stopPropagation()} style={{
-        width:'100%', maxWidth:520,
-        background:'linear-gradient(180deg,#0e0e1c 0%,#08080f 100%)',
-        borderRadius:'28px 28px 0 0',
-        border:'1px solid rgba(255,255,255,0.10)',
-        borderBottom:'none',
-        fontFamily:T.font,
+        width:'100%', maxWidth:540,
+        background:'var(--color-surface)',
+        borderRadius:28,
+        borderTop:'2px solid var(--color-border)',
+        borderLeft:'2px solid var(--color-border)',
+        borderRight:'2px solid var(--color-border)',
+        borderBottom:'2px solid var(--color-border)',
         animation:'slideUpPreview 0.28s cubic-bezier(0.16,1,0.3,1) both',
         maxHeight:'88vh', overflowY:'auto',
-        boxShadow:'0 -20px 60px rgba(0,0,0,0.55)',
+        boxShadow:'0 28px 90px rgba(0,0,0,0.55)',
+        position:'relative',
       }}>
-        {/* Drag handle */}
-        <div style={{width:40,height:4,borderRadius:9999,background:'rgba(255,255,255,0.14)',margin:'14px auto 0'}}/>
+        <button
+          type="button"
+          aria-label="Close task preview"
+          onClick={onClose}
+          style={{
+            position:'absolute',
+            top:14,
+            right:14,
+            zIndex:2,
+            width:38,
+            height:38,
+            borderRadius:14,
+            border:'2px solid var(--color-border)',
+            background:'color-mix(in oklab, var(--color-surface-2) 88%, transparent)',
+            color:'var(--color-foreground)',
+            display:'flex',
+            alignItems:'center',
+            justifyContent:'center',
+            cursor:'pointer',
+            fontSize:22,
+            fontWeight:900,
+            lineHeight:1,
+            boxShadow:brickShadow,
+          }}
+        >
+          ×
+        </button>
 
-        {/* Colored header band */}
-        <div style={{
-          padding:'18px 22px 20px',
-          borderBottom:`1px solid rgba(255,255,255,0.06)`,
-          background:`linear-gradient(145deg,${ts.color}0a 0%,transparent 100%)`,
-        }}>
+        {/* Header band */}
+        <div style={{ padding:'24px 72px 22px 24px', borderBottom:'1px solid var(--color-border)' }}>
           {/* Type + meta row */}
-          <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:14}}>
+          <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:18}}>
             <div style={{
-              width:36, height:36, borderRadius:12,
-              display:'flex', alignItems:'center', justifyContent:'center',
-              background:ts.bg, color:ts.color, border:`1px solid ${ts.border}`, flexShrink:0,
+              width:44, height:44, borderRadius:14,
+              display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0,
+              background:`color-mix(in oklab, ${ts.color} 22%, transparent)`,
+              color:ts.color, border:`2px solid color-mix(in oklab, ${ts.color} 45%, transparent)`,
+              boxShadow:`0 3px 0 0 color-mix(in oklab, ${ts.color} 45%, #000)`,
             }}>
-              <IconGlyph name={info.icon} size={17} strokeWidth={2.3}/>
+              <IconGlyph name={info.icon} size={19} strokeWidth={2.4}/>
             </div>
             <span style={{
-              padding:'4px 12px', background:ts.bg, border:`1px solid ${ts.border}`,
-              borderRadius:9999, fontSize:11, fontWeight:800, color:ts.color, letterSpacing:'0.8px',
+              padding:'6px 12px',
+              background:`color-mix(in oklab, ${ts.color} 16%, transparent)`,
+              border:`2px solid color-mix(in oklab, ${ts.color} 38%, transparent)`,
+              borderRadius:9999, fontSize:11, fontWeight:900, color:ts.color,
+              letterSpacing:'0.12em', textTransform:'uppercase',
             }}>{chipLabel}</span>
             <div style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:8}}>
               <span style={{
-                fontSize:12,color:T.textMuted,fontWeight:600,
-                display:'flex',alignItems:'center',gap:4,
-                background:'rgba(255,255,255,0.05)',padding:'4px 8px',borderRadius:8,
+                fontSize:12,color:'var(--color-muted-foreground)',fontWeight:800,
+                display:'flex',alignItems:'center',gap:5,
+                background:'var(--color-surface)',border:'2px solid var(--color-border)',padding:'6px 11px',borderRadius:9999,
               }}>
-                <ClockIcon sz={12}/>{normalizedTask.estimatedTimeMin || normalizedTask.durationMin || 0}m
+                <ClockIcon sz={13}/>{normalizedTask.estimatedTimeMin || normalizedTask.durationMin || 0}m
               </span>
               <span style={{
-                fontSize:12,fontWeight:800,color:'#FBBF24',
-                display:'flex',alignItems:'center',gap:3,
-                background:'rgba(251,191,36,0.09)',padding:'4px 8px',borderRadius:8,
+                fontSize:12,fontWeight:900,color:'var(--color-amber)',
+                display:'flex',alignItems:'center',gap:4,
+                background:'color-mix(in oklab, var(--color-amber) 16%, transparent)',
+                border:'2px solid color-mix(in oklab, var(--color-amber) 40%, transparent)',
+                padding:'6px 11px',borderRadius:9999,
               }}>
-                <BoltIcon sz={12}/>+{xp} XP
+                <BoltIcon sz={13}/>+{xp} XP
               </span>
             </div>
           </div>
 
           {/* Title */}
-          <h2 style={{fontSize:22,fontWeight:900,color:T.text,lineHeight:1.25,margin:0,letterSpacing:'-0.4px'}}>
+          <h2 className="font-display" style={{fontSize:26,fontWeight:800,color:'var(--color-foreground)',lineHeight:1.18,margin:0,letterSpacing:'-0.02em'}}>
             {normalizedTask.title}
           </h2>
         </div>
 
         {/* Body */}
-        <div style={{padding:'18px 22px 34px'}}>
+        <div style={{padding:'20px 24px 32px', display:'flex', flexDirection:'column', gap:16}}>
         {/* Description */}
         {normalizedTask.description && (
-          <p style={{fontSize:14,color:T.textSec,lineHeight:1.7,marginBottom:16}}>
+          <p style={{fontSize:15,color:'var(--color-muted-foreground)',lineHeight:1.65,margin:0}}>
             {normalizedTask.description}
           </p>
         )}
 
         {isLocked && (
           <div style={{
-            padding:'14px 16px',
-            background:'rgba(251,191,36,0.08)',
-            border:'1px solid rgba(251,191,36,0.18)',
-            borderRadius:16,
-            marginBottom:16,
+            padding:'16px 18px',
+            background:'color-mix(in oklab, var(--color-amber) 14%, transparent)',
+            border:'2px solid color-mix(in oklab, var(--color-amber) 38%, transparent)',
+            borderRadius:18,
           }}>
-            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6,color:'#FBBF24',fontSize:12,fontWeight:800,letterSpacing:'0.08em',textTransform:'uppercase'}}>
-              <IconGlyph name="lock" size={14} strokeWidth={2.4} color="#FBBF24"/>
+            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6,color:'var(--color-amber)',fontSize:12,fontWeight:900,letterSpacing:'0.1em',textTransform:'uppercase'}}>
+              <IconGlyph name="lock" size={14} strokeWidth={2.4} color="var(--color-amber)"/>
               Locked in sequence
             </div>
-            <p style={{margin:0,fontSize:14,color:T.textSec,lineHeight:1.6}}>
+            <p style={{margin:0,fontSize:14,color:'var(--color-muted-foreground)',lineHeight:1.6}}>
               {normalizedTask._lockedReason || 'Finish the earlier task in today\'s mission first.'}
             </p>
           </div>
@@ -1599,13 +2148,13 @@ function TaskPreview({ task, onClose, onStart, onComplete, onReroll, rerollCount
 
         {/* What to expect */}
         <div style={{
-          padding:'14px 16px', background:'rgba(255,255,255,0.03)',
-          border:`1px solid ${T.border}`, borderRadius:14, marginBottom:16,
+          padding:'16px 18px', background:'var(--color-surface-2)',
+          border:'2px solid var(--color-border)', borderRadius:18,
         }}>
-          <div style={{fontSize:11,fontWeight:700,color:T.textMuted,textTransform:'uppercase',letterSpacing:'1px',marginBottom:6}}>
+          <div style={{fontSize:11,fontWeight:900,color:'var(--color-primary)',textTransform:'uppercase',letterSpacing:'0.12em',marginBottom:8}}>
             What to expect
           </div>
-          <p style={{fontSize:13,color:T.textSec,lineHeight:1.6,margin:0}}>
+          <p style={{fontSize:14,color:'var(--color-muted-foreground)',lineHeight:1.6,margin:0}}>
             {info.summary}
           </p>
         </div>
@@ -1613,106 +2162,117 @@ function TaskPreview({ task, onClose, onStart, onComplete, onReroll, rerollCount
         {/* Resource link */}
         {normalizedTask.resourceUrl && (
           <a href={normalizedTask.resourceUrl} target="_blank" rel="noopener noreferrer" style={{
-            display:'inline-flex', alignItems:'center', gap:5,
-            fontSize:13, color:T.blue, fontWeight:600,
-            textDecorationLine:'none', marginBottom:16,
+            display:'inline-flex', alignItems:'center', gap:6,
+            fontSize:14, color:'var(--color-primary)', fontWeight:800,
+            textDecorationLine:'none',
           }}>
-            {normalizedTask.resourceTitle || 'Open resource'} <ArrowRight sz={12}/>
+            {normalizedTask.resourceTitle || 'Open resource'} <ArrowRight sz={13}/>
           </a>
         )}
 
         {/* Action buttons */}
         {task.completed ? (
           <div style={{
-            padding:'14px', background:'rgba(14,245,194,0.06)',
-            border:'1px solid rgba(14,245,194,0.18)', borderRadius:14,
-            textAlign:'center', fontSize:15, fontWeight:700, color:T.teal,
+            padding:'16px', background:'color-mix(in oklab, var(--color-mint) 14%, transparent)',
+            border:'2px solid color-mix(in oklab, var(--color-mint) 40%, transparent)', borderRadius:18,
+            textAlign:'center', fontSize:15, fontWeight:900, color:'var(--color-mint)',
+            textTransform:'uppercase', letterSpacing:'0.06em',
           }}>
             Completed
           </div>
         ) : (
-          <div style={{display:'flex',flexDirection:'column',gap:10}}>
+          <div style={{display:'flex',flexDirection:'column',gap:12}}>
             {canRerollTask(task) && (
               <button
                 disabled={!canUseReroll}
-                className={canUseReroll ? 'interactive-secondary' : undefined}
                 onClick={() => { onClose(); onReroll?.(task) }}
                 style={{
                   width:'100%',
-                  padding:'12px 14px',
-                  background: canUseReroll ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.03)',
-                  border:`1px solid ${canUseReroll ? T.border : T.borderAlt}`,
-                  borderRadius:14,
-                  color: canUseReroll ? T.text : T.textMuted,
+                  padding:'14px 16px',
+                  background: 'var(--color-surface-2)',
+                  border:'2px solid var(--color-border)',
+                  borderRadius:16,
+                  color: canUseReroll ? 'var(--color-foreground)' : 'var(--color-muted-foreground)',
                   fontSize:13,
-                  fontWeight:800,
+                  fontWeight:900,
                   cursor: canUseReroll ? 'pointer' : 'default',
-                  fontFamily:T.font,
+                  boxShadow: brickShadow,
+                  opacity: canUseReroll ? 1 : 0.6,
                   display:'flex',
                   alignItems:'center',
                   justifyContent:'space-between',
                 }}
               >
-                <span style={{display:'inline-flex',alignItems:'center',gap:7}}>
-                  <IconGlyph name="repeat" size={14} strokeWidth={2.4} color={canUseReroll ? T.textSec : T.textDead}/>
+                <span style={{display:'inline-flex',alignItems:'center',gap:8}}>
+                  <IconGlyph name="repeat" size={15} strokeWidth={2.4} color={canUseReroll ? 'var(--color-primary)' : 'var(--color-muted-foreground)'}/>
                   {rerollingTaskId === task.id ? 'Refreshing task…' : 'Use Task Reroll'}
                 </span>
-                <span style={{fontSize:11,fontWeight:900,color:canUseReroll ? T.teal : T.textMuted,letterSpacing:'0.08em',textTransform:'uppercase'}}>
+                <span style={{fontSize:11,fontWeight:900,color:canUseReroll ? 'var(--color-primary)' : 'var(--color-muted-foreground)',letterSpacing:'0.1em',textTransform:'uppercase'}}>
                   {rerollCount} left
                 </span>
               </button>
             )}
-            <div style={{display:'flex',gap:10}}>
+            <div style={{display:'flex',gap:12}}>
             <button onClick={() => {
               if (anyCompleting || isLocked) return
               onClose()
               onStart(task)
-            }} className="interactive-secondary" style={{
-              flex:1, padding:'14px 12px',
-              background:isLocked ? 'rgba(255,255,255,0.04)' : 'rgba(14,245,194,0.06)',
-              border:`1px solid ${isLocked ? T.border : T.tealBorder}`, borderRadius:14,
-              color:isLocked ? T.textMuted : T.teal, fontSize:14, fontWeight:700,
-              cursor: anyCompleting || isLocked ? 'default' : 'pointer', fontFamily:T.font,
-              display:'flex', alignItems:'center', justifyContent:'center', gap:6,
+            }} style={{
+              flex:1, padding:'16px 14px',
+              background:'var(--color-surface-2)',
+              border:`2px solid ${isLocked ? 'var(--color-border)' : 'color-mix(in oklab, var(--color-primary) 45%, var(--color-border))'}`,
+              borderRadius:16,
+              color:isLocked ? 'var(--color-muted-foreground)' : 'var(--color-foreground)',
+              fontFamily:"'Sora', ui-sans-serif, system-ui, sans-serif",
+              fontSize:14, fontWeight:800, textTransform:'uppercase', letterSpacing:'0.04em',
+              cursor: anyCompleting || isLocked ? 'default' : 'pointer',
+              boxShadow: brickShadow,
+              display:'flex', alignItems:'center', justifyContent:'center', gap:8,
               opacity: anyCompleting || isLocked ? 0.5 : 1,
-              transition:'all 0.18s',
+              transition:'filter 0.15s, transform 0.08s',
             }}
-            onMouseEnter={e=>{if(!anyCompleting && !isLocked)e.currentTarget.style.background='rgba(14,245,194,0.12)'}}
-            onMouseLeave={e=>{e.currentTarget.style.background=isLocked ? 'rgba(255,255,255,0.04)' : 'rgba(14,245,194,0.06)'}}>
+            onMouseDown={e=>{if(!anyCompleting && !isLocked)e.currentTarget.style.transform='translateY(3px)'}}
+            onMouseUp={e=>{e.currentTarget.style.transform=''}}
+            onMouseLeave={e=>{e.currentTarget.style.transform=''}}>
               <PlayIcon/> {label}
             </button>
             <button
               disabled={anyCompleting || isLocked || requiresLessonCompletion}
-              className={anyCompleting ? undefined : 'interactive-cta'}
               onClick={e => {
                 if (anyCompleting || isLocked || requiresLessonCompletion) return
                 onClose()
                 onComplete(task, e)
               }}
               style={{
-                flex: me ? 'none' : 'none',
-                width: me ? 48 : undefined,
-                height: me ? 48 : undefined,
-                padding: me ? 0 : '14px 20px',
-                background: me ? '#0ef5c2' : anyCompleting || isLocked || requiresLessonCompletion ? 'rgba(255,255,255,0.04)' : T.primaryGradient,
-                border: anyCompleting || isLocked || requiresLessonCompletion ? `1px solid ${T.border}` : 'none',
-                borderRadius: me ? '50%' : 14,
-                color: me ? '#040a0f' : anyCompleting || isLocked || requiresLessonCompletion ? T.textMuted : T.ink,
-                fontSize:14, fontWeight:800,
-                cursor: anyCompleting || isLocked || requiresLessonCompletion ? 'default' : 'pointer', fontFamily:T.font,
-                boxShadow: me ? '0 0 20px rgba(14,245,194,0.55)' : anyCompleting ? 'none' : '0 0 24px rgba(14,245,194,0.28)',
+                width: me ? 52 : undefined,
+                height: me ? 52 : undefined,
+                padding: me ? 0 : '16px 22px',
+                background: me ? 'var(--color-mint)' : anyCompleting || isLocked || requiresLessonCompletion ? 'var(--color-surface-2)' : 'var(--color-primary)',
+                border: anyCompleting || isLocked || requiresLessonCompletion ? '2px solid var(--color-border)' : 'none',
+                borderRadius: me ? '50%' : 16,
+                color: me ? '#031222' : anyCompleting || isLocked || requiresLessonCompletion ? 'var(--color-muted-foreground)' : 'var(--color-primary-foreground)',
+                fontFamily:"'Sora', ui-sans-serif, system-ui, sans-serif",
+                fontSize:14, fontWeight:800, textTransform:'uppercase', letterSpacing:'0.04em',
+                cursor: anyCompleting || isLocked || requiresLessonCompletion ? 'default' : 'pointer',
+                boxShadow: me
+                  ? '0 0 22px color-mix(in oklab, var(--color-mint) 55%, transparent)'
+                  : anyCompleting || isLocked || requiresLessonCompletion
+                    ? 'none'
+                    : '0 6px 0 0 var(--color-primary-shadow), 0 12px 24px -8px color-mix(in oklab, var(--color-primary) 55%, transparent)',
                 display:'flex', alignItems:'center', justifyContent:'center', gap:6,
                 opacity: (anyCompleting && !me) || isLocked || requiresLessonCompletion ? 0.5 : 1,
                 transition:'all 0.20s cubic-bezier(0.34,1.56,0.64,1)',
               }}
+              onMouseDown={e=>{if(!anyCompleting && !isLocked && !requiresLessonCompletion && !me){e.currentTarget.style.transform='translateY(4px)';e.currentTarget.style.boxShadow='0 2px 0 0 var(--color-primary-shadow)'}}}
+              onMouseUp={e=>{if(!me){e.currentTarget.style.transform='';e.currentTarget.style.boxShadow='0 6px 0 0 var(--color-primary-shadow), 0 12px 24px -8px color-mix(in oklab, var(--color-primary) 55%, transparent)'}}}
             >
               {me
-                ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#040a0f" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{animation:'popIn 0.25s cubic-bezier(0.34,1.56,0.64,1)'}}><polyline points="20 6 9 17 4 12"/></svg>
-                : anyCompleting ? 'Wait…' : <><BoltIcon sz={13}/>Complete</>}
+                ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#031222" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{animation:'popIn 0.25s cubic-bezier(0.34,1.56,0.64,1)'}}><polyline points="20 6 9 17 4 12"/></svg>
+                : anyCompleting ? 'Wait…' : <><BoltIcon sz={14}/>Complete</>}
             </button>
             </div>
             {requiresLessonCompletion && !isLocked && (
-              <p style={{margin:0,fontSize:12,color:T.textMuted,lineHeight:1.55}}>
+              <p style={{margin:0,fontSize:12,color:'var(--color-muted-foreground)',lineHeight:1.55}}>
                 Concept tasks unlock the rest of the day only after you finish the lesson handoff from inside the concept view.
               </p>
             )}
@@ -1740,7 +2300,7 @@ function TaskItem({ task, onPreview, index }) {
   return (
     <div
       onClick={() => onPreview(task)}
-      className="interactive-card"
+      className={`dashboard-task-card interactive-card${task.completed ? ' is-complete' : ''}${isLocked ? ' is-locked' : ''}`}
       style={{
         background: task.completed
           ? 'rgba(14,245,194,0.035)'
@@ -1764,17 +2324,17 @@ function TaskItem({ task, onPreview, index }) {
       onMouseLeave={e=>{e.currentTarget.style.transform='';e.currentTarget.style.boxShadow=task.completed?'none':isLocked?'none':'inset 0 1px 0 rgba(255,255,255,0.07), 0 4px 20px rgba(0,0,0,0.18)'}}
     >
       {/* Left color accent bar */}
-      <div style={{
+      <div className="dashboard-task-accent" style={{
         width: 4, flexShrink:0,
         background: task.completed ? 'rgba(14,245,194,0.35)' : isLocked ? 'rgba(251,191,36,0.45)' : ts.color,
         opacity: task.completed ? 0.5 : 1,
       }}/>
 
       {/* Main content */}
-      <div style={{flex:1, padding:'14px 16px', minWidth:0}}>
+      <div className="dashboard-task-content" style={{flex:1, padding:'14px 16px', minWidth:0}}>
         {/* Top row: icon + badge + meta */}
         <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10}}>
-          <div style={{
+          <div className="dashboard-task-icon" style={{
             width:38, height:38, borderRadius:12, flexShrink:0,
             display:'flex', alignItems:'center', justifyContent:'center',
             background: task.completed ? 'rgba(14,245,194,0.08)' : ts.bg,
@@ -1785,10 +2345,10 @@ function TaskItem({ task, onPreview, index }) {
               ? <IconGlyph name="check" size={14} strokeWidth={2.8} color={T.teal}/>
               : isLocked
                 ? <IconGlyph name="lock" size={13} strokeWidth={2.4} color="#FBBF24"/>
-                : <IconGlyph name={info.icon} size={14} strokeWidth={2.3} color={ts.color}/>
+                : <span className="dashboard-task-number">{index + 1}</span>
             }
           </div>
-          <span style={{
+          <span className="dashboard-task-chip" style={{
             padding:'3px 9px', background:ts.bg, border:`1px solid ${ts.border}`,
             borderRadius:9999, fontSize:11, fontWeight:900, color:ts.color, letterSpacing:'0.8px',
           }}>{chipLabel}</span>
@@ -1811,7 +2371,7 @@ function TaskItem({ task, onPreview, index }) {
         </div>
 
         {/* Title */}
-        <div style={{
+        <div className="dashboard-task-title" style={{
           fontSize:17, fontWeight:800,
           color: task.completed ? T.textMuted : T.text,
           lineHeight:1.3, marginBottom: (normalizedTask.description && !task.completed) ? 7 : 0,
@@ -1823,7 +2383,7 @@ function TaskItem({ task, onPreview, index }) {
 
         {/* Description */}
         {normalizedTask.description && !task.completed && (
-          <p style={{fontSize:14,color:T.textSec,lineHeight:1.6,margin:0,marginBottom:10}}>
+          <p className="dashboard-task-description" style={{fontSize:14,color:T.textSec,lineHeight:1.6,margin:0,marginBottom:10}}>
             {normalizedTask.description.length > 95 ? `${normalizedTask.description.slice(0, 95)}…` : normalizedTask.description}
           </p>
         )}
@@ -1841,7 +2401,7 @@ function TaskItem({ task, onPreview, index }) {
 
         {/* Bottom cta row */}
         {!task.completed && (
-          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:8}}>
+          <div className="dashboard-task-footer" style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:8}}>
             <span style={{
               fontSize:12, fontWeight:700,
               color: isLocked ? '#FBBF24' : T.textSec,
@@ -2342,7 +2902,7 @@ function TomorrowPreview({ tomorrowRow }) {
   if (!tomorrowRow) return null
   const name = tomorrowRow.covered_topics?.[0] || `Day ${tomorrowRow.day_number}`
   return (
-    <div style={{maxWidth:600,margin:'0 auto',padding:'0 20px'}}>
+    <div className="dashboard-tomorrow-preview" style={{maxWidth:600,margin:'0 auto',padding:'0 20px'}}>
       <div style={{
         background:T.surface, border:`1px solid ${T.border}`,
         borderRadius:14, padding:'12px 16px',
@@ -2365,10 +2925,7 @@ function TomorrowPreview({ tomorrowRow }) {
 const DASHBOARD_NAV_ITEMS = [
   { key:'home',     label:'Today', icon:'rocket',        meta:'Mission hub' },
   { key:'path',     label:'Path',  icon:'map',           meta:'Curriculum' },
-  { key:'badges',   label:'Cards', icon:'badge',         meta:'Wins' },
-  { key:'shop',     label:'Shop',  icon:'gem',           meta:'Upgrades' },
-  { key:'stats',    label:'Stats', icon:'bar_chart',     meta:'Progress' },
-  { key:'settings', label:'More',  icon:'wrench',        meta:'Settings' },
+  { key:'settings', label:'More',  icon:'palette',       meta:'Themes & settings' },
 ]
 
 function DashboardCommandMenu({ open, query, onQueryChange, actions, onClose }) {
@@ -2598,17 +3155,75 @@ function DashboardDesktopNav({ activeTab, onSelect, onOpenCommand, goalText, day
 function StatCard({ label, value, sub, color }) {
   return (
     <div style={{
-      background:T.surface, border:`1px solid ${T.border}`,
-      borderRadius:16, padding:'14px',
-      backdropFilter:'blur(16px)', WebkitBackdropFilter:'blur(16px)',
-      boxShadow:'inset 0 1px 0 rgba(255,255,255,0.06)',
+      background:T.surface, border:`2px solid ${color ? `${color}44` : T.border}`,
+      borderRadius:18, padding:'16px',
+      boxShadow:`inset 0 1px 0 rgba(255,255,255,0.06), 0 5px 0 0 ${color ? `${color}33` : 'rgba(2,10,20,0.5)'}`,
     }}>
-      <div style={{fontSize:11,fontWeight:700,color:T.textMuted,
+      <div style={{fontSize:11,fontWeight:800,color:T.textMuted,
         textTransform:'uppercase',letterSpacing:'1px',marginBottom:6}}>{label}</div>
-      <div style={{fontSize:22,fontWeight:900,color:color||T.text,
-        letterSpacing:'-0.5px',lineHeight:1,marginBottom:sub?4:0}}>{value}</div>
+      <div className="font-display" style={{fontSize:26,fontWeight:800,color:color||T.text,
+        letterSpacing:'-0.02em',lineHeight:1,marginBottom:sub?4:0}}>{value}</div>
       {sub && <div style={{fontSize:11,color:T.textMuted}}>{sub}</div>}
     </div>
+  )
+}
+
+function DashboardStatRow({ xpDisplay, streakData, gems, tasks }) {
+  const safeTasks = Array.isArray(tasks) ? tasks : []
+  const totalTasks = safeTasks.length
+  const doneTasks = safeTasks.filter((task) => task.completed).length
+  const stats = [
+    {
+      key: 'level',
+      label: 'Level',
+      value: xpDisplay?.level ?? 1,
+      sub: xpDisplay?.title || 'Keep climbing',
+      icon: 'crown',
+      tone: 'cyan',
+      color: T.teal,
+    },
+    {
+      key: 'xp',
+      label: 'XP',
+      value: (xpDisplay?.totalXp ?? 0).toLocaleString(),
+      sub: `${(xpDisplay?.xpInLevel ?? 0).toLocaleString()} this level`,
+      icon: 'bolt',
+      tone: 'gold',
+      color: T.amber,
+    },
+    {
+      key: 'streak',
+      label: 'Streak',
+      value: streakData?.current ?? 0,
+      sub: 'day fire',
+      icon: 'flame',
+      tone: 'coral',
+      color: T.flame,
+    },
+    {
+      key: 'gems',
+      label: 'Gems',
+      value: gems,
+      sub: totalTasks > 0 ? `${doneTasks}/${totalTasks} tasks today` : 'ready to earn',
+      icon: 'gem',
+      tone: 'mint',
+      color: T.teal,
+    },
+  ]
+
+  return (
+    <section className="dashboard-stat-grid" aria-label="Today overview">
+      {stats.map((stat) => (
+        <div key={stat.key} className={`dashboard-stat-card tone-${stat.tone}`}>
+          <div className="dashboard-stat-icon">
+            <IconGlyph name={stat.icon} size={18} strokeWidth={2.45} color={stat.color} />
+          </div>
+          <div className="dashboard-stat-label">{stat.label}</div>
+          <div className="dashboard-stat-value" style={{ color: stat.color }}>{stat.value}</div>
+          <div className="dashboard-stat-sub">{stat.sub}</div>
+        </div>
+      ))}
+    </section>
   )
 }
 
@@ -2734,7 +3349,6 @@ export default function Dashboard() {
   const [courseCompleteData, setCourseCompleteData] = useState(null)
 
   // UI
-  const [energy,      setEnergy]      = useState('good')
   const [activeTab,   setActiveTab]   = useState('home')
   const [expandedPathModules, setExpandedPathModules] = useState({})
   const [expandedPathUnits,   setExpandedPathUnits]   = useState({})
@@ -2744,8 +3358,14 @@ export default function Dashboard() {
   const [claimedModuleRewardIds, setClaimedModuleRewardIds] = useState([])
   const [moduleRewardToasts, setModuleRewardToasts] = useState([])
   const [showLesson,       setShowLesson]       = useState(null)
-  const [practiceRoundTask, setPracticeRoundTask] = useState(null) // task awaiting PracticeRound
+  const [todayMission, setTodayMission] = useState(null)
+  const [missionFlowLoading, setMissionFlowLoading] = useState(false)
+  const [missionFlowLegacyFallback, setMissionFlowLegacyFallback] = useState(false)
+  const [learningStatus, setLearningStatus] = useState(null)
+  const [learningStatusLoading, setLearningStatusLoading] = useState(false)
+  const [learningStatusRefreshKey, setLearningStatusRefreshKey] = useState(0)
   const [previewTask, setPreviewTask] = useState(null)
+  const [practiceRoundTask, setPracticeRoundTask] = useState(null) // task awaiting PracticeRound
   const [commandOpen, setCommandOpen] = useState(false)
   const [commandQuery, setCommandQuery] = useState('')
   const [error,       setError]       = useState('')
@@ -2783,7 +3403,7 @@ export default function Dashboard() {
   const [freezeToast,    setFreezeToast]    = useState(false)
   const [isComeback,     setIsComeback]     = useState(false)
 
-  // Daily Quests
+  // Background quest reward plumbing
   const [quests,         setQuests]         = useState([])
   const [questMasterToast, setQuestMasterToast] = useState(false)
   const [badgeToasts, setBadgeToasts] = useState([]) // newly earned badges to show
@@ -2850,8 +3470,9 @@ export default function Dashboard() {
   const themeVars = useMemo(() => getDashboardThemeVars(activeTheme), [activeTheme])
   const pageThemeStyle = useMemo(() => ({
     ...themeVars,
-    background: 'radial-gradient(circle at top, var(--theme-page-glow), transparent 34%), var(--theme-bg)',
+    background: 'radial-gradient(circle at top, var(--theme-page-glow), transparent 34%), radial-gradient(circle at 82% 10%, var(--theme-primary-dim), transparent 24%), var(--theme-bg)',
   }), [themeVars])
+  const showDeveloperShortcuts = process.env.NEXT_PUBLIC_PATHAI_SHOW_DEV_SHORTCUTS === 'true'
   const goalKnowledge = useMemo(() => (
     Array.isArray(goal?.constraints) ? goal.constraints.join(', ') : (goal?.constraints || '')
   ), [goal?.constraints])
@@ -2865,6 +3486,97 @@ export default function Dashboard() {
     setStoredLearningDomain(activeDomain)
   }, [activeDomain])
 
+  useEffect(() => {
+    const p5Eligible = Boolean(
+      goal?.id
+      && goal?.topic_graph_id
+      && goal?.mission_flow_version === 'p5'
+      && user?.id
+      && !isLocalAccessUser(user)
+    )
+    if (!p5Eligible) {
+      setTodayMission(null)
+      setMissionFlowLoading(false)
+      setMissionFlowLegacyFallback(true)
+      return undefined
+    }
+
+    let cancelled = false
+    async function loadTodayMission() {
+      setMissionFlowLoading(true)
+      setMissionFlowLegacyFallback(false)
+      try {
+        const { session } = await getSafeSupabaseSession()
+        const token = session?.access_token || null
+        const res = await fetch(`/api/missions/today?goal_id=${encodeURIComponent(goal.id)}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        })
+        const data = await res.json().catch(() => ({}))
+        if (cancelled) return
+        if (res.ok && data?.mission && !data?.legacy) {
+          setTodayMission(data.mission)
+          setMissionFlowLegacyFallback(false)
+        } else {
+          setTodayMission(null)
+          setMissionFlowLegacyFallback(true)
+        }
+        if (!res.ok) {
+          setError(data?.error || 'Could not load today\'s mission.')
+          setMissionFlowLegacyFallback(true)
+        }
+      } catch {
+        if (!cancelled) {
+          setError('Could not load today\'s mission.')
+          setMissionFlowLegacyFallback(true)
+        }
+      } finally {
+        if (!cancelled) setMissionFlowLoading(false)
+      }
+    }
+
+    loadTodayMission()
+    return () => {
+      cancelled = true
+    }
+  }, [goal?.id, goal?.mission_flow_version, goal?.topic_graph_id, user])
+
+  useEffect(() => {
+    const canLoadStatus = Boolean(goal?.id && user?.id && !isLocalAccessUser(user))
+    if (!canLoadStatus) {
+      setLearningStatus(null)
+      setLearningStatusLoading(false)
+      return undefined
+    }
+
+    let cancelled = false
+    async function loadLearningStatus() {
+      setLearningStatusLoading(true)
+      try {
+        const { session } = await getSafeSupabaseSession()
+        const token = session?.access_token || null
+        const res = await fetch(`/api/learning-status?goal_id=${encodeURIComponent(goal.id)}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        })
+        const data = await res.json().catch(() => ({}))
+        if (cancelled) return
+        if (res.ok) {
+          setLearningStatus(data)
+        } else {
+          setLearningStatus(null)
+        }
+      } catch {
+        if (!cancelled) setLearningStatus(null)
+      } finally {
+        if (!cancelled) setLearningStatusLoading(false)
+      }
+    }
+
+    loadLearningStatus()
+    return () => {
+      cancelled = true
+    }
+  }, [goal?.id, user, learningStatusRefreshKey])
+
   const pathTracker = useMemo(() => buildPathOutlineTracker({
     courseOutline: goal?.course_outline,
     rows: allRows,
@@ -2874,10 +3586,10 @@ export default function Dashboard() {
   }), [goal?.course_outline, goal?.goal_text, allRows, todayRow?.id, claimedModuleRewardIds])
 
   const applyTheme = useCallback((themeId) => {
-    const nextTheme = themeId === 'default' || ownedThemes.includes(themeId) ? themeId : 'default'
+    const nextTheme = APP_THEMES[themeId] ? themeId : 'default'
     setActiveTheme(nextTheme)
     setStoredActiveTheme(nextTheme)
-  }, [ownedThemes])
+  }, [])
 
   const togglePathModule = useCallback((moduleId) => {
     setExpandedPathModules((prev) => ({ ...prev, [moduleId]: !prev[moduleId] }))
@@ -2933,6 +3645,7 @@ export default function Dashboard() {
 
       if (!localBundle?.goal) {
         setGoal(null)
+        setTodayMission(null)
         setAllGoals([])
         setAllRows([])
         setConceptMasteryRows([])
@@ -3084,7 +3797,7 @@ export default function Dashboard() {
       .from('goals').select('*').eq('user_id', me.id).eq('status', 'active')
       .order('created_at', { ascending: false }).limit(1).maybeSingle()
     if (ge) { setError(ge.message); setLoading(false); return }
-    if (!activeGoal) { setConceptMasteryRows([]); setLoading(false); return }
+    if (!activeGoal) { setConceptMasteryRows([]); setTodayMission(null); setLoading(false); return }
     const hydratedGoal = hydrateGoalCourseOutline(activeGoal)
     const hydratedDomain = resolveGoalDomain(hydratedGoal)
     setGoal(hydratedGoal)
@@ -4030,7 +4743,7 @@ export default function Dashboard() {
           userId: user?.id, goalId: goal?.id, missionId: todayRow?.id,
           streakValue: data.streakState?.current ?? streakData.current,
           xpBalance: data.newTotalXp ?? (xpDisplay.totalXp + xpAmount),
-          energyMode: energy,
+          energyMode: 'good',
         })
       } catch { /* Post-API processing error — task is already saved, don't revert */ }
 
@@ -4059,7 +4772,7 @@ export default function Dashboard() {
           }, {
             userId: user?.id, goalId: goal?.id, missionId: todayRow?.id,
             streakValue: data.streakState?.current ?? streakData.current,
-            energyMode: energy,
+            energyMode: 'good',
           })
         } catch { /* analytics never blocks */ }
       }
@@ -4143,7 +4856,7 @@ export default function Dashboard() {
       if (allDoneNow && !apiOk && !isCourseFinalTask) resolveMissionCompletion(false)
       setCompleting(null)
     }
-  }, [tasks, completing, xpDisplay, todayRow, streakData, addXpToast, load, gems, user, goal, energy, resolveMissionCompletion, allRows])
+  }, [tasks, completing, xpDisplay, todayRow, streakData, addXpToast, load, gems, user, goal, resolveMissionCompletion, allRows])
 
   const handleTaskReroll = useCallback(async (task) => {
     if (rerollingTaskId || !task?.id || !goal || !todayRow?.id || !user || !canRerollTask(task)) return
@@ -4208,14 +4921,6 @@ export default function Dashboard() {
     } catch { /* silent */ }
     setFreezing(false)
   }, [freezing, freezeCount, goal, streakData, user])
-
-  // ─── Energy change ──────────────────────────────────────────────────────────
-  const handleEnergyChange = useCallback((newEnergy) => {
-    track(EVENTS.ENERGY_SELECTED, { energy: newEnergy, previousEnergy: energy }, {
-      userId: user?.id, goalId: goal?.id, energyMode: newEnergy,
-    })
-    setEnergy(newEnergy)
-  }, [energy, user, goal])
 
   // ─── Heart lost (wrong quiz answer) ────────────────────────────────────────
   const handleHeartLost = useCallback(async () => {
@@ -4424,6 +5129,49 @@ export default function Dashboard() {
     }))
   }, [goal?.goal_text, todayRow?.covered_topics])
 
+  const handleP5MissionCompleted = useCallback((payload = {}) => {
+    setTodayMission(prev => prev ? {
+      ...prev,
+      status: 'completed',
+      completedAt: payload?.mission?.completedAt || payload?.mission?.completed_at || new Date().toISOString(),
+    } : prev)
+    setLearningStatusRefreshKey(value => value + 1)
+    setMissionDone(true)
+    setShowNextDayCTA(false)
+    setShowMissionConfetti(true)
+    if (missionConfettiTimerRef.current) clearTimeout(missionConfettiTimerRef.current)
+    missionConfettiTimerRef.current = setTimeout(() => {
+      if (isMountedRef.current) setShowMissionConfetti(false)
+      missionConfettiTimerRef.current = null
+    }, 2400)
+
+    const xpEarned = Number(payload?.xpEarned) || 0
+    if (xpEarned > 0) {
+      setXpDisplay(prev => getLevelProgress((Number(prev?.totalXp) || 0) + xpEarned))
+      setXpAnimating(true)
+      pendingTimersRef.current.push(setTimeout(() => {
+        if (isMountedRef.current) setXpAnimating(false)
+      }, 800))
+    }
+
+    const gemsEarned = Number(payload?.gemsEarned) || 0
+    if (gemsEarned > 0) {
+      setGems(g => g + gemsEarned)
+      setGemPulse(true)
+      pendingTimersRef.current.push(setTimeout(() => {
+        if (isMountedRef.current) setGemPulse(false)
+      }, 400))
+      setGemToasts(prev => [...prev, { id: Date.now() + 5, amount: gemsEarned }])
+    }
+
+    if (payload?.streakState?.current != null) {
+      setStreakData(prev => ({
+        current: Number(payload.streakState.current) || prev.current,
+        longest: Math.max(prev.longest, Number(payload.streakState.longest) || 0),
+      }))
+    }
+  }, [])
+
   // ─── Switch active goal ─────────────────────────────────────────────────────
   const switchGoal = useCallback(async (goalId) => {
     if (switchingGoal || goalId === goal?.id) { setShowGoalsSidebar(false); return }
@@ -4442,7 +5190,14 @@ export default function Dashboard() {
   }, [switchingGoal, goal, load])
 
   // ─── Computed ───────────────────────────────────────────────────────────────
-  const visibleTasks = useMemo(() => getFilteredTasks(annotateTaskLocks(tasks), energy), [tasks, energy])
+  const visibleTasks = useMemo(() => annotateTaskLocks(tasks), [tasks])
+  const p5MissionEligible = Boolean(
+    goal?.topic_graph_id
+    && goal?.mission_flow_version === 'p5'
+    && user?.id
+    && !isLocalAccessUser(user)
+  )
+  const showP5MissionSurface = p5MissionEligible && !missionFlowLegacyFallback
   const activeViewerTask = useMemo(() => showLesson ? normalizeLearningTask(showLesson) : null, [showLesson])
   const activeViewerType = activeViewerTask?.type || ''
   const activeViewerPresentation = activeViewerTask?.presentation || ''
@@ -4455,7 +5210,6 @@ export default function Dashboard() {
     && !['boss', 'final_exam'].includes(activeViewerType)
     ? (storedViewerTaskIsInvalidCode ? fallbackViewerDomainTaskType : storedViewerDomainTaskType || fallbackViewerDomainTaskType)
     : null
-  const hiddenCount = tasks.length - visibleTasks.length
   const expectedCourseSpan = Math.max(
     Number(totalDaysPlanned) || 0,
     Number(goal?.total_days) || 0,
@@ -4526,6 +5280,15 @@ export default function Dashboard() {
       ratio: total > 0 ? Math.min(1, completed / total) : 0,
     }
   }, [tasks, visibleTasks])
+  const handleContinueToday = useCallback(() => {
+    const targetId = showP5MissionSurface ? 'today-mission-surface' : 'today-task-list'
+    const target = typeof document !== 'undefined' ? document.getElementById(targetId) : null
+    if (target) {
+      target.scrollIntoView({ behavior:'smooth', block:'center' })
+      return
+    }
+    handleTabSelect('home')
+  }, [handleTabSelect, showP5MissionSurface])
   const commandActions = useMemo(() => {
     const actions = []
     const add = (action) => actions.push(action)
@@ -4666,26 +5429,11 @@ export default function Dashboard() {
       })
     }
 
-    ENERGY_OPTIONS.forEach((option) => {
-      add({
-        id:`energy-${option.key}`,
-        group:'Energy',
-        label:`Set energy to ${option.label}`,
-        meta:option.key === energy ? 'Current mode' : 'Adjust today\'s mission density',
-        icon:option.icon,
-        accent:option.key === energy ? T.teal : T.textSec,
-        keywords:['energy','mode',option.key,option.label],
-        run:() => handleEnergyChange(option.key),
-      })
-    })
-
     return actions
   }, [
     activeTab,
-    energy,
     freezeCount,
     freezing,
-    handleEnergyChange,
     handleFreeze,
     handleStartNextDay,
     handleTabSelect,
@@ -4756,7 +5504,7 @@ export default function Dashboard() {
       )}
 
       {/* ── Path View toggle buttons ── */}
-      {!showPathView && activeTab === 'home' && !showLesson && !previewTask && (
+      {showDeveloperShortcuts && !showPathView && activeTab === 'home' && !showLesson && !previewTask && (
         <div
           className="dashboard-quick-actions"
           style={{
@@ -5212,8 +5960,8 @@ export default function Dashboard() {
         />
       )}
 
-      {/* No-hearts overlay */}
-      {showNoHearts && (
+      {/* No-hearts overlay removed (hearts/gamification gone — lessons have unlimited retries) */}
+      {false && showNoHearts && (
         <NoHeartsOverlay
           refillAt={heartsRefillAt}
           onClose={() => setShowNoHearts(false)}
@@ -5224,16 +5972,16 @@ export default function Dashboard() {
       {/* Task viewer — routed by canonical task family */}
 
       {activeViewerTask && activeViewerDomainTaskType && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 200, background: '#070a12', overflowY: 'auto' }}>
-          <div style={{ position: 'sticky', top: 0, zIndex: 4, height: 58, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 18px', background: 'rgba(7,10,18,0.92)', borderBottom: '1px solid rgba(255,255,255,0.08)', backdropFilter: 'blur(18px)' }}>
+        <div style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'var(--theme-bg)', overflowY: 'auto' }}>
+          <div style={{ position: 'sticky', top: 0, zIndex: 4, height: 58, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 18px', background: 'var(--theme-chrome)', borderBottom: `1px solid ${T.border}`, backdropFilter: 'blur(18px)' }}>
             <button
               onClick={() => setShowLesson(null)}
               className="interactive-button"
-              style={{ border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.06)', color: '#f5f7fb', borderRadius: 10, padding: '9px 12px', fontWeight: 900, cursor: 'pointer' }}
+              style={{ border: `1px solid ${T.border}`, background: T.surface, color: T.text, borderRadius: 10, padding: '9px 12px', fontWeight: 900, cursor: 'pointer' }}
             >
               Close
             </button>
-            <span style={{ color: '#8ea0b8', fontSize: 12, fontWeight: 900, letterSpacing: '0.12em', textTransform: 'uppercase' }}>
+            <span style={{ color: T.textMuted, fontSize: 12, fontWeight: 900, letterSpacing: '0.12em', textTransform: 'uppercase' }}>
               {storedViewerTaskIsInvalidCode ? getDomainTaskLabel(activeViewerDomainTaskType) : (activeViewerTask.domainTaskLabel || getDomainTaskLabel(activeViewerDomainTaskType))}
             </span>
           </div>
@@ -5404,19 +6152,19 @@ export default function Dashboard() {
         />
       )}
 
-      <div style={{...pageThemeStyle,minHeight:'100vh',fontFamily:T.font,paddingBottom:90}}>
+      <div className="dashboard-lovable-reference" style={{...pageThemeStyle,minHeight:'100vh',fontFamily:T.font,paddingBottom:90}}>
 
         {/* ── Sticky top bar ── */}
         <div style={{
           position:'sticky',top:0,zIndex:60,
-          background:'rgba(4,5,10,0.90)',
+          background:T.chrome,
           backdropFilter:'blur(28px) saturate(200%)',
           WebkitBackdropFilter:'blur(28px) saturate(200%)',
-          borderBottom:'1px solid rgba(255,255,255,0.07)',
+          borderBottom:`1px solid ${T.border}`,
         }} className="safe-top-shell">
           <div className="dashboard-top-inner" style={{height:58,
             display:'flex',alignItems:'center',gap:12,padding:'0 16px',justifyContent:'space-between'}}>
-            <button onClick={() => setShowGoalsSidebar(true)} className="interactive-icon" style={{
+            <button onClick={() => setShowGoalsSidebar(true)} className="dashboard-brand-button interactive-icon" style={{
               minWidth:0,maxWidth:'min(280px,52vw)',background:'none',border:'none',
               cursor:'pointer',fontFamily:T.font,textAlign:'left',padding:0,
               display:'flex',alignItems:'center',gap:10,
@@ -5424,16 +6172,13 @@ export default function Dashboard() {
             }}>
               <PathBoltLogo />
               <div style={{minWidth:0}}>
-                <div style={{fontSize:10,fontWeight:800,color:T.textMuted,letterSpacing:'1.5px',textTransform:'uppercase',marginBottom:1}}>
-                  Goal
-                </div>
                 <div style={{
-                  fontSize:14,fontWeight:800,color:T.text,
+                  fontSize:20,fontWeight:950,color:T.text,
+                  letterSpacing:'-0.04em',
                   whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',
-                  display:'flex',alignItems:'center',gap:4,
+                  display:'flex',alignItems:'center',gap:7,
                 }}>
-                  {shortGoalText}
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={T.textMuted} strokeWidth="2.5" strokeLinecap="round"><polyline points="6 9 12 15 18 9"/></svg>
+                  PathAI
                 </div>
               </div>
             </button>
@@ -5450,56 +6195,9 @@ export default function Dashboard() {
             </button>
 
             <div style={{display:'flex',alignItems:'center',gap:12,flexShrink:0}}>
-              <button onClick={() => handleTabSelect('shop')} className="interactive-icon gem-glint" style={{
-                display:'flex',alignItems:'center',gap:6,
-                padding:'6px 10px',background:T.tealDim,
-                border:`1px solid ${T.tealBorder}`,borderRadius:9999,
-                cursor:'pointer',fontFamily:T.font,position:'relative',
-                minHeight:44,
-              }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                  style={{animation:gemPulse?'gemPulse 0.3s ease':'none'}}>
-                  <path d="M6 3L2 9l10 12L22 9l-4-6H6z" fill={T.teal} opacity="0.85"/>
-                  <path d="M12 3l-2 6h4l-2-6z" fill="#fff" opacity="0.25"/>
-                  <path d="M6 3L2 9l10 12L22 9l-4-6H6z" stroke={T.teal} strokeWidth="1.5" fill="none"/>
-                </svg>
-                <span style={{
-                  fontSize:13,fontWeight:800,color:T.teal,
-                  fontFamily:T.fontMono,
-                  animation:gemPulse?'gemPulse 0.3s ease':'none',
-                }}>{gems}</span>
-                {gemToasts.map(t => (
-                  <span key={t.id}
-                    onAnimationEnd={() => setGemToasts(prev => prev.filter(x => x.id !== t.id))}
-                    style={{
-                      position:'absolute',top:-8,right:0,
-                      fontSize:12,fontWeight:800,color:T.teal,
-                      animation:'gemFloat 1.2s ease-out forwards',
-                      pointerEvents:'none',whiteSpace:'nowrap',
-                    }}>+{t.amount} gems</span>
-                ))}
-              </button>
+              {/* gamification pills (gems / hearts / streak) removed */}
 
               <button onClick={() => handleTabSelect('settings')} className="interactive-icon" style={{
-                display:'flex',alignItems:'center',padding:0,background:'none',border:'none',
-                cursor:'pointer',fontFamily:T.font,
-                minHeight:44,
-              }}>
-                <HeartBar hearts={heartsRemaining} prevHearts={prevHearts} maxHearts={maxHearts} />
-              </button>
-
-              <button onClick={() => handleTabSelect('stats')} className="interactive-icon" style={{
-                display:'flex',alignItems:'center',gap:4,
-                padding:'6px 10px',background:T.flameDim,
-                border:`1px solid ${T.flameBorder}`,borderRadius:9999,
-                cursor:'pointer',fontFamily:T.font,
-                minHeight:44,
-              }}>
-                <StreakFlame streak={streakData.current} size={18} />
-                <span style={{fontSize:13,fontWeight:800,color:T.flame}}>{streakData.current}</span>
-              </button>
-
-              <button onClick={() => handleTabSelect('stats')} className="interactive-icon" style={{
                 display:'flex',alignItems:'center',justifyContent:'center',
                 width:28,height:28,padding:0,background:'none',border:'none',
                 cursor:'pointer',fontFamily:T.font,
@@ -5546,20 +6244,127 @@ export default function Dashboard() {
             focusProgress={focusProgress}
           />
 
-          <main className="dashboard-main-content">
+          <main className="dashboard-main-content lovable-app">
         {/* ══════════════════════════════════════════════════════════════ */}
         {/* HOME TAB                                                       */}
         {/* ══════════════════════════════════════════════════════════════ */}
         {activeTab === 'home' && (
-          <div className="shell-transition-fade">
+          <div className="shell-transition-fade learner-home-v2 lovable-app">
+            <LovableHome
+              goalTitle={shortGoalText}
+              dayNumber={dayNumber}
+              tasks={visibleTasks.map((task) => {
+                const n = normalizeLearningTask(task)
+                const info = getTaskDisplayConfig(n)
+                return {
+                  kind: n.domainTaskLabel || n.domainTaskType || info.chipLabel || 'Lesson',
+                  title: n.title,
+                  minutes: n.estimatedTimeMin || n.durationMin || 0,
+                  xp: xpForTask(n),
+                  done: Boolean(task.completed),
+                  locked: Boolean(n._locked),
+                  raw: task,
+                }
+              })}
+              streak={streakData?.current || 0}
+              gems={gems}
+              level={xpDisplay?.level || 1}
+              xpValue={xpDisplay?.xpInLevel || 0}
+              onContinue={() => {
+                const t = nextActionTask || visibleTasks.find((x) => !x.completed) || visibleTasks[0]
+                if (t) setPreviewTask(t)
+                else handleContinueToday()
+              }}
+              onViewPath={() => handleTabSelect('path')}
+              onTaskClick={(rawTask) => { if (rawTask) setPreviewTask(rawTask) }}
+            />
+            {false && (<>
             <StaggerBlock index={0}>
-              <XPLevelBar {...xpDisplay} animating={xpAnimating}/>
+              <TodayQuestHero
+                goal={goal}
+                todayRow={todayRow}
+                tasks={tasks}
+                visibleTasks={visibleTasks}
+                dayNumber={dayNumber}
+                focusProgress={focusProgress}
+                showMissionSurface={showP5MissionSurface}
+                missionLoading={missionFlowLoading}
+                onContinue={handleContinueToday}
+                onOpenPath={() => handleTabSelect('path')}
+              />
             </StaggerBlock>
 
+            <StaggerBlock index={1}>
+              <DashboardStatRow
+                xpDisplay={xpDisplay}
+                streakData={streakData}
+                gems={gems}
+                tasks={tasks}
+              />
+            </StaggerBlock>
+
+            {showP5MissionSurface ? (
+              <StaggerBlock index={2}>
+                <div id="today-mission-surface">
+                {missionFlowLoading || !todayMission ? (
+                  <div style={{maxWidth:860,margin:'18px auto 0',padding:'0 20px'}}>
+                    <div style={{
+                      border:`1px solid ${T.border}`,
+                      borderRadius:24,
+                      background:T.surface,
+                      padding:'22px 24px',
+                      color:T.textSec,
+                      fontSize:14,
+                      fontWeight:800,
+                      display:'flex',
+                      alignItems:'center',
+                      gap:12,
+                    }}>
+                      <div style={{
+                        width:18,
+                        height:18,
+                        borderRadius:'50%',
+                        border:`2px solid ${T.teal}`,
+                        borderTopColor:'transparent',
+                        animation:'spin 0.7s linear infinite',
+                      }}/>
+                      Assembling today&apos;s mission...
+                    </div>
+                  </div>
+                ) : (
+                  <MissionRunner
+                    mission={todayMission}
+                    onCompleted={handleP5MissionCompleted}
+                  />
+                )}
+                </div>
+              </StaggerBlock>
+            ) : (
+              <StaggerBlock index={2}>
+                <MissionHeroCard todayRow={todayRow} tasks={tasks} dayNumber={dayNumber}/>
+              </StaggerBlock>
+            )}
+
+            {goal?.proof_target && (
+              <StaggerBlock index={3}>
+                <ProofTargetCard proofTarget={goal.proof_target}/>
+              </StaggerBlock>
+            )}
+
+            {p5MissionEligible && (
+              <StaggerBlock index={4}>
+                <LearningStatusCard
+                  status={learningStatus}
+                  loading={learningStatusLoading}
+                  missionCapable={p5MissionEligible}
+                />
+              </StaggerBlock>
+            )}
+
             {boostTimeLeft > 0 && (
-              <StaggerBlock index={1}>
-                <div style={{maxWidth:600,margin:'0 auto',padding:'0 20px'}}>
-                <div style={{
+              <StaggerBlock index={5}>
+                <div className="dashboard-support-shell" style={{maxWidth:920,margin:'0 auto',padding:'0 20px'}}>
+                <div className="dashboard-boost-card" style={{
                   background:'linear-gradient(90deg,rgba(251,191,36,0.12),rgba(14,245,194,0.10),rgba(0,212,255,0.10))',
                   border:'1px solid rgba(251,191,36,0.22)',
                   borderRadius:18,padding:'14px 18px',
@@ -5581,9 +6386,9 @@ export default function Dashboard() {
 
             {/* ── Weekly Challenge ── */}
             {weeklyChallenge && (
-              <StaggerBlock index={2}>
-              <div style={{maxWidth:600,margin:'12px auto 0',padding:'0 20px'}}>
-                <div style={{
+              <StaggerBlock index={6}>
+              <div className="dashboard-support-shell" style={{maxWidth:920,margin:'12px auto 0',padding:'0 20px'}}>
+                <div className="dashboard-support-card dashboard-weekly-card" style={{
                   background: weeklyChallenge.completed
                     ? 'linear-gradient(135deg,rgba(255,215,0,0.12),rgba(251,191,36,0.06))'
                     : 'linear-gradient(135deg,var(--theme-primary-dim),rgba(0,212,255,0.04))',
@@ -5655,141 +6460,19 @@ export default function Dashboard() {
               </StaggerBlock>
             )}
 
-            {/* ── Daily Quests ── */}
-            {quests.length > 0 && (
-              <StaggerBlock index={3}>
-              <div style={{maxWidth:600,margin:'12px auto 0',padding:'0 20px'}}>
-                <div style={{
-                  background:'linear-gradient(145deg,rgba(255,255,255,0.05) 0%,rgba(255,255,255,0.02) 100%)',
-                  border:`1px solid ${T.border}`,
-                  borderRadius:24,padding:'18px 20px',
-                  backdropFilter:'blur(20px)',WebkitBackdropFilter:'blur(20px)',
-                  boxShadow:'inset 0 1px 0 rgba(255,255,255,0.06)',
-                }}>
-                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
-                    <div style={{display:'flex',alignItems:'center',gap:8}}>
-                      <div style={{
-                        width:28,height:28,borderRadius:9,
-                        display:'flex',alignItems:'center',justifyContent:'center',
-                        background:'rgba(14,245,194,0.09)',border:`1px solid ${T.tealBorder}`,
-                      }}>
-                        <IconGlyph name="target" size={14} strokeWidth={2.3} color={T.teal}/>
-                      </div>
-                      <span style={{fontSize:15,fontWeight:900,color:T.text}}>
-                        Daily {domainGameText.quests}
-                      </span>
-                    </div>
-                    <span style={{
-                      fontSize:11,fontWeight:700,
-                      color: quests.every(q=>q.completed) ? T.teal : T.textMuted,
-                      background: quests.every(q=>q.completed) ? 'rgba(14,245,194,0.09)' : 'rgba(255,255,255,0.04)',
-                      border:`1px solid ${quests.every(q=>q.completed) ? T.tealBorder : 'rgba(255,255,255,0.06)'}`,
-                      padding:'3px 10px',borderRadius:9999,
-                    }}>
-                      {quests.filter(q => q.completed).length}/{quests.length}
-                    </span>
-                  </div>
-
-                  <div style={{display:'flex',flexDirection:'column',gap:8}}>
-                    {quests.map((q) => {
-                      const pct = q.target > 0 ? Math.min(1, q.current / q.target) : 0
-                      return (
-                        <div key={q.id} style={{
-                          padding:'12px 14px',
-                          background: q.completed ? 'rgba(14,245,194,0.04)' : 'rgba(255,255,255,0.025)',
-                          border:`1px solid ${q.completed ? 'rgba(14,245,194,0.14)' : 'rgba(255,255,255,0.06)'}`,
-                          borderRadius:16,
-                          opacity: q.completed ? 0.65 : 1,
-                          transition:'all 0.2s',
-                        }}>
-                          <div style={{display:'flex',alignItems:'center',gap:10,marginBottom: q.completed ? 0 : 8}}>
-                            <div style={{
-                              width:22, height:22, borderRadius:7, flexShrink:0,
-                              display:'flex', alignItems:'center', justifyContent:'center',
-                              background: q.completed ? 'rgba(14,245,194,0.10)' : 'rgba(255,255,255,0.05)',
-                              border:`1px solid ${q.completed ? 'rgba(14,245,194,0.22)' : 'rgba(255,255,255,0.08)'}`,
-                            }}>
-                              {q.completed && <IconGlyph name="check" size={11} strokeWidth={2.8} color={T.teal}/>}
-                            </div>
-                            <span style={{
-                              flex:1,
-                              fontSize:14,fontWeight:700,
-                              color: q.completed ? T.textMuted : T.text,
-                              textDecorationLine: q.completed ? 'line-through' : 'none',
-                              textDecorationColor:'rgba(255,255,255,0.2)',
-                            }}>
-                              {q.description}
-                            </span>
-                            <span style={{
-                              fontSize:12,fontWeight:800,
-                              color:q.completed ? T.textMuted : T.teal,
-                              display:'flex',alignItems:'center',gap:3,flexShrink:0,
-                              background: q.completed ? 'transparent' : 'rgba(14,245,194,0.07)',
-                              padding: q.completed ? 0 : '2px 8px', borderRadius:6,
-                            }}>
-                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
-                                <path d="M6 3L2 9l10 12L22 9l-4-6H6z" fill={q.completed ? T.textMuted : T.teal} opacity="0.85"/>
-                              </svg>
-                              {q.completed ? 'Done' : `+${q.reward}`}
-                            </span>
-                          </div>
-                          {!q.completed && (
-                            <div style={{display:'flex',alignItems:'center',gap:8}}>
-                              <div style={{flex:1,height:4,background:'rgba(255,255,255,0.06)',borderRadius:9999,overflow:'hidden'}}>
-                                <div style={{
-                                  height:'100%',width:`${Math.round(pct*100)}%`,
-                                  background:T.primaryGradientSoft,borderRadius:9999,
-                                  transition:'width 0.5s cubic-bezier(0.16,1,0.3,1)',
-                                  boxShadow: pct>0 ? '0 0 6px rgba(14,245,194,0.45)' : 'none',
-                                }}/>
-                              </div>
-                              <span style={{fontSize:10,color:T.textMuted,fontWeight:700,minWidth:28,textAlign:'right'}}>
-                                {Math.round(pct*100)}%
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
-
-                  {/* Quest Master bonus */}
-                  {quests.length > 0 && quests.every(q => q.completed) && (
-                    <div style={{
-                      marginTop:12,padding:'12px 16px',
-                      background:'linear-gradient(90deg,rgba(255,215,0,0.10),rgba(14,245,194,0.06))',
-                      border:'1px solid rgba(255,215,0,0.28)',borderRadius:14,
-                      display:'flex',alignItems:'center',justifyContent:'center',gap:8,
-                      fontSize:13,fontWeight:800,color:'#FFD700',
-                      backgroundSize:'200% auto',
-                      animation:'questShimmer 3s linear infinite',
-                    }}>
-                      <IconGlyph name="trophy" size={14} strokeWidth={2.3} color="#FFD700"/>
-                      Quest Master — +30 gems
-                    </div>
-                  )}
-                </div>
-              </div>
-              </StaggerBlock>
-            )}
-
-            <StaggerBlock index={4}>
-              <MissionHeroCard todayRow={todayRow} tasks={tasks} dayNumber={dayNumber}/>
-            </StaggerBlock>
-
             {/* ── Reward Calendar ── */}
-            <StaggerBlock index={5}>
-              <div style={{maxWidth:600,margin:'12px auto 0',padding:'0 20px'}}>
-                <div style={{
+            <StaggerBlock index={8}>
+              <div className="dashboard-support-shell" style={{maxWidth:920,margin:'12px auto 0',padding:'0 20px'}}>
+                <div className="dashboard-support-card dashboard-rewards-card" style={{
                   background:T.surface,border:`1px solid ${T.border}`,
                   borderRadius:24,padding:'18px 20px',
                   backdropFilter:'blur(16px)',WebkitBackdropFilter:'blur(16px)',
                 }}>
                   <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
-                    <div style={{display:'flex',alignItems:'center',gap:8}}>
-                      <IconGlyph name="map" size={16} strokeWidth={2.3} color={T.textSec}/>
+                      <div style={{display:'flex',alignItems:'center',gap:8}}>
+                      <IconGlyph name="trophy" size={16} strokeWidth={2.3} color="#FBBF24"/>
                       <span style={{fontSize:13,fontWeight:900,letterSpacing:'1px',color:T.textSec,textTransform:'uppercase'}}>
-                        Weekly Rewards
+                        Weekly chest
                       </span>
                     </div>
                     {rewardCalendar.days_claimed?.length === 7 && (
@@ -5876,10 +6559,6 @@ export default function Dashboard() {
               </div>
             </StaggerBlock>
 
-            <StaggerBlock index={6}>
-              <EnergySelector value={energy} onChange={handleEnergyChange}/>
-            </StaggerBlock>
-
             {/* ── Quest Master Toast ── */}
             {questMasterToast && (
               <div style={{
@@ -5942,7 +6621,7 @@ export default function Dashboard() {
 
             {/* Mastery decay warning */}
             {decayingConcepts.length > 0 && (
-              <StaggerBlock index={7}>
+              <StaggerBlock index={10}>
               <div style={{maxWidth:600,margin:'0 auto',padding:'10px 20px 0'}}>
                 <div style={{
                   padding:'14px 16px',borderRadius:16,
@@ -5966,8 +6645,9 @@ export default function Dashboard() {
             )}
 
             {/* Task list */}
-            <StaggerBlock index={8}>
-              <div style={{maxWidth:600,margin:'0 auto',padding:'18px 20px 0'}}>
+            {!showP5MissionSurface && (
+            <StaggerBlock index={11}>
+              <div id="today-task-list" className="dashboard-task-stage" style={{maxWidth:920,margin:'0 auto',padding:'18px 20px 0'}}>
                 {/* Section header */}
                 {visibleTasks.length > 0 && (
                   <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
@@ -6030,27 +6710,14 @@ export default function Dashboard() {
                   </div>
                 )}
 
-                {energy === 'drained' && (
-                  <div style={{
-                    textAlign:'center',padding:'14px 16px',
-                    background:'rgba(255,255,255,0.02)',border:`1px solid ${T.border}`,
-                    borderRadius:14,fontSize:13,color:T.textMuted,lineHeight:1.5,
-                  }}>
-                    Rest day — maintain the habit.
-                  </div>
-                )}
-                {hiddenCount > 0 && energy !== 'drained' && (
-                  <p style={{textAlign:'center',fontSize:12,color:T.textMuted,padding:'4px 0'}}>
-                    {hiddenCount} more task{hiddenCount>1?'s':''} available when you have more energy
-                  </p>
-                )}
                 </div>
               </div>
             </StaggerBlock>
+            )}
 
             {/* Tomorrow preview */}
-            {!isTodayComplete && (
-              <StaggerBlock index={9}>
+            {!showP5MissionSurface && !isTodayComplete && (
+              <StaggerBlock index={12}>
                 <TomorrowPreview tomorrowRow={tomorrowRow}/>
               </StaggerBlock>
             )}
@@ -6146,6 +6813,7 @@ export default function Dashboard() {
             )}
 
             <div style={{height:showInlineNextDayCTA || showInlineNextDayProgress ? 36 : 24}}/>
+            </>)}
           </div>
         )}
 
@@ -6166,9 +6834,9 @@ export default function Dashboard() {
 
             {/* Level card */}
             <div style={{
-              background:T.surface,border:`1px solid ${T.border}`,
-              borderRadius:18,padding:'18px',marginBottom:12,
-              backdropFilter:'blur(16px)',WebkitBackdropFilter:'blur(16px)',
+              background:T.surface,border:`2px solid ${T.border}`,
+              borderRadius:20,padding:'20px',marginBottom:14,
+              boxShadow:'inset 0 1px 0 rgba(255,255,255,0.06), 0 6px 0 0 color-mix(in oklab, var(--color-background) 55%, #000)',
             }}>
               <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
                 <div>
@@ -6198,11 +6866,11 @@ export default function Dashboard() {
 
             {/* Weekly */}
             <div style={{
-              background:T.surface,border:`1px solid ${T.border}`,
-              borderRadius:18,padding:'18px',marginBottom:12,
-              backdropFilter:'blur(16px)',WebkitBackdropFilter:'blur(16px)',
+              background:T.surface,border:`2px solid ${T.border}`,
+              borderRadius:20,padding:'20px',marginBottom:14,
+              boxShadow:'inset 0 1px 0 rgba(255,255,255,0.06), 0 6px 0 0 color-mix(in oklab, var(--color-background) 55%, #000)',
             }}>
-              <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:12}}>This Week</div>
+              <div className="font-display" style={{fontSize:15,fontWeight:800,color:T.text,marginBottom:12}}>This Week</div>
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
                 <div>
                   <div style={{fontSize:11,color:T.textMuted,marginBottom:2}}>Days active</div>
@@ -6372,56 +7040,125 @@ export default function Dashboard() {
 
             <div style={{background:T.surface,border:`1px solid ${T.border}`,
               borderRadius:18,padding:'16px 18px',marginBottom:12}}>
-              <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:10}}>
-                Theme
+              <div style={{display:'flex',alignItems:'flex-end',justifyContent:'space-between',gap:12,marginBottom:12}}>
+                <div>
+                  <div style={{fontSize:13,fontWeight:850,color:T.text,marginBottom:3}}>
+                    Color palette
+                  </div>
+                  <div style={{fontSize:11,color:T.textMuted,lineHeight:1.45}}>
+                    Re-skin the full learner app instantly.
+                  </div>
+                </div>
+                <span style={{
+                  fontSize:10,
+                  fontWeight:900,
+                  letterSpacing:'0.12em',
+                  textTransform:'uppercase',
+                  color:T.teal,
+                  padding:'5px 8px',
+                  borderRadius:9999,
+                  border:`1px solid ${T.tealBorder}`,
+                  background:T.tealDim,
+                  whiteSpace:'nowrap',
+                }}>
+                  {Object.keys(APP_THEMES).length} styles
+                </span>
               </div>
-              <div style={{display:'grid',gap:8}}>
-                {Array.from(new Set(['default', ...ownedThemes])).map((themeId) => {
+              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(190px, 1fr))',gap:10}}>
+                {Object.keys(APP_THEMES).map((themeId) => {
                   const theme = APP_THEMES[themeId]
                   const isActive = activeTheme === themeId
+                  const vars = theme.dashboardVars
+                  const swatches = [
+                    vars['--theme-bg'],
+                    vars['--theme-shell'],
+                    vars['--theme-primary'],
+                    vars['--theme-secondary'],
+                    vars['--theme-highlight'],
+                  ]
                   return (
                     <button
                       key={themeId}
                       onClick={() => applyTheme(themeId)}
                       style={{
                         width:'100%',
-                        padding:'12px 14px',
-                        background:isActive ? T.tealDim : 'rgba(255,255,255,0.02)',
+                        minHeight:116,
+                        padding:12,
+                        background:isActive ? T.tealDim : 'rgba(255,255,255,0.025)',
                         border:`1px solid ${isActive ? T.tealBorder : T.borderAlt}`,
-                        borderRadius:14,
+                        borderRadius:18,
                         cursor:'pointer',
                         fontFamily:T.font,
-                        display:'flex',
-                        alignItems:'center',
-                        justifyContent:'space-between',
-                        gap:12,
                         textAlign:'left',
+                        boxShadow:isActive ? `0 0 0 1px ${T.tealBorder}, 0 18px 36px ${T.tealDim}` : 'none',
+                        transition:'transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease',
                       }}
+                      onMouseEnter={(event) => { event.currentTarget.style.transform = 'translateY(-2px)' }}
+                      onMouseLeave={(event) => { event.currentTarget.style.transform = 'translateY(0)' }}
                     >
-                      <div>
-                        <div style={{fontSize:13,fontWeight:700,color:isActive ? T.teal : T.text}}>
-                          {theme.name}
-                        </div>
-                        <div style={{fontSize:11,color:T.textMuted}}>
-                          {theme.description}
-                        </div>
-                      </div>
-                      <span style={{
-                        fontSize:11,fontWeight:800,
-                        color:isActive ? T.teal : T.textSec,
-                        letterSpacing:'0.4px',textTransform:'uppercase',
+                      <div style={{
+                        height:34,
+                        borderRadius:13,
+                        overflow:'hidden',
+                        display:'grid',
+                        gridTemplateColumns:`repeat(${swatches.length}, 1fr)`,
+                        border:`1px solid ${isActive ? T.tealBorder : T.borderAlt}`,
+                        marginBottom:10,
                       }}>
-                        {isActive ? 'Applied' : 'Use'}
-                      </span>
+                        {swatches.map((color, index) => (
+                          <span key={`${themeId}-${index}`} style={{background:color}}/>
+                        ))}
+                      </div>
+                      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10}}>
+                        <div style={{minWidth:0}}>
+                          <div style={{fontSize:13,fontWeight:850,color:isActive ? T.teal : T.text}}>
+                            {theme.name}
+                          </div>
+                          <div style={{fontSize:11,color:T.textMuted,lineHeight:1.35,marginTop:2}}>
+                            {theme.description}
+                          </div>
+                        </div>
+                        <span style={{
+                          width:26,
+                          height:26,
+                          flexShrink:0,
+                          display:'inline-flex',
+                          alignItems:'center',
+                          justifyContent:'center',
+                          borderRadius:9999,
+                          background:isActive ? T.teal : 'rgba(255,255,255,0.04)',
+                          border:`1px solid ${isActive ? T.teal : T.border}`,
+                          color:isActive ? T.ink : T.textMuted,
+                          fontSize:12,
+                          fontWeight:950,
+                        }}>
+                          {isActive ? '✓' : ''}
+                        </span>
+                      </div>
                     </button>
                   )
                 })}
               </div>
-              {ownedThemes.length === 0 && (
-                <div style={{fontSize:11,color:T.textMuted,marginTop:10}}>
-                  Buy a theme in the gem shop to unlock alternate looks. Default is always available.
-                </div>
-              )}
+              <div style={{fontSize:11,color:T.textMuted,marginTop:12,lineHeight:1.45}}>
+                Palettes are open for testing here. Shop theme purchases can stay as rewards later, but this picker lets us tune the look fast.
+              </div>
+            </div>
+
+            {/* Appearance */}
+            <div style={{background:T.surface,border:`1px solid ${T.border}`,
+              borderRadius:18,overflow:'hidden',marginBottom:12}}>
+              <button onClick={() => router.push('/appearance')} style={{
+                width:'100%',padding:'16px 18px',background:'none',border:'none',
+                cursor:'pointer',fontFamily:T.font,
+                display:'flex',alignItems:'center',justifyContent:'space-between',
+                color:T.textSec,fontSize:14,fontWeight:600,
+              }}>
+                <span style={{ display:'inline-flex', alignItems:'center', gap:10 }}>
+                  <IconGlyph name="design" size={16} strokeWidth={2.3}/>
+                  Appearance
+                </span>
+                <ArrowRight/>
+              </button>
             </div>
 
             {/* Portfolio */}
@@ -6523,18 +7260,15 @@ export default function Dashboard() {
       {/* ── iOS bottom tab bar ── */}
       <div style={{
         position:'fixed',bottom:0,left:0,right:0,zIndex:70,
-        background:'rgba(4,5,10,0.88)',
+        background:T.chrome,
         backdropFilter:'blur(36px) saturate(200%)',
         WebkitBackdropFilter:'blur(36px) saturate(200%)',
-        borderTop:'1px solid rgba(255,255,255,0.07)',
+        borderTop:`1px solid ${T.border}`,
       }} className="safe-bottom-nav dashboard-bottom-nav">
         <div style={{maxWidth:600,margin:'0 auto',
-          display:'grid',gridTemplateColumns:'repeat(6, 1fr)',padding:'6px 8px 0'}}>
+          display:'grid',gridTemplateColumns:'repeat(3, 1fr)',padding:'6px 8px 0'}}>
           {[
             {key:'home',     label:'Home',   Icon:HomeIcon    },
-            {key:'badges',   label:'Cards',  Icon:BadgesIcon  },
-            {key:'shop',     label:'Shop',   Icon:ShopIcon    },
-            {key:'stats',    label:'Stats',  Icon:StatsIcon   },
             {key:'path',     label:'Path',   Icon:PathIcon    },
             {key:'settings', label:'More',   Icon:SettingsIcon},
           ].map(({key,label,Icon}) => {

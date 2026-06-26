@@ -16,6 +16,7 @@ import {
   buildDomainKnowledgeLine,
   normalizeDomain,
 } from '@/lib/domainAdapter'
+import { P5_MISSION_FLOW_VERSION, missionsEnabled } from '@/lib/missionAssembler'
 
 function extractAccessToken(request) {
   const authHeader = request.headers.get('authorization') || request.headers.get('Authorization')
@@ -73,6 +74,18 @@ export async function POST(request) {
       return Response.json({ success: true, message: 'Plan already generated.' }, { status: 200 })
     }
 
+    const { data: goalRow } = await supabase
+      .from('goals')
+      .select('mission_flow_version,topic_graph_id')
+      .eq('id', goalId)
+      .eq('user_id', userId)
+      .maybeSingle()
+    const usingMissionFlow = Boolean(
+      missionsEnabled()
+      && (goalRow?.mission_flow_version === P5_MISSION_FLOW_VERSION || goalRow?.topic_graph_id)
+      && goalRow?.topic_graph_id
+    )
+
     if (domain && domainConfig) {
       try {
         await supabase
@@ -87,7 +100,10 @@ export async function POST(request) {
 
     let dailyPlan = []
     let sequenceDayCount = mode === 'explore' ? 0 : Number(days) || 0
-    let generationSource = 'deterministic'
+    // P5 kill-switch guarantee: even mission-flow goals keep a legacy
+    // daily_tasks backup. This adds one-time goal creation work, but lets
+    // PATHAI_MISSIONS_ENABLED=false restore the old flow immediately.
+    let generationSource = usingMissionFlow ? 'mission_assembler' : 'deterministic'
     let outlineStatus = mode === 'goal' ? 'pending' : null
 
     if (mode === 'explore') {
@@ -185,6 +201,8 @@ export async function POST(request) {
       mode,
       daysGenerated: dailyPlan.length,
       totalDays: mode === 'explore' ? null : sequenceDayCount,
+      missionsEnabled: usingMissionFlow,
+      legacyBackupGenerated: usingMissionFlow,
     })
   } catch (error) {
     // Rollback on failure

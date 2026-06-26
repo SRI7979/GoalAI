@@ -50,6 +50,7 @@ export const DEVTOOL_LESSON_TYPES = Object.freeze([
   { id: 'milestone_project', label: 'Milestone Project', stage: 'capstone', description: 'Unit project that combines several concepts.' },
   { id: 'boss', label: 'Boss Challenge', stage: 'boss', description: 'Pressure checkpoint with transfer and proof.' },
   { id: 'final_exam', label: 'Final Exam', stage: 'final', description: 'End-of-course proof across the full premade path.' },
+  { id: 'new_lesson_slideshow', label: 'New Lesson slideshow', stage: 'preview', description: 'Static P5-style lesson slideshow with live dynamic SVG diagrams embedded in context.' },
 ])
 
 function promptForDomain(domain, promptOverride = null) {
@@ -394,6 +395,7 @@ export function buildDevtoolCourse(domain, options = {}) {
       { id: 'milestone_project', type: 'milestone_project', title: `${meta.label} Milestone Project`, duration: '60 min', proof: 'combine three skills into one artifact' },
       { id: 'boss', type: 'boss', title: `${meta.label} Boss Challenge`, duration: '25 min', proof: 'perform under less scaffolding' },
       { id: 'final_exam', type: 'final_exam', title: `${meta.label} Final Verification`, duration: '45 min', proof: 'prove readiness across the full course' },
+      { id: 'new_lesson_slideshow', type: 'new_lesson_slideshow', title: 'New Lesson slideshow: Python variables', duration: '10 min', proof: 'preview the new lesson shell with embedded diagrams' },
     ],
     workspaceTask: buildWorkspaceTask(safeDomain, guidedType, prompt),
     quizTask: buildWorkspaceTask(safeDomain, quizType || guidedType, prompt),

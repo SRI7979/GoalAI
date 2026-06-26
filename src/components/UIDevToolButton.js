@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { Code2, SlidersHorizontal } from 'lucide-react'
+import { Code2, SlidersHorizontal, GraduationCap } from 'lucide-react'
 
 export default function UIDevToolButton() {
   return (
@@ -14,6 +14,10 @@ export default function UIDevToolButton() {
         <Link className="pathai-ui-devtool-button pathai-ui-devtool-button-cs" href="/ui-devtool/cs-python" aria-label="Open CS-only Python devtool">
           <Code2 size={18} strokeWidth={2.5} />
           <span>CS</span>
+        </Link>
+        <Link className="pathai-ui-devtool-button pathai-ui-devtool-button-lessons" href="/ui-devtool/lessons" aria-label="Open Lessons devtool">
+          <GraduationCap size={18} strokeWidth={2.5} />
+          <span>LSN</span>
         </Link>
       </nav>
       <style jsx>{`
@@ -55,6 +59,12 @@ export default function UIDevToolButton() {
           border-color: rgba(14, 245, 194, 0.42);
           color: #c8ffee;
           background: linear-gradient(180deg, rgba(9, 35, 34, 0.96), rgba(4, 14, 20, 0.96));
+        }
+
+        .pathai-ui-devtool-button-lessons {
+          border-color: rgba(167, 139, 250, 0.45);
+          color: #e6ddff;
+          background: linear-gradient(180deg, rgba(28, 22, 48, 0.96), rgba(12, 8, 22, 0.96));
         }
 
         .pathai-ui-devtool-button:hover {

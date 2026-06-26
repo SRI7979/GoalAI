@@ -7,6 +7,9 @@ import {
   getGoalDecomposerModel,
   normalizeGoalDecompositionForStorage,
 } from '@/lib/goalDecomposer'
+import { generateTopicGraph } from '@/lib/topicGraph'
+import { P5_MISSION_FLOW_VERSION, missionsEnabled } from '@/lib/missionAssembler'
+import { generateProofTarget, trackProofEvent } from '@/lib/proofOfMastery'
 
 function extractAccessToken(request, body = {}) {
   const authHeader = request.headers.get('authorization') || request.headers.get('Authorization')
@@ -18,7 +21,7 @@ function extractAccessToken(request, body = {}) {
 
 function isMissingGoalDecompositionColumnError(error) {
   const message = String(error?.message || '')
-  return /Could not find the '(decomposition|primary_mode|secondary_modes|estimated_days|decomposition_status|decomposition_failure_reason)' column of 'goals' in the schema cache/i.test(message)
+  return /Could not find the '(decomposition|primary_mode|secondary_modes|estimated_days|decomposition_status|decomposition_failure_reason|mission_flow_version|proof_target|proof_target_status|proof_target_failure_reason)' column of 'goals' in the schema cache/i.test(message)
 }
 
 function buildGoalConstraints({ domain, learnerProfile, decomposition, includeDeferredDecomposition = false }) {
@@ -105,6 +108,13 @@ export async function POST(request) {
         level: body?.learnerProfile?.recommendedLevel || body?.learnerProfile?.level,
       },
     })
+    const proofTarget = await generateProofTarget({
+      goal_text: goalText,
+      primary_mode: decomposition.primaryMode,
+      secondary_modes: decomposition.secondaryModes,
+      estimated_days: decomposition.estimatedDays,
+      decomposition,
+    })
     const canonicalGoalInsert = {
       user_id: user.id,
       goal_text: goalText,
@@ -114,6 +124,10 @@ export async function POST(request) {
       decomposition,
       decomposition_status: decomposition.decompositionStatus,
       decomposition_failure_reason: decomposition.failureReason,
+      mission_flow_version: missionsEnabled() ? P5_MISSION_FLOW_VERSION : null,
+      proof_target: proofTarget,
+      proof_target_status: proofTarget.generationStatus || 'ok',
+      proof_target_failure_reason: proofTarget.generationFailureReason || null,
       mode,
       deadline: body?.deadline || null,
       weekday_mins: Number(body?.weekdayMins) || 30,
@@ -143,6 +157,10 @@ export async function POST(request) {
         decomposition: _decomposition,
         decomposition_status: _decompositionStatus,
         decomposition_failure_reason: _decompositionFailureReason,
+        mission_flow_version: _missionFlowVersion,
+        proof_target: _proofTarget,
+        proof_target_status: _proofTargetStatus,
+        proof_target_failure_reason: _proofTargetFailureReason,
         ...legacyGoalInsert
       } = canonicalGoalInsert
 
@@ -174,6 +192,9 @@ export async function POST(request) {
         decomposition,
         decomposition_status: decomposition.decompositionStatus,
         decomposition_failure_reason: decomposition.failureReason,
+        proof_target: proofTarget,
+        proof_target_status: proofTarget.generationStatus || 'ok',
+        proof_target_failure_reason: proofTarget.generationFailureReason || null,
       }
     }
 
@@ -184,7 +205,42 @@ export async function POST(request) {
       decomposition,
     })
 
-    return Response.json({ goal, decomposition })
+    await trackProofEvent({
+      supabase: writeClient,
+      eventName: 'proof_target_generated',
+      userId: user.id,
+      goalId: goal.id,
+      properties: {
+        goal_id: goal.id,
+        mode: proofTarget.mode,
+        evaluation_type: proofTarget.evaluationType,
+        rubric_count: Array.isArray(proofTarget.rubric) ? proofTarget.rubric.length : 0,
+        fallback: proofTarget.generationStatus !== 'ok',
+      },
+    })
+
+    let topicGraph = null
+    try {
+      topicGraph = await generateTopicGraph({
+        ...goal,
+        decomposition,
+        primaryMode: decomposition.primaryMode,
+        secondaryModes: decomposition.secondaryModes,
+        estimatedDays: decomposition.estimatedDays,
+      })
+      if (topicGraph?.id) {
+        goal = {
+          ...goal,
+          topic_graph_id: topicGraph.id,
+        }
+      }
+    } catch {
+      // Topic graph generation must not block goal creation. generateTopicGraph
+      // handles AI/validation failures by persisting a pending_retry graph; this
+      // catch only protects against infrastructure/schema failures.
+    }
+
+    return Response.json({ goal, decomposition, topicGraph, proofTarget })
   } catch (error) {
     return Response.json(
       { error: error?.message || 'Failed to create goal' },

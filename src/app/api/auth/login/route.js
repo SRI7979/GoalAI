@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server'
-import { getSupabaseServerClient } from '@/lib/supabaseServer'
+import { createClient } from '@supabase/supabase-js'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
 function errorResponse(message, status = 500) {
-  return NextResponse.json({ error: message }, { status })
+  const safeStatus = Number.isInteger(status) && status >= 400 && status <= 599 ? status : 500
+  return NextResponse.json({ error: message || 'Unable to sign in. Please try again.' }, { status: safeStatus })
 }
 
 function resolveAuthErrorMessage(error) {
@@ -55,30 +56,21 @@ export async function POST(request) {
       return errorResponse('Supabase auth is not configured.', 500)
     }
 
-    const authResponse = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=password`, {
-      method: 'POST',
-      headers: {
-        apikey: supabaseAnonKey,
-        Authorization: `Bearer ${supabaseAnonKey}`,
-        'Content-Type': 'application/json',
+    const authClient = createClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
       },
-      body: JSON.stringify({ email, password }),
-      cache: 'no-store',
     })
 
-    const payload = await authResponse.json().catch(() => null)
+    const { data, error } = await authClient.auth.signInWithPassword({ email, password })
 
-    if (!authResponse.ok) {
-      const errorMessage =
-        payload?.msg
-        || payload?.message
-        || payload?.error_description
-        || 'Unable to sign in.'
-
-      return errorResponse(errorMessage, authResponse.status)
+    if (error) {
+      return errorResponse(resolveAuthErrorMessage(error), error.status || 401)
     }
 
-    const session = normalizeSession(payload)
+    const session = normalizeSession(data?.session)
 
     if (!session?.access_token || !session?.refresh_token || !session?.user?.id) {
       return errorResponse('Supabase login response was incomplete.', 502)
@@ -87,7 +79,16 @@ export async function POST(request) {
     let hasGoal = false
 
     try {
-      const supabase = getSupabaseServerClient({ accessToken: session.access_token })
+      const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+          detectSessionInUrl: false,
+        },
+        global: {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        },
+      })
       const { count, error } = await supabase
         .from('goals')
         .select('id', { head: true, count: 'exact' })

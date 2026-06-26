@@ -11,6 +11,8 @@ export const EVENTS = {
   APP_OPENED:              'app_opened',
   // Mission
   MISSION_VIEWED:          'mission_viewed',
+  MISSION_ASSEMBLED:       'mission_assembled',
+  MISSION_STARTED:         'mission_started',
   MISSION_COMPLETED:       'mission_completed',
   // Tasks
   TASK_STARTED:            'task_started',
@@ -39,6 +41,23 @@ export const EVENTS = {
   // Reviews
   REVIEW_COMPLETED:        'review_completed',
   MASTERY_UPDATED:         'mastery_updated',
+  LEARNER_STATE_UPDATED:   'learner_state_updated',
+  LEARNER_STATE_WRITE_FAILED: 'learner_state_write_failed',
+  ADAPTIVE_DECISION_MADE: 'adaptive_decision_made',
+  DIAGNOSTIC_STARTED:      'diagnostic_started',
+  DIAGNOSTIC_CALIBRATED:   'diagnostic_calibrated',
+  DIAGNOSTIC_FAILED:       'diagnostic_failed',
+  COMPONENT_RENDERED:      'component_rendered',
+  COMPONENT_COMPLETED:     'component_completed',
+  COMPONENT_ABANDONED:     'component_abandoned',
+  COMPONENT_CONFUSION_REPORTED: 'component_confusion_reported',
+  DYNAMIC_DIAGRAM_GENERATED: 'dynamic_diagram_generated',
+  DYNAMIC_DIAGRAM_RENDERED: 'dynamic_diagram_rendered',
+  DYNAMIC_DIAGRAM_FAILED:  'dynamic_diagram_failed',
+  FULL_AI_SVG_GENERATED:   'full_ai_svg_generated',
+  LESSON_VISUAL_PLAN_GENERATED: 'lesson_visual_plan_generated',
+  QUALITY_ISSUE_DETECTED:  'quality_issue_detected',
+  PROMPT_FEEDBACK_QUEUED:  'prompt_feedback_queued',
   // Social
   SHARE_CARD_GENERATED:    'share_card_generated',
   LEADERBOARD_VIEWED:      'leaderboard_viewed',
@@ -52,8 +71,14 @@ export const EVENTS = {
   NOTIFICATION_OPENED:     'notification_opened',
   // Path
   GOAL_DECOMPOSED:         'goal_decomposed',
+  TOPIC_GRAPH_GENERATED:   'topic_graph_generated',
+  TOPIC_GRAPH_ID_COLLISION: 'topic_graph_id_collision',
   PATH_GENERATED:          'path_generated',
   PATH_COMPLETED:          'path_completed',
+  PROOF_TARGET_GENERATED:  'proof_target_generated',
+  PROOF_SUBMITTED:         'proof_submitted',
+  PROOF_EVALUATED:         'proof_evaluated',
+  PROOF_COMPLETED:         'proof_completed',
 }
 
 // ─── In-memory buffer ─────────────────────────────────────────────────────────
@@ -117,6 +142,20 @@ async function _flush() {
     })
   }
 
+  // Persist through a server endpoint first so service-role writes can bypass
+  // browser RLS limitations for anonymous/dev telemetry.
+  if (typeof window !== 'undefined') {
+    try {
+      const response = await fetch('/api/analytics', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ events: batch }),
+        keepalive: batch.length <= 5,
+      })
+      if (response.ok) return
+    } catch { /* fall through to direct client attempt */ }
+  }
+
   // Persist to Supabase analytics_events table (best-effort, swallow errors)
   try {
     const { supabaseData } = await import('@/lib/supabase')
@@ -134,6 +173,10 @@ async function _flush() {
       }))
     )
   } catch { /* analytics must never crash the app */ }
+}
+
+export function flushAnalytics() {
+  return _flush()
 }
 
 // ─── Flush on page unload ─────────────────────────────────────────────────────

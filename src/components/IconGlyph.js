@@ -118,6 +118,7 @@ const ICONS = {
   moon: MoonStar,
   music: Music,
   orbit: Orbit,
+  palette: Palette,
   pen: PenTool,
   plus: Plus,
   repeat: Repeat,

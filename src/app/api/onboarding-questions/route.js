@@ -28,11 +28,14 @@ async function generateWithOpenAI({ goal, domain, family, fallback }) {
         {
           role: 'system',
           content: [
-            'You generate fast PathAI onboarding calibration.',
+            'You generate fast PathAI onboarding calibration for a premium product.',
             'The learner already gave a goal. Do not ask what they want to learn again.',
-            'Ask only the missing information needed to build a first learning route.',
-            'Every question must be relevant to the exact goal, concrete, and easy to answer.',
-            'Avoid generic diagnostics like "How experienced are you with this skill?" unless the topic is named in the question.',
+            'Hard rule: NEVER quote, paraphrase, or echo the learner\'s goal text in any question prompt, helper, or option label. The learner just typed it; quoting it back at them feels low-effort and unprofessional. Use the goal as INTERNAL context to choose which calibration questions matter — not as words to display.',
+            'Refer to the topic with clean, neutral phrasing when needed ("this route", "the skill", "the first milestone") or with domain-appropriate action verbs ("build", "ship", "speak", "solve", "diagnose"). Do not titleCase the goal back into copy.',
+            'Bad (do NOT do this): "Where are you starting with System Design to become better than the average vibecoder?" / "Brand new to System Design to become better than the average vibecoder".',
+            'Good: "Where are you starting from?" / "Brand new — explain everything" / "Get the ideas crisp first".',
+            'Ask only the missing information needed to build a first learning route. Every question must be concrete and easy to answer in one tap.',
+            'Avoid generic diagnostics like "How experienced are you with this skill?" — phrase questions naturally without needing to name the topic.',
             'Return schema-valid JSON only.',
           ].join(' '),
         },

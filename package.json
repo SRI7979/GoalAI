@@ -13,10 +13,16 @@
     "@supabase/supabase-js": "^2.98.0",
     "date-fns": "^4.1.0",
     "framer-motion": "^12.38.0",
+    "isomorphic-dompurify": "^3.14.0",
+    "jsdom": "^29.1.1",
+    "katex": "^0.17.0",
     "lucide-react": "^0.576.0",
+    "mermaid": "^11.15.0",
     "next": "16.1.6",
     "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react-dom": "19.2.3",
+    "server-only": "^0.0.1",
+    "uplot": "^1.6.32"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

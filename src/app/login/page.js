@@ -48,7 +48,7 @@ function FeatureTile({ item }) {
   return (
     <div className="auth-feature-tile">
       <div className="auth-feature-icon">
-        <IconGlyph name={item.icon} size={18} strokeWidth={2.2} color="#00e5c7" />
+        <IconGlyph name={item.icon} size={18} strokeWidth={2.2} color="var(--theme-primary)" />
       </div>
       <div>
         <div className="auth-feature-title">{item.title}</div>
@@ -62,7 +62,7 @@ function Field({ label, icon, type, value, onChange, placeholder, focused, onFoc
   return (
     <label className="auth-field">
       <span className="auth-field-label">
-        <IconGlyph name={icon} size={14} strokeWidth={2.2} color="#00e5c7" />
+        <IconGlyph name={icon} size={14} strokeWidth={2.2} color="var(--theme-primary)" />
         {label}
       </span>
       <input
@@ -218,8 +218,9 @@ export default function LoginPage() {
           min-height: 100vh;
           overflow: clip;
           background:
-            radial-gradient(circle at 50% -10%, rgba(0,229,199,0.14), transparent 30%),
-            linear-gradient(180deg, #07080d 0%, #0a0b11 52%, #08090f 100%);
+            radial-gradient(circle at 50% -10%, var(--theme-primary-dim), transparent 30%),
+            radial-gradient(circle at 96% 0%, var(--theme-mastery-dim), transparent 34%),
+            linear-gradient(180deg, var(--theme-bg) 0%, var(--theme-shell) 52%, var(--theme-bg) 100%);
         }
         .auth-page::before {
           content: '';
@@ -254,7 +255,7 @@ export default function LoginPage() {
           align-items: center;
           gap: 14px;
           text-decoration: none;
-          color: #f0f0f0;
+          color: var(--theme-text);
         }
         .auth-brandmark {
           width: 44px;
@@ -262,9 +263,9 @@ export default function LoginPage() {
           border-radius: 16px;
           display: grid;
           place-items: center;
-          background: linear-gradient(140deg, #00e5c7, #7fe7ff 56%, #97a5ff);
-          color: #071015;
-          box-shadow: 0 22px 44px rgba(0,229,199,0.22), inset 0 1px 0 rgba(255,255,255,0.42);
+          background: linear-gradient(140deg, var(--theme-primary), var(--theme-secondary) 56%, var(--theme-mastery));
+          color: var(--theme-ink);
+          box-shadow: 0 22px 44px var(--theme-primary-border), inset 0 1px 0 rgba(255,255,255,0.42);
         }
         .auth-nav-actions {
           display: flex;
@@ -287,14 +288,14 @@ export default function LoginPage() {
           letter-spacing: -0.02em;
         }
         .auth-nav-link {
-          color: rgba(240,240,240,0.76);
+          color: var(--theme-text-muted);
           background: rgba(255,255,255,0.04);
           border: 1px solid rgba(255,255,255,0.08);
         }
         .auth-nav-primary {
-          color: #071015;
-          background: linear-gradient(135deg, #00e5c7, #7fe7ff 48%, #97a5ff);
-          box-shadow: 0 24px 44px rgba(0,229,199,0.18);
+          color: var(--theme-ink);
+          background: linear-gradient(135deg, var(--theme-primary), var(--theme-secondary) 48%, var(--theme-mastery));
+          box-shadow: 0 24px 44px var(--theme-primary-dim);
         }
         .auth-main {
           display: grid;
@@ -314,7 +315,7 @@ export default function LoginPage() {
           border-radius: 999px;
           background: rgba(255,255,255,0.04);
           border: 1px solid rgba(255,255,255,0.08);
-          color: rgba(240,240,240,0.76);
+          color: var(--theme-text-muted);
           font-size: 11px;
           font-weight: 800;
           letter-spacing: 0.18em;
@@ -325,12 +326,12 @@ export default function LoginPage() {
           width: 8px;
           height: 8px;
           border-radius: 999px;
-          background: #00e5c7;
-          box-shadow: 0 0 20px rgba(0,229,199,0.4);
+          background: var(--theme-primary);
+          box-shadow: 0 0 20px var(--theme-primary-border);
         }
         .auth-title {
           max-width: 760px;
-          color: #f0f0f0;
+          color: var(--theme-text);
           font-size: clamp(3.4rem, 7.2vw, 5.7rem);
           line-height: 0.94;
           letter-spacing: -0.05em;
@@ -338,7 +339,7 @@ export default function LoginPage() {
         .auth-copy {
           max-width: 620px;
           margin-top: 24px;
-          color: rgba(240,240,240,0.60);
+          color: var(--theme-text-muted);
           font-size: 18px;
           line-height: 1.8;
         }
@@ -364,18 +365,18 @@ export default function LoginPage() {
           border-radius: 16px;
           display: grid;
           place-items: center;
-          background: rgba(0,229,199,0.10);
-          border: 1px solid rgba(0,229,199,0.16);
+          background: var(--theme-primary-dim);
+          border: 1px solid var(--theme-primary-dim);
         }
         .auth-feature-title {
-          color: #f0f0f0;
+          color: var(--theme-text);
           font-size: 17px;
           font-weight: 700;
           letter-spacing: -0.03em;
         }
         .auth-feature-copy {
           margin-top: 8px;
-          color: rgba(240,240,240,0.54);
+          color: var(--theme-text-muted);
           font-size: 14px;
           line-height: 1.72;
         }
@@ -396,19 +397,19 @@ export default function LoginPage() {
           padding: 8px 12px;
           border-radius: 999px;
           background: rgba(255,255,255,0.06);
-          color: rgba(240,240,240,0.76);
+          color: var(--theme-text-muted);
           font-size: 11px;
           font-weight: 800;
           letter-spacing: 0.12em;
           text-transform: uppercase;
         }
         .auth-preview-note {
-          color: rgba(240,240,240,0.46);
+          color: var(--theme-text-muted);
           font-size: 12px;
         }
         .auth-preview-title {
           margin-top: 18px;
-          color: #f0f0f0;
+          color: var(--theme-text);
           font-size: 32px;
           font-weight: 800;
           letter-spacing: -0.05em;
@@ -416,7 +417,7 @@ export default function LoginPage() {
         .auth-preview-copy {
           margin-top: 10px;
           max-width: 460px;
-          color: rgba(240,240,240,0.56);
+          color: var(--theme-text-muted);
           font-size: 14px;
           line-height: 1.72;
         }
@@ -431,8 +432,8 @@ export default function LoginPage() {
           width: 64%;
           height: 100%;
           border-radius: 999px;
-          background: linear-gradient(90deg, #00e5c7, #7fe7ff);
-          box-shadow: 0 0 18px rgba(0,229,199,0.28);
+          background: linear-gradient(90deg, var(--theme-primary), var(--theme-secondary));
+          box-shadow: 0 0 18px var(--theme-primary-border);
         }
         .auth-preview-stack {
           display: grid;
@@ -450,7 +451,7 @@ export default function LoginPage() {
           align-items: center;
           justify-content: space-between;
           gap: 12px;
-          color: rgba(240,240,240,0.42);
+          color: var(--theme-text-muted);
           font-size: 11px;
           font-weight: 700;
           letter-spacing: 0.12em;
@@ -458,7 +459,7 @@ export default function LoginPage() {
         }
         .auth-preview-tasktitle {
           margin-top: 10px;
-          color: #f0f0f0;
+          color: var(--theme-text);
           font-size: 15px;
           font-weight: 700;
         }
@@ -477,7 +478,7 @@ export default function LoginPage() {
           margin-bottom: 22px;
         }
         .auth-panel-kicker {
-          color: rgba(240,240,240,0.44);
+          color: var(--theme-text-muted);
           font-size: 11px;
           font-weight: 800;
           letter-spacing: 0.14em;
@@ -485,22 +486,22 @@ export default function LoginPage() {
         }
         .auth-panel-title {
           margin-top: 8px;
-          color: #f0f0f0;
+          color: var(--theme-text);
           font-size: 30px;
           font-weight: 700;
           letter-spacing: -0.05em;
         }
         .auth-panel-copy {
           margin-top: 10px;
-          color: rgba(240,240,240,0.56);
+          color: var(--theme-text-muted);
           font-size: 14px;
           line-height: 1.7;
         }
         .auth-plan-pill {
           padding: 10px 14px;
           border-radius: 999px;
-          border: 1px solid rgba(0,229,199,0.18);
-          background: rgba(0,229,199,0.10);
+          border: 1px solid var(--theme-primary-dim);
+          background: var(--theme-primary-dim);
           color: #c8fff4;
           font-size: 11px;
           font-weight: 800;
@@ -516,14 +517,14 @@ export default function LoginPage() {
           border: 1px solid rgba(255,255,255,0.06);
         }
         .auth-plan-card-title {
-          color: #f0f0f0;
+          color: var(--theme-text);
           font-size: 14px;
           font-weight: 800;
           letter-spacing: -0.02em;
         }
         .auth-plan-card-copy {
           margin-top: 8px;
-          color: rgba(240,240,240,0.54);
+          color: var(--theme-text-muted);
           font-size: 13px;
           line-height: 1.65;
         }
@@ -542,16 +543,16 @@ export default function LoginPage() {
           border: none;
           border-radius: 999px;
           background: transparent;
-          color: rgba(240,240,240,0.48);
+          color: var(--theme-text-muted);
           font-size: 14px;
           font-weight: 800;
           letter-spacing: -0.02em;
           transition: all 180ms ease;
         }
         .auth-toggle-btn.active {
-          color: #071015;
-          background: linear-gradient(135deg, #00e5c7, #7fe7ff 48%, #97a5ff);
-          box-shadow: 0 18px 34px rgba(0,229,199,0.16), inset 0 1px 0 rgba(255,255,255,0.42);
+          color: var(--theme-ink);
+          background: linear-gradient(135deg, var(--theme-primary), var(--theme-secondary) 48%, var(--theme-mastery));
+          box-shadow: 0 18px 34px var(--theme-primary-dim), inset 0 1px 0 rgba(255,255,255,0.42);
         }
         .auth-banner {
           margin-bottom: 18px;
@@ -566,8 +567,8 @@ export default function LoginPage() {
           color: #ffb1b1;
         }
         .auth-banner.notice {
-          background: rgba(0,229,199,0.10);
-          border: 1px solid rgba(0,229,199,0.18);
+          background: var(--theme-primary-dim);
+          border: 1px solid var(--theme-primary-dim);
           color: #d6fff7;
         }
         .auth-form {
@@ -582,7 +583,7 @@ export default function LoginPage() {
           display: inline-flex;
           align-items: center;
           gap: 8px;
-          color: rgba(240,240,240,0.46);
+          color: var(--theme-text-muted);
           font-size: 11px;
           font-weight: 800;
           letter-spacing: 0.14em;
@@ -595,20 +596,20 @@ export default function LoginPage() {
           border-radius: 18px;
           background: rgba(255,255,255,0.04);
           border: 1px solid rgba(255,255,255,0.08);
-          color: #f0f0f0;
+          color: var(--theme-text);
           font-size: 15px;
           font-family: 'DM Sans', sans-serif;
           transition: border-color 180ms ease, box-shadow 180ms ease, background 180ms ease;
         }
         .auth-input::placeholder {
-          color: rgba(240,240,240,0.26);
+          color: var(--theme-text-muted);
         }
         .auth-input.is-focused,
         .auth-input:focus {
           outline: none;
-          background: rgba(0,229,199,0.05);
-          border-color: rgba(0,229,199,0.32);
-          box-shadow: 0 0 0 4px rgba(0,229,199,0.08);
+          background: var(--theme-primary-dim);
+          border-color: var(--theme-primary-border);
+          box-shadow: 0 0 0 4px var(--theme-primary-dim);
         }
         .auth-submit {
           width: 100%;
@@ -620,9 +621,9 @@ export default function LoginPage() {
           align-items: center;
           justify-content: center;
           gap: 10px;
-          color: #071015;
-          background: linear-gradient(135deg, #00e5c7, #7fe7ff 48%, #97a5ff);
-          box-shadow: 0 24px 44px rgba(0,229,199,0.18), inset 0 1px 0 rgba(255,255,255,0.42);
+          color: var(--theme-ink);
+          background: linear-gradient(135deg, var(--theme-primary), var(--theme-secondary) 48%, var(--theme-mastery));
+          box-shadow: 0 24px 44px var(--theme-primary-dim), inset 0 1px 0 rgba(255,255,255,0.42);
           font-size: 15px;
           font-weight: 800;
           letter-spacing: -0.02em;
@@ -638,7 +639,7 @@ export default function LoginPage() {
           height: 18px;
           border-radius: 999px;
           border: 2px solid rgba(7,16,21,0.18);
-          border-top-color: #071015;
+          border-top-color: var(--theme-ink);
           animation: auth-spin 0.75s linear infinite;
         }
         .auth-divider {
@@ -655,7 +656,7 @@ export default function LoginPage() {
           background: rgba(255,255,255,0.07);
         }
         .auth-divider span {
-          color: rgba(240,240,240,0.34);
+          color: var(--theme-text-muted);
           font-size: 11px;
           font-weight: 800;
           letter-spacing: 0.14em;
@@ -663,13 +664,13 @@ export default function LoginPage() {
         }
         .auth-switch {
           text-align: center;
-          color: rgba(240,240,240,0.52);
+          color: var(--theme-text-muted);
           font-size: 14px;
         }
         .auth-switch button {
           background: none;
           border: none;
-          color: #00e5c7;
+          color: var(--theme-primary);
           font-size: 14px;
           font-weight: 800;
           letter-spacing: -0.02em;
@@ -677,7 +678,7 @@ export default function LoginPage() {
         .auth-footnote {
           margin-top: 18px;
           text-align: center;
-          color: rgba(240,240,240,0.34);
+          color: var(--theme-text-muted);
           font-size: 12px;
           line-height: 1.7;
         }
@@ -722,11 +723,11 @@ export default function LoginPage() {
           <nav className="auth-nav">
             <Link href="/" className="auth-brand">
               <div className="auth-brandmark">
-                <IconGlyph name="bolt" size={20} strokeWidth={2.5} color="#071015" />
+                <IconGlyph name="bolt" size={20} strokeWidth={2.5} color="var(--theme-ink)" />
               </div>
               <div>
                 <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: '-0.05em' }}>PathAI</div>
-                <div style={{ fontSize: 12, color: 'rgba(240,240,240,0.42)' }}>
+                <div style={{ fontSize: 12, color: 'var(--theme-text-muted)' }}>
                   {mode === 'login' ? 'Access your route' : 'Create your route'}
                 </div>
               </div>
@@ -760,7 +761,7 @@ export default function LoginPage() {
               </div>
 
               <PremiumFrame
-                accent="rgba(0,229,199,0.14)"
+                accent="var(--theme-primary-dim)"
                 className="auth-preview-frame"
                 style={{ borderRadius: 32 }}
               >
@@ -800,7 +801,7 @@ export default function LoginPage() {
               transition={{ duration: reduceMotion ? 0 : 0.6, delay: reduceMotion ? 0 : 0.08, ease: [0.16, 1, 0.3, 1] }}
             >
               <PremiumFrame
-                accent={plan ? 'rgba(0,229,199,0.16)' : 'rgba(126,160,255,0.14)'}
+                accent={plan ? 'var(--theme-primary-dim)' : 'rgba(126,160,255,0.14)'}
                 className="auth-panel"
                 style={{ borderRadius: 34 }}
               >

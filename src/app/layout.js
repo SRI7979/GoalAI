@@ -1,5 +1,6 @@
 import { DM_Sans, Geist_Mono } from 'next/font/google'
 import NetworkStatusBanner from '@/components/NetworkStatusBanner'
+import ThemeHydrator from '@/components/ThemeHydrator'
 import UIDevToolButton from '@/components/UIDevToolButton'
 import './globals.css'
 
@@ -38,6 +39,7 @@ export default function RootLayout({ children }) {
         className={`${bodyFont.variable} ${monoFont.variable} antialiased`}
         suppressHydrationWarning
       >
+        <ThemeHydrator />
         <NetworkStatusBanner />
         {children}
         <UIDevToolButton />

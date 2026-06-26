@@ -41,13 +41,13 @@ export default function HeartBar({ hearts = HEARTS_MAX, prevHearts = null, maxHe
   }, [hearts, prevHearts])
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 3, minHeight: 20 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 4, minHeight: 22 }}>
       {Array.from({ length: maxHearts }, (_, i) => {
         const isFilled   = i < hearts
         const isCracking = i === crackingIndex
         return (
-          <div key={i} style={{ position: 'relative', minWidth: 16, minHeight: 16 }}>
-            <HeartSvg filled={isFilled || isCracking} cracking={isCracking} sz={16} />
+          <div key={i} style={{ position: 'relative', minWidth: 20, minHeight: 20 }}>
+            <HeartSvg filled={isFilled || isCracking} cracking={isCracking} sz={20} />
           </div>
         )
       })}

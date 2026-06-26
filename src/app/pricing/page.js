@@ -46,7 +46,7 @@ function PlanCard({ plan, annual, loggedIn }) {
 
   return (
     <PremiumFrame
-      accent={plan.highlight ? 'rgba(0,229,199,0.18)' : 'rgba(255,255,255,0.08)'}
+      accent={plan.highlight ? 'var(--theme-primary-dim)' : 'rgba(255,255,255,0.08)'}
       className={`pricing-plan-card ${plan.highlight ? 'is-highlighted' : ''}`}
     >
       <div className="pricing-plan-top">
@@ -136,8 +136,9 @@ export default function PricingPage() {
           min-height: 100vh;
           overflow: clip;
           background:
-            radial-gradient(circle at 50% -12%, rgba(0,229,199,0.14), transparent 30%),
-            linear-gradient(180deg, #07080d 0%, #0a0b11 52%, #08090f 100%);
+            radial-gradient(circle at 50% -12%, var(--theme-primary-dim), transparent 30%),
+            radial-gradient(circle at 94% 0%, var(--theme-mastery-dim), transparent 34%),
+            linear-gradient(180deg, var(--theme-bg) 0%, var(--theme-shell) 52%, var(--theme-bg) 100%);
         }
         .pricing-shell {
           position: relative;
@@ -158,7 +159,7 @@ export default function PricingPage() {
           display: inline-flex;
           align-items: center;
           gap: 14px;
-          color: #f0f0f0;
+          color: var(--theme-text);
           text-decoration: none;
         }
         .pricing-brandmark {
@@ -167,9 +168,9 @@ export default function PricingPage() {
           border-radius: 16px;
           display: grid;
           place-items: center;
-          background: linear-gradient(140deg, #00e5c7, #7fe7ff 56%, #97a5ff);
-          color: #071015;
-          box-shadow: 0 22px 44px rgba(0,229,199,0.22), inset 0 1px 0 rgba(255,255,255,0.42);
+          background: linear-gradient(140deg, var(--theme-primary), var(--theme-secondary) 56%, var(--theme-mastery));
+          color: var(--theme-ink);
+          box-shadow: 0 22px 44px var(--theme-primary-border), inset 0 1px 0 rgba(255,255,255,0.42);
         }
         .pricing-nav-actions {
           display: flex;
@@ -193,19 +194,19 @@ export default function PricingPage() {
         }
         .pricing-nav-back {
           gap: 8px;
-          color: rgba(240,240,240,0.78);
+          color: var(--theme-text-muted);
           background: rgba(255,255,255,0.03);
           border: 1px solid rgba(255,255,255,0.08);
         }
         .pricing-nav-link {
-          color: rgba(240,240,240,0.74);
+          color: var(--theme-text-muted);
           background: rgba(255,255,255,0.04);
           border: 1px solid rgba(255,255,255,0.08);
         }
         .pricing-nav-cta {
-          color: #071015;
-          background: linear-gradient(135deg, #00e5c7, #7fe7ff 48%, #97a5ff);
-          box-shadow: 0 24px 44px rgba(0,229,199,0.18);
+          color: var(--theme-ink);
+          background: linear-gradient(135deg, var(--theme-primary), var(--theme-secondary) 48%, var(--theme-mastery));
+          box-shadow: 0 24px 44px var(--theme-primary-dim);
         }
         .pricing-section {
           padding: 72px 0;
@@ -223,7 +224,7 @@ export default function PricingPage() {
           border-radius: 999px;
           background: rgba(255,255,255,0.04);
           border: 1px solid rgba(255,255,255,0.08);
-          color: rgba(240,240,240,0.72);
+          color: var(--theme-text-muted);
           font-size: 11px;
           font-weight: 800;
           letter-spacing: 0.18em;
@@ -234,12 +235,12 @@ export default function PricingPage() {
           width: 8px;
           height: 8px;
           border-radius: 999px;
-          background: #00e5c7;
-          box-shadow: 0 0 18px rgba(0,229,199,0.34);
+          background: var(--theme-primary);
+          box-shadow: 0 0 18px var(--theme-primary-border);
         }
         .pricing-hero-title {
           margin-top: 22px;
-          color: #f0f0f0;
+          color: var(--theme-text);
           font-size: clamp(3.2rem, 7vw, 5.7rem);
           line-height: 0.95;
           letter-spacing: -0.05em;
@@ -247,7 +248,7 @@ export default function PricingPage() {
         .pricing-hero-copy {
           margin: 24px auto 0;
           max-width: 680px;
-          color: rgba(240,240,240,0.56);
+          color: var(--theme-text-muted);
           font-size: 18px;
           line-height: 1.78;
         }
@@ -271,7 +272,7 @@ export default function PricingPage() {
           border-radius: 999px;
           border: none;
           background: transparent;
-          color: rgba(240,240,240,0.68);
+          color: var(--theme-text-muted);
           font-size: 14px;
           font-weight: 700;
           display: inline-flex;
@@ -279,14 +280,14 @@ export default function PricingPage() {
           gap: 10px;
         }
         .pricing-toggle-btn.active {
-          background: linear-gradient(135deg, rgba(0,229,199,0.18), rgba(126,160,255,0.18));
-          color: #f0f0f0;
+          background: linear-gradient(135deg, var(--theme-primary-dim), rgba(126,160,255,0.18));
+          color: var(--theme-text);
           box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 12px 24px rgba(0,0,0,0.18);
         }
         .pricing-toggle-save {
           padding: 5px 8px;
           border-radius: 999px;
-          background: rgba(0,229,199,0.14);
+          background: var(--theme-primary-dim);
           color: #c8fff4;
           font-size: 10px;
           font-weight: 800;
@@ -305,7 +306,7 @@ export default function PricingPage() {
         }
         .pricing-plan-card.is-highlighted {
           transform: translateY(-8px);
-          box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 42px 84px rgba(0,0,0,0.34), 0 0 46px rgba(0,229,199,0.10);
+          box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 42px 84px rgba(0,0,0,0.34), 0 0 46px var(--theme-primary-dim);
         }
         .pricing-plan-top {
           min-height: 96px;
@@ -317,7 +318,7 @@ export default function PricingPage() {
           gap: 12px;
         }
         .pricing-plan-name {
-          color: #f0f0f0;
+          color: var(--theme-text);
           font-size: 28px;
           font-weight: 700;
           letter-spacing: -0.04em;
@@ -327,7 +328,7 @@ export default function PricingPage() {
           border-radius: 999px;
           background: rgba(255,255,255,0.04);
           border: 1px solid rgba(255,255,255,0.08);
-          color: rgba(240,240,240,0.7);
+          color: var(--theme-text-muted);
           font-size: 10px;
           font-weight: 800;
           letter-spacing: 0.12em;
@@ -335,13 +336,13 @@ export default function PricingPage() {
           white-space: nowrap;
         }
         .pricing-plan-badge.highlight {
-          background: rgba(0,229,199,0.14);
-          border-color: rgba(0,229,199,0.18);
+          background: var(--theme-primary-dim);
+          border-color: var(--theme-primary-dim);
           color: #c8fff4;
         }
         .pricing-plan-description {
           margin-top: 14px;
-          color: rgba(240,240,240,0.54);
+          color: var(--theme-text-muted);
           font-size: 14px;
           line-height: 1.68;
         }
@@ -352,20 +353,20 @@ export default function PricingPage() {
           margin-top: 26px;
         }
         .pricing-plan-price-value {
-          color: #f0f0f0;
+          color: var(--theme-text);
           font-size: 54px;
           font-weight: 700;
           line-height: 1;
           letter-spacing: -0.06em;
         }
         .pricing-plan-price-period {
-          color: rgba(240,240,240,0.48);
+          color: var(--theme-text-muted);
           font-size: 14px;
           font-weight: 700;
         }
         .pricing-plan-billing {
           margin-top: 10px;
-          color: rgba(240,240,240,0.42);
+          color: var(--theme-text-muted);
           font-size: 13px;
         }
         .pricing-plan-cta {
@@ -385,10 +386,10 @@ export default function PricingPage() {
           border: 1px solid rgba(255,255,255,0.08);
         }
         .pricing-plan-cta.highlight {
-          color: #071015;
-          background: linear-gradient(135deg, #00e5c7, #7fe7ff 48%, #97a5ff);
+          color: var(--theme-ink);
+          background: linear-gradient(135deg, var(--theme-primary), var(--theme-secondary) 48%, var(--theme-mastery));
           border-color: rgba(255,255,255,0.12);
-          box-shadow: 0 24px 44px rgba(0,229,199,0.18);
+          box-shadow: 0 24px 44px var(--theme-primary-dim);
         }
         .pricing-plan-features {
           display: grid;
@@ -400,7 +401,7 @@ export default function PricingPage() {
           grid-template-columns: 24px minmax(0, 1fr);
           gap: 10px;
           align-items: start;
-          color: rgba(240,240,240,0.72);
+          color: var(--theme-text-muted);
           font-size: 14px;
           line-height: 1.6;
         }
@@ -410,12 +411,12 @@ export default function PricingPage() {
           border-radius: 999px;
           display: grid;
           place-items: center;
-          background: rgba(0,229,199,0.14);
-          color: #00e5c7;
+          background: var(--theme-primary-dim);
+          color: var(--theme-primary);
           margin-top: 1px;
         }
         .pricing-section-title {
-          color: #f0f0f0;
+          color: var(--theme-text);
           font-size: clamp(2.5rem, 5vw, 4.5rem);
           line-height: 0.96;
           letter-spacing: -0.04em;
@@ -423,7 +424,7 @@ export default function PricingPage() {
         .pricing-section-copy {
           margin-top: 18px;
           max-width: 640px;
-          color: rgba(240,240,240,0.56);
+          color: var(--theme-text-muted);
           font-size: 17px;
           line-height: 1.74;
         }
@@ -441,14 +442,14 @@ export default function PricingPage() {
         }
         .pricing-compare-label,
         .pricing-compare-head {
-          color: rgba(240,240,240,0.48);
+          color: var(--theme-text-muted);
           font-size: 12px;
           font-weight: 800;
           letter-spacing: 0.12em;
           text-transform: uppercase;
         }
         .pricing-compare-head {
-          color: #f0f0f0;
+          color: var(--theme-text);
         }
         .pricing-compare-cell {
           min-height: 58px;
@@ -459,7 +460,7 @@ export default function PricingPage() {
           align-items: center;
           justify-content: center;
           gap: 8px;
-          color: rgba(240,240,240,0.68);
+          color: var(--theme-text-muted);
           font-size: 13px;
           font-weight: 600;
           text-align: center;
@@ -467,8 +468,8 @@ export default function PricingPage() {
         }
         .pricing-compare-cell.emphasize {
           color: #c8fff4;
-          border-color: rgba(0,229,199,0.18);
-          background: rgba(0,229,199,0.10);
+          border-color: var(--theme-primary-dim);
+          background: var(--theme-primary-dim);
         }
         .pricing-compare-included {
           width: 22px;
@@ -476,8 +477,8 @@ export default function PricingPage() {
           border-radius: 999px;
           display: grid;
           place-items: center;
-          background: rgba(0,229,199,0.14);
-          color: #00e5c7;
+          background: var(--theme-primary-dim);
+          color: var(--theme-primary);
           flex-shrink: 0;
         }
         .pricing-proof-grid {
@@ -498,19 +499,19 @@ export default function PricingPage() {
           border-radius: 16px;
           display: grid;
           place-items: center;
-          background: rgba(0,229,199,0.14);
-          color: #00e5c7;
+          background: var(--theme-primary-dim);
+          color: var(--theme-primary);
           margin-bottom: 16px;
         }
         .pricing-proof-tile h3 {
-          color: #f0f0f0;
+          color: var(--theme-text);
           font-size: 20px;
           font-weight: 700;
           letter-spacing: -0.03em;
         }
         .pricing-proof-tile p {
           margin-top: 10px;
-          color: rgba(240,240,240,0.54);
+          color: var(--theme-text-muted);
           font-size: 14px;
           line-height: 1.68;
         }
@@ -532,7 +533,7 @@ export default function PricingPage() {
           align-items: center;
           justify-content: space-between;
           gap: 16px;
-          color: #f0f0f0;
+          color: var(--theme-text);
           font-size: 17px;
           font-weight: 700;
           letter-spacing: -0.02em;
@@ -540,7 +541,7 @@ export default function PricingPage() {
         .pricing-faq-body {
           max-height: 0;
           overflow: hidden;
-          color: rgba(240,240,240,0.56);
+          color: var(--theme-text-muted);
           font-size: 14px;
           line-height: 1.72;
           transition: max-height 240ms ease, opacity 240ms ease, margin-top 240ms ease;
@@ -558,7 +559,7 @@ export default function PricingPage() {
         .pricing-final-copy {
           max-width: 620px;
           margin: 20px auto 0;
-          color: rgba(240,240,240,0.56);
+          color: var(--theme-text-muted);
           font-size: 17px;
           line-height: 1.74;
         }
@@ -583,9 +584,9 @@ export default function PricingPage() {
           letter-spacing: -0.02em;
         }
         .pricing-final-cta {
-          color: #071015;
-          background: linear-gradient(135deg, #00e5c7, #7fe7ff 48%, #97a5ff);
-          box-shadow: 0 24px 44px rgba(0,229,199,0.18);
+          color: var(--theme-ink);
+          background: linear-gradient(135deg, var(--theme-primary), var(--theme-secondary) 48%, var(--theme-mastery));
+          box-shadow: 0 24px 44px var(--theme-primary-dim);
         }
         .pricing-final-secondary {
           color: #eef1f5;
@@ -637,11 +638,11 @@ export default function PricingPage() {
           <nav className="pricing-nav">
             <Link href="/" className="pricing-brand">
               <div className="pricing-brandmark">
-                <IconGlyph name="bolt" size={20} strokeWidth={2.5} color="#071015" />
+                <IconGlyph name="bolt" size={20} strokeWidth={2.5} color="var(--theme-ink)" />
               </div>
               <div>
                 <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: '-0.05em' }}>PathAI</div>
-                <div style={{ fontSize: 12, color: 'rgba(240,240,240,0.42)' }}>Pricing</div>
+                <div style={{ fontSize: 12, color: 'var(--theme-text-muted)' }}>Pricing</div>
               </div>
             </Link>
 
@@ -691,7 +692,7 @@ export default function PricingPage() {
             </ScrollReveal>
 
             <ScrollReveal delay={120}>
-              <PremiumFrame accent="rgba(0,229,199,0.12)" className="pricing-compare-card">
+              <PremiumFrame accent="var(--theme-primary-dim)" className="pricing-compare-card">
                 <div className="pricing-compare-grid">
                   <div className="pricing-compare-head">Capability</div>
                   <div className="pricing-compare-head">Free</div>
@@ -727,7 +728,7 @@ export default function PricingPage() {
             </ScrollReveal>
 
             <ScrollReveal delay={120}>
-              <PremiumFrame accent="rgba(0,229,199,0.12)" className="pricing-proof-card">
+              <PremiumFrame accent="var(--theme-primary-dim)" className="pricing-proof-card">
                 <div className="pricing-proof-grid">
                   {[
                     {
@@ -748,7 +749,7 @@ export default function PricingPage() {
                   ].map((item) => (
                     <div className="pricing-proof-tile" key={item.title}>
                       <div className="pricing-proof-icon">
-                        <IconGlyph name={item.icon} size={20} strokeWidth={2.2} color="#00e5c7" />
+                        <IconGlyph name={item.icon} size={20} strokeWidth={2.2} color="var(--theme-primary)" />
                       </div>
                       <h3>{item.title}</h3>
                       <p>{item.copy}</p>
@@ -782,7 +783,7 @@ export default function PricingPage() {
 
           <section className="pricing-section">
             <ScrollReveal>
-              <PremiumFrame accent="rgba(0,229,199,0.14)" className="pricing-final-card">
+              <PremiumFrame accent="var(--theme-primary-dim)" className="pricing-final-card">
                 <div className="pricing-eyebrow" style={{ margin: '0 auto' }}>Start here</div>
                 <h2 className="font-display pricing-section-title" style={{ maxWidth: 760, margin: '18px auto 0' }}>
                   Start free. Upgrade when the work gets serious.

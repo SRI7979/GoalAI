@@ -31,6 +31,7 @@ function AuthBadge({ score }) {
 export default function PortfolioPage() {
   const router = useRouter()
   const [projects, setProjects] = useState([])
+  const [proofSubmissions, setProofSubmissions] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedProject, setSelectedProject] = useState(null)
   const [userName, setUserName] = useState('')
@@ -49,6 +50,14 @@ export default function PortfolioPage() {
           project?.progress?.verification_status === 'verified'
           || ['completed', 'reviewed'].includes(project?.status)
         )))
+
+        const { data: proofRows } = await supabaseData
+          .from('proof_submissions')
+          .select('*, goals(goal_text)')
+          .eq('user_id', user.id)
+          .eq('passed', true)
+          .order('created_at', { ascending: false })
+        setProofSubmissions(proofRows || [])
         setLoading(false)
       } catch (loadError) {
         console.warn('[PathAI] portfolio_load_failed', loadError?.message || 'unknown_error')
@@ -58,13 +67,13 @@ export default function PortfolioPage() {
     load()
   }, [router])
 
-  const totalCompleted = projects.length
+  const totalCompleted = projects.length + proofSubmissions.length
   const avgScore = projects.filter(p => p.ai_review?.overall_score).length > 0
     ? Math.round(projects.reduce((s, p) => s + (p.ai_review?.overall_score || 0), 0) / projects.filter(p => p.ai_review?.overall_score).length)
     : null
   const allConcepts = [...new Set(projects.flatMap(p => p.concepts_tested || []))]
   const totalXp = projects.reduce((s, p) => s + (p.xp_reward || 0), 0)
-  const verifiedCount = projects.filter(p => p?.progress?.verification_status === 'verified').length
+  const verifiedCount = projects.filter(p => p?.progress?.verification_status === 'verified').length + proofSubmissions.length
   const avgAuth = projects.filter(p => p.authenticity_score).length > 0
     ? Math.round(projects.reduce((s, p) => s + (p.authenticity_score || 0), 0) / projects.filter(p => p.authenticity_score).length)
     : null
@@ -151,7 +160,7 @@ export default function PortfolioPage() {
         {/* Projects */}
         {loading ? (
           <div style={{ textAlign: 'center', padding: 40, color: T.textMuted }}>Loading portfolio...</div>
-        ) : projects.length === 0 ? (
+        ) : projects.length === 0 && proofSubmissions.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '48px 24px', borderRadius: 20, background: T.card, border: `1px solid ${T.border}` }}>
             <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
               <IconGlyph name="compass" size={40} strokeWidth={2.2} color={T.textMuted} />
@@ -163,6 +172,44 @@ export default function PortfolioPage() {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div style={{ fontSize: 12, fontWeight: 800, color: T.textMuted, textTransform: 'uppercase', letterSpacing: '1px' }}>Completed Proof</div>
+            {proofSubmissions.map((entry, i) => {
+              const target = entry.proof_target || {}
+              const evaluation = entry.evaluation || {}
+              return (
+                <div key={entry.id} style={{
+                  padding: '18px', borderRadius: 18, background: T.card, border: `1px solid ${T.border}`, animation: `fadeUp 0.3s ease ${i * 0.05}s both`,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 15, fontWeight: 800, color: T.text, letterSpacing: '-0.2px', marginBottom: 5 }}>
+                        {entry.goals?.goal_text || target.description?.slice(0, 54) || 'Proof of Mastery'}
+                      </div>
+                      <div style={{ fontSize: 12, color: T.textMuted, lineHeight: 1.5 }}>
+                        {evaluation.feedback || target.description}
+                      </div>
+                      <div style={{ marginTop: 8, padding: '8px 10px', borderRadius: 12, background: 'rgba(52,211,153,0.06)', border: '1px solid rgba(52,211,153,0.18)' }}>
+                        <div style={{ fontSize: 9, fontWeight: 800, color: T.green, textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 4 }}>Goal proof</div>
+                        <div style={{ fontSize: 11, lineHeight: 1.5, color: T.text }}>{target.description}</div>
+                      </div>
+                    </div>
+                    <div style={{ width: 54, height: 54, borderRadius: 18, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.22)', color: T.green, fontSize: 15, fontWeight: 900 }}>
+                      {entry.score || evaluation.score || 100}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <span style={{ padding: '3px 8px', borderRadius: 9999, fontSize: 9, fontWeight: 800, background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.2)', color: T.green, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      <IconGlyph name="shield_check" size={10} strokeWidth={2.4} color={T.green}/>Verified goal
+                    </span>
+                    <span style={{ padding: '3px 8px', borderRadius: 9999, fontSize: 9, fontWeight: 800, background: T.card, border: `1px solid ${T.border}`, color: T.textMuted }}>
+                      {String(target.evaluationType || 'proof').replace(/_/g, ' ')}
+                    </span>
+                    <span style={{ marginLeft: 'auto', fontSize: 10, color: 'rgba(255,255,255,0.25)' }}>
+                      {new Date(entry.evaluated_at || entry.created_at).toLocaleDateString()}
+                    </span>
+                  </div>
+                </div>
+              )
+            })}
             {projects.map((p, i) => {
               const dc = DIFFICULTY_COLORS[p.difficulty] || T.teal
               const hasReview = !!p.ai_review

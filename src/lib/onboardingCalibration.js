@@ -80,46 +80,45 @@ function inferOutcome(goal = '', domain = '') {
   return 'project'
 }
 
-function getProofOptions(subject, domain, desiredOutcome) {
+function getProofOptions(_subject, domain, desiredOutcome) {
   const normalized = normalizeDomain(domain, null)
-  const quotedGoal = titleCase(subject)
 
   if (normalized === 'FOREIGN_LANGUAGE') {
     return [
-      { label: `Hold a short ${quotedGoal} conversation`, score: 1, sets: { desiredOutcome: 'career', learningStyle: 'hands_on' } },
-      { label: 'Understand grammar and sentence patterns', score: 1, sets: { desiredOutcome: 'understand', learningStyle: 'balanced' } },
-      { label: 'Practice for travel, school, or work', score: 2, sets: { desiredOutcome: 'career', learningStyle: 'hands_on' } },
+      { label: 'Hold a real short conversation', score: 1, sets: { desiredOutcome: 'career', learningStyle: 'hands_on' } },
+      { label: 'Read and understand the patterns', score: 1, sets: { desiredOutcome: 'understand', learningStyle: 'balanced' } },
+      { label: 'Use it for travel, school, or work', score: 2, sets: { desiredOutcome: 'career', learningStyle: 'hands_on' } },
     ]
   }
 
   if (normalized === 'ART_DESIGN') {
     return [
-      { label: `Create a polished ${quotedGoal} artifact`, score: 1, sets: { desiredOutcome: 'project', learningStyle: 'visual' } },
+      { label: 'Make a portfolio-grade piece', score: 1, sets: { desiredOutcome: 'project', learningStyle: 'visual' } },
       { label: 'Understand critique, hierarchy, and systems', score: 1, sets: { desiredOutcome: 'understand', learningStyle: 'visual' } },
-      { label: 'Use it in portfolio or client-style work', score: 2, sets: { desiredOutcome: 'career', learningStyle: 'hands_on' } },
+      { label: 'Use it in portfolio or client work', score: 2, sets: { desiredOutcome: 'career', learningStyle: 'hands_on' } },
     ]
   }
 
   if (normalized === 'MATHEMATICS' || normalized === 'PHYSICS' || normalized === 'CHEMISTRY' || normalized === 'STATISTICS') {
     return [
-      { label: `Solve ${quotedGoal} problems without guessing`, score: 1, sets: { desiredOutcome: 'understand', learningStyle: 'balanced' } },
-      { label: 'Use it in realistic scenarios', score: 2, sets: { desiredOutcome: 'project', learningStyle: 'hands_on' } },
+      { label: 'Solve real problems without guessing', score: 1, sets: { desiredOutcome: 'understand', learningStyle: 'balanced' } },
+      { label: 'Apply it in real scenarios', score: 2, sets: { desiredOutcome: 'project', learningStyle: 'hands_on' } },
       { label: 'Get ready for a class, quiz, or exam', score: 1, sets: { desiredOutcome: 'understand', prereqComfort: 'full' } },
     ]
   }
 
   if (normalized === 'CS_CODING' || normalized === 'TECHNOLOGY' || normalized === 'CYBERSECURITY' || normalized === 'ML_AI' || normalized === 'DATA_SCIENCE') {
     return [
-      { label: `Build or fix something using ${subject}`, score: 2, sets: { desiredOutcome: 'project', learningStyle: 'hands_on' } },
-      { label: 'Understand the ideas clearly first', score: 1, sets: { desiredOutcome: 'understand', learningStyle: 'balanced' } },
-      { label: 'Use it for work, interviews, or real tasks', score: 2, sets: { desiredOutcome: 'career', learningStyle: 'hands_on' } },
+      { label: 'Ship something I can actually show', score: 2, sets: { desiredOutcome: 'project', learningStyle: 'hands_on' } },
+      { label: 'Get the ideas crisp first', score: 1, sets: { desiredOutcome: 'understand', learningStyle: 'balanced' } },
+      { label: 'Be ready for work or interviews', score: 2, sets: { desiredOutcome: 'career', learningStyle: 'hands_on' } },
     ]
   }
 
   return [
-    { label: `Use ${subject} in a real task`, score: 2, sets: { desiredOutcome: desiredOutcome || 'project', learningStyle: 'hands_on' } },
+    { label: 'Use it for something real', score: 2, sets: { desiredOutcome: desiredOutcome || 'project', learningStyle: 'hands_on' } },
     { label: 'Understand it deeply and explain it', score: 1, sets: { desiredOutcome: 'understand', learningStyle: 'balanced' } },
-    { label: 'Turn it into a finished project or deliverable', score: 2, sets: { desiredOutcome: 'project', learningStyle: 'hands_on' } },
+    { label: 'Turn it into a finished piece of work', score: 2, sets: { desiredOutcome: 'project', learningStyle: 'hands_on' } },
   ]
 }
 
@@ -159,7 +158,7 @@ export function buildFallbackOnboardingCalibration({ goal = '', domain = '', fam
 
   return {
     source: 'dynamic_fallback',
-    summary: `PathAI will build a ${domainLabel} route for ${subject}, then tune the first mission from your answers.`,
+    summary: `PathAI will build a ${domainLabel} route and tune the first mission from your answers.`,
     defaults: {
       ...DEFAULTS,
       desiredOutcome,
@@ -169,18 +168,18 @@ export function buildFallbackOnboardingCalibration({ goal = '', domain = '', fam
     questions: [
       {
         id: 'starting_point',
-        prompt: `Where are you starting with ${subject}?`,
+        prompt: 'Where are you starting from?',
         helper: 'This sets how much explanation PathAI gives before the first task.',
         options: [
-          { label: `Brand new to ${subject}`, score: 0, sets: { experienceLevel: 'beginner', prereqComfort: 'full' } },
+          { label: 'Brand new — explain everything', score: 0, sets: { experienceLevel: 'beginner', prereqComfort: 'full' } },
           { label: 'I know pieces, but I need structure', score: 1, sets: { experienceLevel: 'intermediate', prereqComfort: 'compressed' } },
-          { label: 'I can do basics and want harder practice', score: 2, sets: { experienceLevel: 'advanced', prereqComfort: 'test_out' } },
+          { label: 'I can do basics — push me harder', score: 2, sets: { experienceLevel: 'advanced', prereqComfort: 'test_out' } },
         ],
       },
       {
         id: 'proof_target',
-        prompt: `What should prove your ${subject} route is working?`,
-        helper: 'This shapes your first milestone and project style.',
+        prompt: 'What should the first milestone deliver?',
+        helper: 'This shapes your first project and the route after it.',
         options: getProofOptions(subject, normalizedDomain, desiredOutcome),
       },
       {
